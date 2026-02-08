@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.40.0"
+  version: "1.41.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.40
+**Version:** 1.41
 **Last Updated:** 2026-02-08
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
@@ -243,7 +243,7 @@ Workspaces are identified by a 19-digit numeric profile ID.
 
 Workspaces have an **intelligence** toggle that controls whether AI features are active:
 
-**Intelligence OFF** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 10 files), but files are not persistently indexed. This is fine for simple storage and sharing where you do not need to query your content.
+**Intelligence OFF** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total), but files are not persistently indexed. This is fine for simple storage and sharing where you do not need to query your content.
 
 **Intelligence ON** -- the workspace becomes an AI-powered knowledge base. Every file uploaded is automatically ingested, summarized, and indexed. This enables:
 
@@ -362,7 +362,7 @@ AI chat lets agents ask questions about files stored in workspaces and shares. T
 - **`chat`** — Basic AI conversation with no file context from the workspace index. Use for general questions only.
 - **`chat_with_files`** — AI grounded in your files. Two mutually exclusive modes for providing file context:
   - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `ready` AI state.
-  - **File attachments** — files read directly by the AI. No intelligence required; files must have a ready preview. Max 10 files.
+  - **File attachments** — files read directly by the AI. No intelligence required; files must have a ready preview. Max 20 files, 200 MB total.
 
 Both types augment answers with web knowledge when relevant.
 
@@ -376,18 +376,20 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 | Requires intelligence | Yes | No |
 | File readiness requirement | `ai_state: ready` | Ready preview |
 | Best for | Many files, knowledge retrieval | Specific files, direct analysis |
-| Max references | 100 files or folders | 10 files |
+| Max references | 100 folder refs (subfolder tree expansion) or 100 file refs | 20 files / 200 MB |
 | Default (no scope given) | Entire workspace | N/A |
 
 **Scope parameters** (requires intelligence):
 
-- `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100). Limits RAG to files within those folders.
-- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files.
-- If neither is specified, defaults to all files in the workspace.
+- `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds files within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
+- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. Both `nodeId` AND `versionId` are required and must be non-empty — get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
+- **If neither is specified, the default scope is the entire workspace (all indexed files).** This is the recommended default — omit scope parameters unless you specifically need to narrow the search.
 
 **Attachment parameter** (no intelligence required):
 
-- `files_attach` — comma-separated `nodeId:versionId` pairs (max 10). Files are read directly, not via RAG.
+- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20, 200 MB total). Both `nodeId` AND `versionId` are required and must be non-empty. Files are read directly, not via RAG.
+
+**Do not** list folder contents and pass individual file IDs as `files_scope` when you mean to search a folder — use `folders_scope` with the folder's nodeId instead. `files_scope` is only for targeting specific known file versions.
 
 `files_scope`/`folders_scope` and `files_attach` are mutually exclusive — sending both will error.
 
@@ -449,9 +451,9 @@ Create a chat with `ai` action `chat-create` (with `context_type: "workspace"`) 
 - `query_text` (required for workspace, optional for share) — initial message, 2-12,768 characters
 - `personality` (optional) — `concise` or `detailed` (default: `detailed`)
 - `privacy` (optional) — `private` or `public` (default: `public`)
-- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence)
-- `folders_scope` (optional) — `nodeId:depth,...` (depth 1-10, max 100, requires `chat_with_files` + intelligence)
-- `files_attach` (optional) — `nodeId:versionId,...` (max 10, mutually exclusive with scope params)
+- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence). Both parts required and non-empty. **Omit to search all files (recommended default).**
+- `folders_scope` (optional) — `nodeId:depth,...` (depth 1-10, max 100 subfolder refs, requires `chat_with_files` + intelligence). Folder scope = search boundary, not file enumeration. **Omit to search all files (recommended default).**
+- `files_attach` (optional) — `nodeId:versionId,...` (max 20 / 200 MB, both parts required and non-empty, mutually exclusive with scope params)
 
 #### Follow-up Messages
 
@@ -917,7 +919,7 @@ Two modes depending on whether intelligence is enabled on the workspace.
 
 **Without intelligence (file attachments):**
 
-1. `ai` action `chat-create` with `context_type: "workspace"`, `context_id`, `query_text`, `type: "chat_with_files"`, and `files_attach` pointing to specific files (comma-separated `nodeId:versionId`, max 10 files). Files must have a ready preview. The AI reads attached files directly without persistent indexing.
+1. `ai` action `chat-create` with `context_type: "workspace"`, `context_id`, `query_text`, `type: "chat_with_files"`, and `files_attach` pointing to specific files (comma-separated `nodeId:versionId`, max 20 files / 200 MB). Files must have a ready preview. The AI reads attached files directly without persistent indexing.
 2. `ai` action `message-read` to get the response. No ingestion credit cost -- only chat token credits are consumed.
 
 ### 9. Set Up a Project for a Human
@@ -1424,7 +1426,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 All AI actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
 
-**chat-create** -- Create a new AI chat with an initial question. Returns chat ID and initial message ID -- use message-read to get the AI response.
+**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed files) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, both `nodeId` AND `versionId` are required and must be non-empty (get `versionId` from storage list/details `version` field). Returns chat ID and initial message ID -- use message-read to get the AI response.
 
 **chat-list** -- List AI chats.
 
