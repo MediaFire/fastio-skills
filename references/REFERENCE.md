@@ -1122,19 +1122,16 @@ Retrieve the full list with `prompts/list` and get detailed guidance for a speci
 
 | Prompt                 | Name                          | When to Use                                                                                          |
 |------------------------|-------------------------------|------------------------------------------------------------------------------------------------------|
-| `get-started`          | Getting Started Guide         | First-time onboarding: create account, org, and workspace. Covers autonomous agents, API key users, and agents invited to existing orgs. |
-| `create-share`         | Share Creation Guide          | Creating shares (Send/Receive/Exchange). Explains share types, access control, passwords, expiration, custom URLs, and feature toggles. |
+| `get-started`          | Getting Started Guide         | First-time onboarding: create account, org, and workspace. Covers autonomous agents, API key auth, browser login (PKCE), and agents invited to existing orgs. |
+| `add-file`             | Add File Guide                | Adding files from text content, chunked binary upload (with blob staging), or URL import (Google Drive, OneDrive, Dropbox). |
 | `ask-ai`               | AI Chat Guide                 | Querying files with AI. Covers RAG-indexed vs file attachment modes, intelligence state checks, scoping, polling, and response structure. |
-| `upload-file`          | File Upload Guide             | Uploading files. Helps choose between single-step text upload and chunked binary upload, with parameter and encoding details. |
-| `transfer-to-human`    | Ownership Transfer Guide      | Transferring org ownership to a human. Explains the claim URL workflow, token expiration, and pre-transfer checklist. |
-| `discover-content`     | Content Discovery Guide       | Finding all accessible orgs and workspaces. Explains the critical distinction between internal and external orgs and the full discovery flow. |
-| `invite-collaborator`  | Collaboration Invitation Guide| Inviting people to orgs, workspaces, or shares. Covers the three invitation levels, permissions, and message requirements. |
-| `setup-branding`       | Branding Setup Guide          | Customizing branding across orgs, workspaces, and shares. Explains the asset hierarchy, asset types, upload methods, and best practices. |
+| `comment-conversation` | Comment Collaboration Guide   | Agent-human feedback loop on files. Read/write anchored comments (image regions, video timestamps, PDF pages), threaded replies, emoji reactions, and deep-link URL construction. |
+| `catch-up`             | Activity Catch-Up Guide       | Understanding what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll. |
 
 **When to use prompts instead of this guide:**
 
 - **Starting a new workflow** — prompts provide concise, actionable steps tailored to the specific operation
-- **Choosing between approaches** — prompts explain trade-offs (e.g., which share type, which upload method)
+- **Choosing between approaches** — prompts explain trade-offs (e.g., which upload method, which chat scoping mode)
 - **Parameter-heavy operations** — prompts list exact parameters, required values, and common pitfalls
 - **First-time operations** — prompts walk through prerequisites and setup in order
 

@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.39.0"
+  version: "1.40.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.39
-**Last Updated:** 2026-02-07
+**Version:** 1.40
+**Last Updated:** 2026-02-08
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
 
@@ -82,18 +82,15 @@ The server exposes two MCP resources that clients can read directly via `resourc
 
 ### MCP Prompts
 
-The server provides 8 guided prompts for common operations via `prompts/list` and `prompts/get`:
+The server provides 5 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
 
 | Prompt | Description |
 |--------|-------------|
-| `get-started` | Complete onboarding: create account, org, and workspace. Covers new agents, returning users, and invited agents. |
-| `create-share` | Guide for creating shares. Explains Send/Receive/Exchange types, helps choose the right one, lists parameters. |
+| `get-started` | Complete onboarding: create account, org, and workspace. Covers new agents, returning users, API key auth, browser login (PKCE), and invited agents. |
+| `add-file` | Add a file from text content, binary upload (with blob staging), or URL import (Google Drive, OneDrive, Dropbox). Helps choose the right method. |
 | `ask-ai` | Guide for AI chat. Explains scoping (folder/file scope vs attachments), intelligence requirements, polling. |
-| `upload-file` | Choose the right upload method. Single-step `upload` with action `text-file` vs chunked flow for binary/large files. |
-| `transfer-to-human` | Transfer org ownership to a human. Explains the process, implications, and claim URL workflow. |
-| `discover-content` | Find all accessible orgs/workspaces. Explains internal vs external orgs and why both actions are needed. |
-| `invite-collaborator` | Invite people to orgs, workspaces, or shares. Explains permission levels and message requirements. |
-| `setup-branding` | Customize branding. Explains asset hierarchy (org → workspace → share) and upload methods. |
+| `comment-conversation` | Agent-human collaboration via comments on files. Read/write anchored comments (image regions, video timestamps, PDF pages), reply in threads, react with emoji, and construct deep-link URLs so humans land directly on the conversation. |
+| `catch-up` | Understand what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll, and the polling loop pattern. |
 
 ### Additional References
 

@@ -56,14 +56,11 @@ Guided workflows for common multi-step operations:
 
 | Prompt | Purpose |
 |--------|---------|
-| `get-started` | Account creation, org setup, and onboarding |
-| `create-share` | Creating Send, Receive, or Exchange shares |
-| `ask-ai` | Querying files with AI chat (RAG and attachments) |
-| `upload-file` | Choosing between text upload and chunked binary upload |
-| `transfer-to-human` | Transferring org ownership to a human |
-| `discover-content` | Finding all accessible orgs and workspaces |
-| `invite-collaborator` | Inviting people to orgs, workspaces, or shares |
-| `setup-branding` | Customizing logos, backgrounds, and branding |
+| `get-started` | Account creation, org setup, onboarding, and auth methods (PKCE, API key) |
+| `add-file` | Adding files from text content, binary upload, or URL import |
+| `ask-ai` | Querying files with AI chat (RAG scoping, attachments, polling) |
+| `comment-conversation` | Agent-human feedback on files via anchored comments, threads, and deep-link URLs |
+| `catch-up` | AI activity summaries, event search, and real-time change monitoring |
 
 ## Authentication
 
