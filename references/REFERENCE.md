@@ -664,6 +664,9 @@ Humans can leave feedback directly on files, anchored to specific content:
 - **PDF comments** — anchored to specific pages with optional text selection
 - **Threaded replies** — single-level threads under each comment (replies to replies are auto-flattened)
 - **Emoji reactions** — one reaction per user per comment, new replaces previous
+- **Mentions** — tag users with `@[user:USER_ID:Display Name]` syntax in the comment body
+
+**Character limits:** The comment `body` field has a hard maximum of **8,192 characters** — this includes the full mention tag markup. When you convert a short `@name` reference into the bracket syntax (e.g., `@[user:abc123:Jane Smith]`), the expanded string is what counts toward the limit. The display text (everything except mention markup) is separately capped at **500 characters**. Build your comment body with the expanded tags first, then verify the total length before submitting.
 
 **Linking users to comments:** Link users to the file preview URL. The comments sidebar opens automatically in workspace
 previews, and in share previews when comments are enabled on the share.
