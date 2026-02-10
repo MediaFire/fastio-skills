@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.43.0"
+  version: "1.44.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.43
-**Last Updated:** 2026-02-09
+**Version:** 1.44
+**Last Updated:** 2026-02-10
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
 
@@ -780,7 +780,7 @@ Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type i
 
 ### event
 
-Search the audit/event log with rich filtering, get AI-powered summaries of activity, retrieve full details for individual events, list recent activity, and long-poll for activity changes.
+Search the audit/event log with rich filtering by category, subcategory, and event name (see **Event Filtering Reference** in section 7 for the full taxonomy). Get AI-powered summaries of activity, retrieve full details for individual events, list recent activity, and long-poll for activity changes.
 
 **Actions:** search, summarize, details, activity-list, activity-poll
 
@@ -982,6 +982,83 @@ For binary chunk uploads, the server provides a sidecar `POST /blob` endpoint th
 - Maximum blob size: **100 MB**.
 - SSE transport clients must add `?transport=sse` to the `/blob` URL.
 - The `content` parameter (for text) and `data` parameter (for base64) remain available. `blob_ref` is the preferred method for binary data.
+
+### Event Filtering Reference
+
+The `event` tool's `search` and `summarize` actions accept `category`, `subcategory`, and `event` parameters to narrow results. Use these to target specific activity instead of scanning all events.
+
+#### Event Categories
+
+| Category | What It Covers |
+|---|---|
+| `user` | Account creation, updates, deletion, avatar changes |
+| `org` | Organization lifecycle, settings, transfers |
+| `workspace` | Workspace creation, updates, archival, file operations |
+| `share` | Share lifecycle, settings, file operations |
+| `node` | File and folder operations (cross-profile) |
+| `ai` | AI chat, summaries, RAG indexing |
+| `invitation` | Member invitations sent, accepted, declined |
+| `billing` | Subscriptions, trials, credit usage |
+| `domain` | Custom domain configuration |
+| `apps` | Application integrations |
+| `metadata` | Metadata extraction, templates, key-value updates |
+
+#### Event Subcategories
+
+| Subcategory | What It Covers |
+|---|---|
+| `storage` | File/folder add, move, copy, delete, restore, download |
+| `comments` | Comment created, updated, deleted, mentioned, replied, reaction |
+| `members` | Member added/removed from org, workspace, or share |
+| `lifecycle` | Profile created, updated, deleted, archived |
+| `settings` | Configuration and preference changes |
+| `security` | Security-related events (2FA, password) |
+| `authentication` | Login, SSO, session events |
+| `ai` | AI processing, chat, indexing |
+| `invitations` | Invitation management |
+| `billing` | Subscription and payment events |
+| `assets` | Avatar/asset updates |
+| `upload` | Upload session management |
+| `transfer` | Cross-profile file transfers |
+| `import_export` | Data import/export operations |
+| `quickshare` | Quick share operations |
+| `metadata` | Metadata operations |
+
+#### Common Event Names
+
+**File operations (workspace):** `workspace_storage_file_added`, `workspace_storage_file_deleted`, `workspace_storage_file_moved`, `workspace_storage_file_copied`, `workspace_storage_file_updated`, `workspace_storage_file_restored`, `workspace_storage_folder_created`, `workspace_storage_folder_deleted`, `workspace_storage_folder_moved`, `workspace_storage_download_token_created`, `workspace_storage_zip_downloaded`, `workspace_storage_file_version_restored`, `workspace_storage_link_added`
+
+**File operations (share):** `share_storage_file_added`, `share_storage_file_deleted`, `share_storage_file_moved`, `share_storage_file_copied`, `share_storage_file_updated`, `share_storage_file_restored`, `share_storage_folder_created`, `share_storage_folder_deleted`, `share_storage_folder_moved`, `share_storage_download_token_created`, `share_storage_zip_downloaded`
+
+**Comments:** `comment_created`, `comment_updated`, `comment_deleted`, `comment_mentioned`, `comment_replied`, `comment_reaction`
+
+**Membership:** `added_member_to_org`, `added_member_to_workspace`, `added_member_to_share`, `removed_member_from_org`, `removed_member_from_workspace`, `removed_member_from_share`, `membership_updated`
+
+**Workspace lifecycle:** `workspace_created`, `workspace_updated`, `workspace_deleted`, `workspace_archived`, `workspace_unarchived`
+
+**Share lifecycle:** `share_created`, `share_updated`, `share_deleted`, `share_archived`, `share_unarchived`, `share_imported_to_workspace`
+
+**AI:** `ai_chat_created`, `ai_chat_new_message`, `ai_chat_updated`, `ai_chat_deleted`, `ai_chat_published`, `node_ai_summary_created`, `workspace_ai_share_created`
+
+**Metadata:** `metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`, `metadata_template_update`, `metadata_template_delete`, `metadata_template_settings_update`, `metadata_view_update`, `metadata_view_delete`, `metadata_template_select`
+
+**Quick shares:** `workspace_quickshare_created`, `workspace_quickshare_updated`, `workspace_quickshare_deleted`, `workspace_quickshare_file_downloaded`, `workspace_quickshare_file_previewed`
+
+**Invitations:** `invitation_email_sent`, `invitation_accepted`, `invitation_declined`
+
+**User:** `user_created`, `user_updated`, `user_deleted`, `user_email_reset`, `user_asset_updated`
+
+**Org:** `org_created`, `org_updated`, `org_closed`, `org_transfer_token_created`, `org_transfer_completed`
+
+**Billing:** `subscription_created`, `subscription_cancelled`, `billing_free_trial_ended`
+
+#### Example Queries
+
+- **Recent comments in a workspace:** `event` action `search` with `workspace_id` and `subcategory: "comments"`
+- **Files uploaded to a share:** `event` action `search` with `share_id` and `event: "share_storage_file_added"`
+- **All membership changes across an org:** `event` action `search` with `org_id` and `subcategory: "members"`
+- **AI activity in a workspace:** `event` action `search` with `workspace_id` and `category: "ai"`
+- **Who downloaded files from a share:** `event` action `search` with `share_id` and `event: "share_storage_download_token_created"`
 
 ### Activity Polling
 
@@ -1475,9 +1552,9 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 ### event
 
-**search** -- Search the audit/event log with filters for profile, event type, category, and date range.
+**search** -- Search the audit/event log with filters for profile, event type, category, subcategory, event name, and date range. See **Event Filtering Reference** in section 7 for the full taxonomy of categories, subcategories, and event names.
 
-**summarize** -- Search events and return an AI-powered natural language summary of the activity.
+**summarize** -- Search events and return an AI-powered natural language summary of the activity. Accepts the same category/subcategory/event filters as search.
 
 **details** -- Get full details for a single event by its ID.
 

@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.14.0 | **Last updated:** 2026-02-07
+> **Version:** 1.15.0 | **Last updated:** 2026-02-10
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -881,12 +881,138 @@ precise diff. This is especially valuable in large workspaces where full directo
 Search and filter events with `GET /current/events/search/`:
 
 - **Scope by profile** — filter by `workspace_id`, `share_id`, `org_id`, or `user_id`
-- **Filter by type** — narrow to specific event names, categories, or subcategories
+- **Filter by type** — narrow to specific event names, categories, or subcategories (see reference below)
 - **Date range** — use `created-min` and `created-max` for time-bounded queries
 - **Pagination** — offset-based with `limit` (1-250) and `offset`
 
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
 `GET /current/event/{event_id}/ack/`.
+
+#### Event Categories
+
+Use the `category` parameter to filter by broad area:
+
+| Category      | What It Covers                                        |
+|---------------|-------------------------------------------------------|
+| `user`        | Account creation, updates, deletion, avatar changes   |
+| `org`         | Organization lifecycle, settings, transfers            |
+| `workspace`   | Workspace creation, updates, archival, file operations |
+| `share`       | Share lifecycle, settings, file operations              |
+| `node`        | File and folder operations (cross-profile)             |
+| `ai`          | AI chat, summaries, RAG indexing                       |
+| `invitation`  | Member invitations sent, accepted, declined            |
+| `billing`     | Subscriptions, trials, credit usage                    |
+| `domain`      | Custom domain configuration                            |
+| `apps`        | Application integrations                               |
+| `metadata`    | Metadata extraction, templates, key-value updates      |
+
+#### Event Subcategories
+
+Use the `subcategory` parameter for finer filtering within a category:
+
+| Subcategory      | What It Covers                                       |
+|------------------|------------------------------------------------------|
+| `storage`        | File/folder add, move, copy, delete, restore, download |
+| `comments`       | Comment created, updated, deleted, mentioned, replied, reaction |
+| `members`        | Member added/removed from org, workspace, or share   |
+| `lifecycle`      | Profile created, updated, deleted, archived          |
+| `settings`       | Configuration and preference changes                 |
+| `security`       | Security-related events (2FA, password)              |
+| `authentication` | Login, SSO, session events                           |
+| `ai`             | AI processing, chat, indexing                        |
+| `invitations`    | Invitation management                                |
+| `billing`        | Subscription and payment events                      |
+| `assets`         | Avatar/asset updates                                 |
+| `upload`         | Upload session management                            |
+| `transfer`       | Cross-profile file transfers                         |
+| `import_export`  | Data import/export operations                        |
+| `quickshare`     | Quick share operations                               |
+| `metadata`       | Metadata operations                                  |
+
+#### Common Event Names
+
+Use the `event` parameter to filter by exact event name. Here are the most useful ones for agents:
+
+**File operations (workspace):**
+`workspace_storage_file_added`, `workspace_storage_file_deleted`, `workspace_storage_file_moved`,
+`workspace_storage_file_copied`, `workspace_storage_file_updated`, `workspace_storage_file_restored`,
+`workspace_storage_folder_created`, `workspace_storage_folder_deleted`, `workspace_storage_folder_moved`,
+`workspace_storage_download_token_created`, `workspace_storage_zip_downloaded`,
+`workspace_storage_file_version_restored`, `workspace_storage_link_added`
+
+**File operations (share):**
+`share_storage_file_added`, `share_storage_file_deleted`, `share_storage_file_moved`,
+`share_storage_file_copied`, `share_storage_file_updated`, `share_storage_file_restored`,
+`share_storage_folder_created`, `share_storage_folder_deleted`, `share_storage_folder_moved`,
+`share_storage_download_token_created`, `share_storage_zip_downloaded`
+
+**Comments:**
+`comment_created`, `comment_updated`, `comment_deleted`, `comment_mentioned`, `comment_replied`,
+`comment_reaction`
+
+**Membership:**
+`added_member_to_org`, `added_member_to_workspace`, `added_member_to_share`,
+`removed_member_from_org`, `removed_member_from_workspace`, `removed_member_from_share`,
+`membership_updated`
+
+**Workspace lifecycle:**
+`workspace_created`, `workspace_updated`, `workspace_deleted`, `workspace_archived`, `workspace_unarchived`
+
+**Share lifecycle:**
+`share_created`, `share_updated`, `share_deleted`, `share_archived`, `share_unarchived`,
+`share_imported_to_workspace`
+
+**AI:**
+`ai_chat_created`, `ai_chat_new_message`, `ai_chat_updated`, `ai_chat_deleted`, `ai_chat_published`,
+`node_ai_summary_created`, `workspace_ai_share_created`
+
+**Metadata:**
+`metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`,
+`metadata_template_update`, `metadata_template_delete`, `metadata_template_settings_update`,
+`metadata_view_update`, `metadata_view_delete`, `metadata_template_select`
+
+**Quick shares:**
+`workspace_quickshare_created`, `workspace_quickshare_updated`, `workspace_quickshare_deleted`,
+`workspace_quickshare_file_downloaded`, `workspace_quickshare_file_previewed`
+
+**Invitations:**
+`invitation_email_sent`, `invitation_accepted`, `invitation_declined`
+
+**User:**
+`user_created`, `user_updated`, `user_deleted`, `user_email_reset`, `user_asset_updated`
+
+**Org:**
+`org_created`, `org_updated`, `org_closed`, `org_transfer_token_created`, `org_transfer_completed`
+
+**Billing:**
+`subscription_created`, `subscription_cancelled`, `billing_free_trial_ended`
+
+#### Example Queries
+
+**Recent comments in a workspace:**
+```
+GET /current/events/search/?workspace_id={id}&subcategory=comments&limit=50
+```
+
+**Files uploaded to a share in the last 24 hours:**
+```
+GET /current/events/search/?share_id={id}&event=share_storage_file_added&created-min=2025-01-19T00:00:00Z
+```
+
+**All membership changes across an org:**
+```
+GET /current/events/search/?org_id={id}&subcategory=members
+```
+
+**AI activity in a workspace:**
+```
+GET /current/events/search/?workspace_id={id}&category=ai
+```
+
+**Who downloaded files from a share:**
+```
+GET /current/events/search/?share_id={id}&event=share_storage_download_token_created
+```
 
 #### AI-Powered Summaries
 
