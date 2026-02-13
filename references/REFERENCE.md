@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.19.0 | **Last updated:** 2026-02-13
+> **Version:** 1.20.0 | **Last updated:** 2026-02-13
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -187,6 +187,25 @@ needed.
 authenticated user's ID. This is useful at startup to confirm your credentials are valid before beginning work, or to
 detect an expired token without waiting for a 401 error on a real request.
 
+### OAuth Scopes — Controlling Access
+
+When using PKCE browser login, you can request scoped access tokens that limit what the agent can do. Scopes follow
+an inheritance model — broader scopes automatically include access to their children.
+
+**Scope types:**
+
+| Scope Type       | Description                                                                 |
+|------------------|-----------------------------------------------------------------------------|
+| `all_orgs`       | Access to all organizations the user owns or is a member of                 |
+| `all_workspaces` | Access to all workspaces across accessible organizations                    |
+| `all_shares`     | Access to all shares across accessible organizations and workspaces         |
+
+**Inheritance:** `all_orgs` includes `all_workspaces`, which includes `all_shares`. Requesting `all_orgs` grants full
+access to all orgs, workspaces, and shares the user has access to.
+
+Pass the desired `scope_type` when initiating the PKCE authorization flow (`POST /current/oauth/authorize/`). If
+omitted, the token defaults to full access (equivalent to `all_orgs`).
+
 ### Organizations — Collectors of Workspaces
 
 An organization (org) is a collector of workspaces. It can represent a company, a business unit, a team, or simply your own personal collection. Every workspace and share lives under an org, and orgs are the billable entity — storage, credits, and member limits are tracked at the org level.
@@ -302,7 +321,7 @@ activity feed — a shared environment where agents collaborate with other agent
 Workspaces have an **intelligence** toggle that controls whether AI features are active. This is a critical decision:
 
 **Intelligence OFF** — the workspace stores files without AI indexing. You can still attach files directly to an AI chat
-conversation (up to 10 files), but files are not persistently indexed. This is fine for coordination workflows where
+conversation (up to 20 files), but files are not persistently indexed. This is fine for coordination workflows where
 you don't need to query your content.
 
 **Intelligence ON** — the workspace becomes an AI-powered knowledge base. Every file uploaded is automatically ingested,
@@ -1077,8 +1096,9 @@ The server holds the connection open for up to 95 seconds and returns **immediat
 entity — file uploads complete, previews finish generating, AI indexing completes, comments are added, etc.
 
 The response includes activity keys that tell you *what* changed (e.g., `storage:{fileId}` for file changes,
-`preview:{fileId}` for preview readiness, `ai_chat:{chatId}` for chat updates, `upload:{uploadId}` for upload
-completion). Pass the returned `lastactivity` timestamp into your next poll to receive only newer changes.
+`preview:{fileId}` for preview readiness, `ai_chat:{chatId}` for chat updates, `ai_state:{fileId}` for AI indexing
+state changes, `upload:{uploadId}` for upload completion). Pass the returned `lastactivity` timestamp into your next
+poll to receive only newer changes.
 
 This gives you near-instant reactivity with a single open connection per entity, instead of hammering individual
 endpoints.
@@ -1250,8 +1270,8 @@ When intelligence is enabled, each file progresses through AI processing states 
 
 | Parameter | Constraint |
 |-----------|-----------|
-| `type` | `chat` or `chat_with_rag` |
-| `personality` | `concise` (default), `detailed`, `fun` |
+| `type` | `chat` or `chat_with_files` |
+| `personality` | `concise`, `detailed` (default) |
 | `privacy` / `visibility` | `private`, `public` (default: `public`) |
 | `name` | Max 100 characters |
 | `question` | Max 12,768 characters |
@@ -1398,7 +1418,7 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 1. Create a workspace (intelligence off is fine)
 2. Upload the files you want to analyze
-3. Create an AI chat and attach the specific files directly (up to 10 files)
+3. Create an AI chat and attach the specific files directly (up to 20 files)
 4. Ask questions — AI reads the attachments and responds with citations
 5. No persistent indexing, no credit cost for ingestion
 
@@ -1437,9 +1457,9 @@ named actions.
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces                      | `list`, `details`, `create`, `update`, `check-name`                           |
+| `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus 17 `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
-| `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url`, `preview-transform` |
+| `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
 | `ai`         | AI chat (scope defaults to entire workspace — omit scope params to search all files). Folder scope expands subfolder tree only — files within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list` |
@@ -1449,6 +1469,26 @@ named actions.
 | `comment`    | Comments                        | `list`, `create`, `details`, `delete`                                         |
 | `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
 | `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
+
+### `web_url` in Tool Responses — Use It Instead of Building URLs
+
+Most tool responses include a `web_url` field containing a ready-to-use link to the resource in the Fast.io web UI.
+**Use `web_url` directly** instead of constructing URLs manually from API response fields. This avoids errors from
+slug generation, subdomain routing, or parameter formatting.
+
+Tools that return `web_url`:
+
+| Tool | Actions |
+|------|---------|
+| `storage` | `list`, `details`, `search`, `preview-url`, `preview-transform` |
+| `share` | `list`, `details`, `update`, `public-details` |
+| `workspace` | `list`, `update`, `update-note` |
+| `ai` | `chat-details`, `chat-list` |
+| `download` | `file-url`, `quickshare-details` |
+| `upload` | `finalize`, `text-file` |
+| `org` | `details`, `create`, `create-workspace` |
+
+When presenting links to users, prefer `web_url` over manually constructed URLs.
 
 **Resources** available via `resources/read`:
 - `skill://guide` — full tool documentation with parameters and examples
@@ -1476,6 +1516,15 @@ or when streaming is preferred over base64 encoding.
 
 For workspace and share downloads, include the `Mcp-Session-Id` header from your active MCP session. The server uses
 the session's auth token to fetch the file and streams it back.
+
+**Query parameters:**
+- `?error=html` — returns error pages as HTML instead of JSON (useful for browser-facing links)
+
+**Size limits:** The `download://` resource templates return file content inline (base64) for files up to **50 MB**.
+Larger files return a fallback message directing to the `/file/` HTTP pass-through endpoint.
+
+**`web_url` in download responses:** The `download` tool's `file-url` and `quickshare-details` actions include both
+a `resource_uri` (for MCP resource reads) and a `web_url` (for browser-facing links) in their responses.
 
 ### Tool Annotations — Safety & Side Effects
 
@@ -1516,6 +1565,7 @@ Retrieve the full list with `prompts/list` and get detailed guidance for a speci
 | `ask-ai`               | AI Chat Guide                 | Querying files with AI. Covers RAG-indexed vs file attachment modes, intelligence state checks, scoping (folder scope = search boundary, not file enumeration), polling, and response structure. |
 | `comment-conversation` | Comment Collaboration Guide   | Agent-human feedback loop on files. Read/write anchored comments (image regions, video timestamps, PDF pages), threaded replies, emoji reactions, and deep-link URL construction. |
 | `catch-up`             | Activity Catch-Up Guide       | Understanding what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll. |
+| `metadata`             | Metadata Extraction Guide     | Extracting structured metadata from files. Covers template creation, workspace assignment, manual and batch AI extraction, and saved views. |
 
 **When to use prompts instead of this guide:**
 

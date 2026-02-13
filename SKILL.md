@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.56.0"
+  version: "1.57.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.56
+**Version:** 1.57
 **Last Updated:** 2026-02-13
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
@@ -1194,7 +1194,7 @@ The auth token, user ID, email, and token expiry are persisted in the server ses
 
 MCP tools manage data via the API, but humans access Fast.io through a web browser. **You must construct real, clickable URLs and include them in your responses whenever you create or reference a workspace, share, or transfer.** The human cannot see API responses directly -- the URL you provide is how they get to their content. Build the URL by substituting values from API responses into these patterns:
 
-> **Automatic `web_url` field.** Many tools now include a `web_url` field in their response — a ready-to-use, human-friendly URL for the created or referenced resource. When `web_url` is present, use it directly instead of constructing URLs manually. Fall back to the patterns below only when `web_url` is absent (e.g., for actions that don't return it).
+> **Automatic `web_url` field.** Most tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **Always check for `web_url` first and use it directly.** It appears on: org/workspace/share/storage details, workspace/share list items, storage list/search result items, file previews and transforms, uploads, AI chats, and downloads. Fall back to the URL patterns below only when `web_url` is absent.
 
 Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.io/`. The base domain `go.fast.io` handles public routes that do not require org context.
 
@@ -1507,9 +1507,9 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 ### share
 
-**list** -- List shares the authenticated user has access to.
+**list** -- List shares the authenticated user has access to. Each share includes `web_url`.
 
-**details** -- Get full details of a specific share.
+**details** -- Get full details of a specific share. Returns `web_url`.
 
 **create** -- Create a new share in a workspace.
 
@@ -1539,7 +1539,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **list** -- List files and folders in a directory with pagination.
 
-**details** -- Get full details of a specific file or folder.
+**details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
 
 **search** -- Search for files by keyword or semantic query.
 
@@ -1575,9 +1575,9 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **lock-release** -- Release an exclusive lock on a file.
 
-**preview-url** -- Get a preauthorized preview URL for a file (thumbnail, PDF, image, video, audio, spreadsheet). Requires `preview_type` parameter.
+**preview-url** -- Get a preauthorized preview URL for a file (thumbnail, PDF, image, video, audio, spreadsheet). Requires `preview_type` parameter. Returns `preview_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only).
 
-**preview-transform** -- Request a file transformation (image resize, crop, format conversion) and get a download URL for the result. Requires `transform_name` parameter.
+**preview-transform** -- Request a file transformation (image resize, crop, format conversion) and get a download URL for the result. Requires `transform_name` parameter. Returns `transform_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only).
 
 ### upload
 
