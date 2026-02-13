@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.54.0"
+  version: "1.55.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.54
+**Version:** 1.55
 **Last Updated:** 2026-02-13
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
@@ -1156,6 +1156,8 @@ The auth token, user ID, email, and token expiry are persisted in the server ses
 ### Human-Facing URLs
 
 MCP tools manage data via the API, but humans access Fast.io through a web browser. **You must construct real, clickable URLs and include them in your responses whenever you create or reference a workspace, share, or transfer.** The human cannot see API responses directly -- the URL you provide is how they get to their content. Build the URL by substituting values from API responses into these patterns:
+
+> **Automatic `web_url` field.** Many tools now include a `web_url` field in their response — a ready-to-use, human-friendly URL for the created or referenced resource. When `web_url` is present, use it directly instead of constructing URLs manually. Fall back to the patterns below only when `web_url` is absent (e.g., for actions that don't return it).
 
 Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.io/`. The base domain `go.fast.io` handles public routes that do not require org context.
 
