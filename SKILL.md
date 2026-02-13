@@ -1,12 +1,12 @@
 ---
 name: fast-io
 description: >-
-  Cloud file management and collaboration platform. Complete agent guide with
-  all 14 consolidated tools using action-based routing — parameters, workflows,
-  ID formats, and constraints. Use this skill when the user needs to store
-  files, create branded shares (Send/Receive/Exchange), or query documents
-  using built-in RAG AI. Supports transferring ownership to humans, managing
-  workspaces, and real-time collaboration. Provides a free agent plan with
+  Workspaces for agentic teams. Complete agent guide with all 14 consolidated
+  tools using action-based routing — parameters, workflows, ID formats, and
+  constraints. Use this skill when agents need shared workspaces to collaborate
+  with other agents and humans, create branded shares (Send/Receive/Exchange),
+  or query documents using built-in AI. Supports ownership transfer to humans,
+  workspace management, and real-time collaboration. Free agent plan with
   50 GB storage and 5,000 monthly credits.
 license: Proprietary
 compatibility: >-
@@ -14,16 +14,16 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.44.0"
+  version: "1.54.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.44
-**Last Updated:** 2026-02-10
+**Version:** 1.54
+**Last Updated:** 2026-02-13
 
-The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
+The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
@@ -33,21 +33,22 @@ The definitive guide for AI agents using the Fast.io MCP server. Covers why and 
 
 ## 1. Overview
 
-**Store files. Share with humans. Query with AI. All through one API -- free.**
+**Workspaces for Agentic Teams. Collaborate, share, and query with AI -- all through one API, free.**
 
-Fast.io is a cloud storage and collaboration platform that gives AI agents a complete file management, sharing, and intelligence layer. Upload outputs, create branded data rooms, ask questions about documents using built-in RAG, and hand everything off to a human when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
+Fast.io provides workspaces for agentic teams -- where agents collaborate with other agents and with humans. Upload outputs, create branded data rooms, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
 
 ### The Problem Fast.io Solves
 
-AI agents generate files, reports, datasets, and deliverables -- but getting those outputs to humans is messy. You end up cobbling together S3 buckets, presigned URLs, email attachments, and custom download pages. Every agent reinvents file sharing, and none of it looks professional.
+Agentic teams -- groups of agents working together and with humans -- need a shared place to work. Today, agents cobble together S3 buckets, presigned URLs, email attachments, and custom download pages. Every agent reinvents collaboration, and there is no shared workspace where agents and humans can see the same files, track activity, and hand off work.
 
 When agents need to *understand* documents -- not just store them -- they have to download files, parse dozens of formats, build search indexes, and manage their own RAG pipeline. That is a lot of infrastructure for what should be a simple question: "What does this document say?"
 
 | Problem | Fast.io Solution |
 |---------|-----------------|
-| Nowhere professional to put agent outputs | Branded workspaces and data rooms with file preview for 10+ formats |
-| Sharing files with humans is awkward | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration |
-| Collecting files from humans is harder | Receive shares let humans upload directly to you -- no email attachments |
+| No shared workspace for agentic teams | Workspaces where agents and humans collaborate with file preview, versioning, and AI |
+| Agent-to-agent coordination lacks structure | Shared workspaces with activity feeds, comments, and real-time sync across team members |
+| Sharing outputs with humans is awkward | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration |
+| Collecting files from humans is harder | Receive shares let humans upload directly to your workspace -- no email attachments |
 | Understanding document contents | Built-in AI reads, summarizes, and answers questions about your files |
 | Building a RAG pipeline from scratch | Enable intelligence on a workspace and files are automatically indexed, summarized, and queryable |
 | Finding the right file in a large collection | Semantic search finds files by meaning, not just filename |
@@ -78,11 +79,11 @@ The server exposes two MCP resources that clients can read directly via `resourc
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 14 tools, workflows, and platform documentation | `text/markdown` |
-| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601) | `application/json` |
+| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (array of granted scopes or null), `agent_name` (string or null) | `application/json` |
 
 ### MCP Prompts
 
-The server provides 5 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
+The server provides 6 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
 
 | Prompt | Description |
 |--------|-------------|
@@ -91,12 +92,13 @@ The server provides 5 guided prompts for complex, multi-step operations via `pro
 | `ask-ai` | Guide for AI chat. Explains scoping (folder/file scope vs attachments), intelligence requirements, polling. |
 | `comment-conversation` | Agent-human collaboration via comments on files. Read/write anchored comments (image regions, video timestamps, PDF pages), reply in threads, react with emoji, and construct deep-link URLs so humans land directly on the conversation. |
 | `catch-up` | Understand what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll, and the polling loop pattern. |
+| `metadata` | Structured metadata on files. Template setup (create, assign), setting values, AI extraction, querying files by metadata, and version tracking. |
 
 ### Additional References
 
 - **Agent guide (this file):** `/skill.md` on the MCP server -- tool documentation, workflows, and constraints.
 - **REST API reference:** `https://api.fast.io/llms.txt` -- endpoint documentation for the underlying Fast.io API.
-- **Platform guide:** `https://fast.io/agents.md` -- capabilities, agent plan details, key workflows, and upgrade paths.
+- **Platform guide:** [references/REFERENCE.md](references/REFERENCE.md) -- capabilities, agent plan details, key workflows, and upgrade paths.
 
 ---
 
@@ -125,7 +127,36 @@ If you want your own agent identity but need to work within a human's existing o
 
 **Option 4: Browser Login (PKCE)**
 
-If you prefer not to send a password through the agent, use browser-based PKCE login. Call `auth` action `pkce-login` (optionally with an `email` hint) to get a login URL. The user opens the URL in a browser, signs in (email/password or SSO like Google/Microsoft), and approves access. The browser displays an authorization code which the user copies back to the agent. Call `auth` action `pkce-complete` with the code to finish signing in. This is the most secure option — no credentials pass through the agent.
+If you prefer not to send a password through the agent, use browser-based PKCE login. Call `auth` action `pkce-login` (optionally with an `email` hint) to get a login URL. The user opens the URL in a browser, signs in (email/password or SSO like Google/Microsoft), and approves access. The browser displays an authorization code which the user copies back to the agent. Call `auth` action `pkce-complete` with the code to finish signing in. This is the most secure option -- no credentials pass through the agent.
+
+PKCE login supports optional **scoped access** via the `scope_type` parameter. By default, `scope_type` is `"user"` (full account access). Other scope types restrict the token to specific entity types:
+
+| scope_type | Access granted |
+|------------|---------------|
+| `user` | Full account access (default) |
+| `org` | User selects specific organizations |
+| `workspace` | User selects specific workspaces |
+| `all_orgs` | All organizations the user belongs to |
+| `all_workspaces` | All workspaces the user has access to |
+| `all_shares` | All shares the user is a member of (`share:*:<mode>`) |
+
+**Scope inheritance:** Broader scopes include access to child entities automatically:
+
+- `all_orgs` includes all orgs + all workspaces + all shares within those orgs
+- `all_workspaces` includes all workspaces + all shares within those workspaces
+- `org` scope on a specific org includes access to all workspaces and shares within that org
+- `workspace` scope on a specific workspace includes access to shares within that workspace
+- `all_shares` grants direct access to all shares the user has membership in, bypassing workspace/org inheritance
+
+The `agent_name` parameter controls what the user sees on the approval screen -- the screen displays "**[agent_name]** will act on your behalf". If omitted, only the client name is shown. Use a descriptive name so the user knows which agent is requesting access.
+
+**Approval flow by scope_type:**
+
+- **`user`** (default): Full account access. The user sees a simple approve/decline prompt with no entity picker.
+- **`org`**, **`workspace`**: The user sees an entity selection screen listing their accessible entities with checkboxes, plus a read-only / read-write toggle. The user picks which entities to grant, then approves or declines.
+- **`all_orgs`**, **`all_workspaces`**, **`all_shares`**: The user sees a summary of the wildcard access being requested (no entity picker), then approves or declines.
+
+The MCP server defaults to `scope_type="user"` for backward compatibility.
 
 | Scenario | Recommended Approach |
 |----------|---------------------|
@@ -168,16 +199,17 @@ When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` 
 
 ### Browser Login (PKCE) Flow
 
-1. Call `auth` action `pkce-login` (optionally with `email` to pre-fill the sign-in form).
-2. The tool returns a `login_url` — present it to the user to open in a browser.
-3. The user signs in (email/password or SSO) and clicks Approve.
-4. The browser displays an authorization code. The user copies it.
-5. Call `auth` action `pkce-complete` with the `code` to exchange it for an access token.
-6. The session is established automatically — all subsequent tool calls are authenticated.
+1. Call `auth` action `pkce-login` (optionally with `email` to pre-fill the sign-in form, `scope_type` to request scoped access, and `agent_name` to identify the agent).
+2. The tool returns a `login_url` -- present it to the user to open in a browser.
+3. The user signs in (email/password or SSO).
+4. The user sees the approval screen showing the `agent_name` (or client name if not provided). Depending on `scope_type`: for `user` they simply approve; for `org`/`workspace` they select specific entities and read-only/read-write access; for `all_orgs`/`all_workspaces`/`all_shares` they review the wildcard access summary.
+5. The user clicks Approve. The browser displays an authorization code. The user copies it.
+6. Call `auth` action `pkce-complete` with the `code` to exchange it for an access token.
+7. The session is established automatically -- all subsequent tool calls are authenticated. If scoped access was granted, `scopes` and `agent_name` are included in the response and stored in the session.
 
 ### Checking Session Status
 
-- `auth` action `status` -- checks the local Durable Object session. No API call is made. Returns authentication state, user ID, email, and token expiry.
+- `auth` action `status` -- checks the local Durable Object session. No API call is made. Returns authentication state, user ID, email, token expiry, scopes, and agent_name.
 - `auth` action `check` -- validates the token against the Fast.io API. Returns the user ID if the token is still valid.
 
 ### Session Expiry
@@ -196,11 +228,11 @@ Call `auth` action `signout` to clear the stored session from the Durable Object
 
 ### Organizations
 
-Organizations are the top-level container in Fast.io. Every user belongs to one or more organizations. Organizations have:
+Organizations are top-level containers that collect workspaces. An organization can represent a company, a business unit, a team, or simply your own personal collection. Every user belongs to one or more organizations. Organizations have:
 
+- **Workspaces** — the file storage containers that belong to the organization.
 - **Members** with roles: owner, admin, member, guest, view.
 - **Billing and subscriptions** managed through Stripe integration.
-- **Workspaces** that belong to the organization.
 - **Plan limits** that govern storage, transfer, AI tokens, and member counts.
 
 Organizations are identified by a 19-digit numeric profile ID or a domain string.
@@ -252,9 +284,9 @@ Workspaces have an **intelligence** toggle that controls whether AI features are
 - **Auto-summarization** -- short and long summaries generated for every file, searchable and visible in the UI.
 - **Metadata extraction** -- AI pulls key metadata from documents automatically.
 
-Intelligence defaults to ON for workspaces created via the API by agent accounts. If you are just using Fast.io for storage and sharing, disable it to conserve credits. If you need to query your content, leave it enabled.
+Intelligence defaults to ON for workspaces created via the API by agent accounts. If the workspace is only used for file storage and sharing, disable it to conserve credits. If you need to query your content, leave it enabled.
 
-**Agent use case:** Create a workspace per project or client. Enable intelligence if you need to query the content later. Upload reports, datasets, and deliverables. Invite the human stakeholders. Everything is organized, searchable, and versioned.
+**Agent use case:** Create a workspace per project or client. Enable intelligence if you need to query the content later. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
 
 For full details on AI chat types, file context modes, AI state, and how intelligence affects them, see the **AI Chat** section below.
 
@@ -572,6 +604,22 @@ Use `upload` action `web-import` with the source URL, target profile, and parent
 
 **Agent use case:** A user says "Add this Google Doc to the project." You call `upload` action `web-import` with the URL. Fast.io downloads it server-side, generates previews, indexes it for AI, and it appears in the workspace. No local I/O.
 
+### Metadata
+
+Metadata enables structured data annotation on files within workspaces. The system uses a template-based approach: administrators create templates that define the fields (name, type, constraints), then assign a template to the workspace. Files can then have metadata values set against the template fields.
+
+Key points:
+
+- **One template per workspace** -- each workspace supports at most one assigned metadata template at a time.
+- **Template categories** -- legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr.
+- **Field types** -- string, int, float, bool, json, url, datetime -- each with optional constraints (min, max, default, fixed_list, can_be_null).
+- **Two metadata types** -- template metadata conforms to template field definitions; custom metadata is freeform key-value pairs not tied to any template.
+- **System templates** -- pre-built templates that are automatically cloned when assigned to a workspace, so customizations do not affect the global definition.
+- **AI extraction** -- the `extract` action uses AI to analyze file content and automatically populate metadata fields. Extracted values are flagged with `is_auto: true`. Consumes AI credits.
+- **Version history** -- metadata changes are tracked with version snapshots, accessible via the `versions` action.
+- **Requires billing feature** -- the organization must have the metadata billing feature enabled.
+- **Template IDs** are alphanumeric strings prefixed with `mt_` (e.g. `mt_abc123def456`).
+
 ### Ownership Transfer
 
 The primary way agents deliver value: build something, then give it to a human. Also the recommended action when the agent plan runs out of credits and API calls start returning 402 Payment Required -- transfer the org to a human who can upgrade to a paid plan.
@@ -738,9 +786,9 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), and quickshare management.
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, and metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions
 
 ### share
 
@@ -1200,11 +1248,11 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **email-verify** -- Send or validate an email verification code. When email_token is omitted a new code is sent. When provided the code is validated and the email marked as verified.
 
-**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, and token expiry.
+**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, token expiry, scopes (if scoped access), and agent_name (if set).
 
-**pkce-login** -- Start a browser-based PKCE login flow. Returns a URL for the user to open in their browser. After signing in and approving access, the browser displays an authorization code. The user copies the code and provides it to pkce-complete to finish signing in. No password is sent through the agent.
+**pkce-login** -- Start a browser-based PKCE login flow. Returns a URL for the user to open in their browser. After signing in and approving access, the browser displays an authorization code. The user copies the code and provides it to pkce-complete to finish signing in. No password is sent through the agent. Optional params: `scope_type` (default `"user"` for full access; use `"org"`, `"workspace"`, `"all_orgs"`, `"all_workspaces"`, or `"all_shares"` for scoped access), `agent_name` (displayed in the approval screen and audit logs; defaults to MCP client name).
 
-**pkce-complete** -- Complete a PKCE login flow by exchanging the authorization code for an access token. Call this after the user has approved access in the browser and copied the code from the screen. The token is stored in the session automatically.
+**pkce-complete** -- Complete a PKCE login flow by exchanging the authorization code for an access token. Call this after the user has approved access in the browser and copied the code from the screen. The token is stored in the session automatically. If scoped access was granted, the response includes `scopes` (JSON array of granted scope strings like `"org:123:rw"`) and `agent_name`.
 
 **api-key-create** -- Create a new persistent API key. The full key value is only returned once at creation time -- store it securely.
 
@@ -1383,6 +1431,40 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 **quickshare-delete** -- Revoke and delete a quickshare link for a node.
 
 **quickshares-list** -- List all active quickshares in the workspace.
+
+**metadata-template-create** -- Create a new metadata template in the workspace. Requires name, description, category (legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr), and fields (JSON-encoded array of field definitions). Each field has name, description, type (string, int, float, bool, json, url, datetime), and optional constraints (min, max, default, fixed_list, can_be_null).
+
+**metadata-template-delete** -- Delete a metadata template. System templates and locked templates cannot be deleted. Requires template_id.
+
+**metadata-template-list** -- List metadata templates. Optional template_filter: enabled, disabled, custom (non-system), or system. Returns all non-deleted templates when no filter is specified.
+
+**metadata-template-details** -- Get full details of a metadata template including all field definitions. Requires template_id.
+
+**metadata-template-update** -- Update an existing metadata template. Any combination of name, description, category, and fields can be updated. Requires template_id.
+
+**metadata-template-clone** -- Clone a metadata template with optional modifications. Creates a new template based on an existing one. Same parameters as metadata-template-update. Requires template_id.
+
+**metadata-template-assign** -- Assign a metadata template to a workspace. Each workspace can have at most one assigned template. Assigning a system template automatically clones it. Requires template_id. Optional node_id (null for workspace-level assignment).
+
+**metadata-template-unassign** -- Remove the template assignment from a workspace. Requires workspace admin permission.
+
+**metadata-template-resolve** -- Resolve which metadata template applies to a given node. Returns the workspace-level template (node_id is accepted but currently inherits from workspace). Returns null if no template is assigned.
+
+**metadata-template-assignments** -- List all template assignments in the workspace.
+
+**metadata-get** -- Get all metadata for a file, including both template-conforming metadata and custom (freeform) key-value pairs. Returns node details, template_id, template_metadata array, and custom_metadata array. Requires node_id.
+
+**metadata-set** -- Set or update metadata key-value pairs on a file. Values must conform to the template field definitions. Requires node_id, template_id, and key_values (JSON object of key-value pairs).
+
+**metadata-delete** -- Delete metadata from a file. Provide keys (JSON array of key names) to delete specific entries, or omit to delete all metadata. Only works on files and notes, not folders. Requires node_id.
+
+**metadata-extract** -- Trigger AI-powered metadata extraction from a file. The AI analyzes file content and populates metadata fields according to the template. Extracted values are marked with is_auto: true. Consumes AI credits. Optional template_id (defaults to workspace template). Requires node_id.
+
+**metadata-list-files** -- List files that have metadata for a specific template, with optional filtering and sorting. Requires node_id (folder to search in) and template_id. Optional metadata_filters (JSON-encoded), order_by (field key), and order_desc.
+
+**metadata-list-templates-in-use** -- List which metadata templates are in use within a folder, with usage counts per template. Requires node_id.
+
+**metadata-versions** -- Get metadata version history for a file. Returns snapshots of metadata changes over time. Requires node_id.
 
 ### share
 

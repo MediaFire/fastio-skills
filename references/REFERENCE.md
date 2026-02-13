@@ -1,14 +1,14 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.15.0 | **Last updated:** 2026-02-10
+> **Version:** 1.18.0 | **Last updated:** 2026-02-12
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
-**Store files. Share with humans. Query with AI. All through one API — free.**
+**Workspaces for Agentic Teams. Collaborate, share, and query with AI — all through one API, free.**
 
-Fast.io gives AI agents a complete file management and collaboration platform. Upload outputs, create branded data
-rooms, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No
-infrastructure to manage, no subscriptions to set up, no credit card required.
+Fast.io provides workspaces for agentic teams — where agents collaborate with other agents and with humans. Upload
+outputs, create branded data rooms, ask questions about documents using built-in AI, and hand everything off to a human
+when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
 
 **MCP-enabled agents** should connect via the Model Context Protocol for the simplest integration — no raw HTTP calls
 needed.
@@ -35,9 +35,9 @@ for agents that need direct HTTP access or capabilities not yet covered by the M
 
 ### The Problem
 
-AI agents generate files, reports, datasets, and deliverables — but getting those outputs to humans is messy. You end up
-cobbling together S3 buckets, presigned URLs, email attachments, and custom download pages. Every agent reinvents file
-sharing, and none of it looks professional.
+Agentic teams — groups of agents working together and with humans — need a shared place to work. Today, agents cobble
+together S3 buckets, presigned URLs, email attachments, and custom download pages. Every agent reinvents collaboration,
+and there's no shared workspace where agents and humans can see the same files, track activity, and hand off work.
 
 Meanwhile, when agents need to *understand* documents — not just store them — they have to download files, parse dozens
 of formats, build search indexes, and manage their own RAG pipeline. That's a lot of infrastructure for what should be a
@@ -47,9 +47,10 @@ simple question: "What does this document say?"
 
 | Problem                                      | Fast.io Solution                                                                                  |
 |----------------------------------------------|---------------------------------------------------------------------------------------------------|
-| Nowhere professional to put agent outputs    | Branded workspaces and data rooms with file preview for 10+ formats                               |
-| Sharing files with humans is awkward         | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
-| Collecting files from humans is harder       | Receive shares let humans upload directly to you — no email attachments                           |
+| No shared workspace for agentic teams        | Workspaces where agents and humans collaborate with file preview, versioning, and AI              |
+| Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
+| Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
+| Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
 | Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your files                             |
 | Building a RAG pipeline from scratch         | Enable intelligence on a workspace and files are automatically indexed, summarized, and queryable |
 | Finding the right file in a large collection | Semantic search finds files by meaning, not just filename                                         |
@@ -66,15 +67,15 @@ existing human user.
 
 ### Option 1: Autonomous Agent — Create an Agent Account
 
-If you're operating independently (storing files, running workflows, building workspaces for users), create your own
-agent account:
+If you're operating as part of an agentic team (collaborating with other agents, sharing outputs with humans, running
+workflows), create your own agent account:
 
 1. `POST /current/user/` with `email_address`, `password`, `tos_agree=true`, `agent=true`
 2. Authenticate with Basic Auth → get JWT
 3. Verify your email address (required before using most endpoints):
    - `POST /current/user/email/validate/` with `email` — sends a verification code to your email
    - `POST /current/user/email/validate/` with `email` and `email_token` — validates the code and marks your account as verified
-4. `POST /current/org/create/` with `domain` (required, 2-80 chars lowercase alphanumeric + hyphens)
+4. `POST /current/org/create/` with `domain` (required, 2-80 chars lowercase alphanumeric + hyphens) — an org is a collector of workspaces that can represent a company, team, business unit, or personal collection
 5. `POST /current/org/{org_id}/create/workspace/` with `folder_name`, `name`, `perm_join`, `perm_member_manage` (all required — see Permission Values below)
 
 Agent accounts get the free agent plan (50 GB, 5,000 monthly credits) and can transfer orgs to humans when ready. This
@@ -116,9 +117,7 @@ The API key has the same permissions as the human user, so you can manage their 
 
 ### Option 3: Agent Account Invited to a Human's Org
 
-If you want your own agent identity but need to work within a human's existing organization, you can create an agent
-account and have the human invite you as a member. This gives you access to their workspaces and shares while keeping
-your own account separate.
+If you want your own agent identity but need to work within a human's existing organization (their company, team, or personal collection), you can create an agent account and have the human invite you as a member. This gives you access to their workspaces and shares while keeping your own account separate.
 
 **How the human invites the agent to their org:**
 
@@ -142,6 +141,10 @@ Alternatively, the human can invite the agent programmatically:
 For the most secure authentication flow — especially when a human wants to authorize an agent without sharing their
 password — use the PKCE (Proof Key for Code Exchange) browser login. No credentials pass through the agent at any point.
 
+The `client_id` can be a pre-registered ID, a dynamically registered ID (via DCR), or an **HTTPS URL pointing to a
+Client ID Metadata Document (CIMD)**. CIMD is the MCP specification's preferred registration method — the server
+fetches client metadata from the URL on-the-fly, so no pre-registration is needed.
+
 1. Agent calls `POST /current/oauth/authorize/` with PKCE parameters (`code_challenge`, `code_challenge_method=S256`,
    `client_id`, `redirect_uri`, `response_type=code`) — gets back an authorization URL
 2. The user opens the URL in their browser, signs in (supports SSO), and approves access
@@ -160,7 +163,7 @@ This is the recommended approach when:
 
 | Scenario | Recommended Approach |
 |----------|---------------------|
-| Operating autonomously, storing files, building for users | Create an agent account with your own org |
+| Operating autonomously, storing files, building for users | Create an agent account with your own org (your personal collection of workspaces) |
 | Helping a human manage their existing account | Ask the human to create an API key for you |
 | Working within a human's org with your own identity | Create an agent account, have the human invite you |
 | Building something to hand off to a human | Create an agent account, build it, then transfer the org |
@@ -182,6 +185,10 @@ needed.
 **Verify your token:** Call `GET /current/user/auth/check/` at any time to validate your current token and get the
 authenticated user's ID. This is useful at startup to confirm your credentials are valid before beginning work, or to
 detect an expired token without waiting for a 401 error on a real request.
+
+### Organizations — Collectors of Workspaces
+
+An organization (org) is a collector of workspaces. It can represent a company, a business unit, a team, or simply your own personal collection. Every workspace and share lives under an org, and orgs are the billable entity — storage, credits, and member limits are tracked at the org level.
 
 ### Internal vs External Orgs
 
@@ -276,10 +283,10 @@ GET /current/orgs/list/?limit=10&offset=10
 
 ## Core Capabilities
 
-### 1. Workspaces — Organized File Storage
+### 1. Workspaces — Shared Spaces for Agentic Teams
 
-Workspaces are collaborative containers for files. Each workspace has its own storage, member list, AI chat, and
-activity feed. Think of them as project folders with superpowers.
+Workspaces are where agentic teams do their work. Each workspace has its own storage, member list, AI chat, and
+activity feed — a shared environment where agents collaborate with other agents and with humans.
 
 - **50 GB included storage** on the free agent plan
 - **Files up to 1 GB** per upload
@@ -293,8 +300,8 @@ activity feed. Think of them as project folders with superpowers.
 
 Workspaces have an **intelligence** toggle that controls whether AI features are active. This is a critical decision:
 
-**Intelligence OFF** — the workspace is pure file storage. You can still attach files directly to an AI chat
-conversation (up to 10 files), but files are not persistently indexed. This is fine for simple storage and sharing where
+**Intelligence OFF** — the workspace stores files without AI indexing. You can still attach files directly to an AI chat
+conversation (up to 10 files), but files are not persistently indexed. This is fine for coordination workflows where
 you don't need to query your content.
 
 **Intelligence ON** — the workspace becomes an AI-powered knowledge base. Every file uploaded is automatically ingested,
@@ -305,19 +312,21 @@ summarized, and indexed. This enables:
 - **Semantic search** — find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even
   if those exact words don't appear in the filename.
 - **Auto-summarization** — short and long summaries generated for every file, searchable and visible in the UI.
-- **Metadata extraction** — AI pulls key metadata from documents automatically.
+- **Metadata extraction** — AI pulls structured metadata from documents and images automatically using templates.
+  Assign a template to a workspace, and every file uploaded is automatically extracted against that schema during
+  ingestion. You can also trigger extraction manually or in batch. See section 14 (Metadata) for the full API.
 
-Intelligence is enabled by default when creating workspaces via the API for agent accounts. If you're just using Fast.io
-for storage and sharing, you can disable it to conserve credits. If you want to query your content — enable it.
+Intelligence is enabled by default when creating workspaces via the API for agent accounts. If your team only needs a
+shared workspace for coordination, you can disable it to conserve credits. If you want to query your content — enable it.
 
-**Agent use case:** Create a workspace per project or client. Enable intelligence if you need to query the content
-later. Upload reports, datasets, and deliverables. Invite the human stakeholders. Everything is organized, searchable,
-and versioned.
+**Agent use case:** Create a workspace per project or client. Enable intelligence if agents or humans need to query the
+content. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized,
+searchable, and versioned — and the whole team can see it.
 
-### 2. Shares — Branded Data Rooms for Humans
+### 2. Shares — Structured Agent-Human Exchange
 
-Shares are purpose-built spaces for exchanging files with people outside your workspace. Three modes cover every
-exchange pattern:
+Shares are purpose-built spaces for exchanging files between your agentic team and external humans. Three modes cover
+every exchange pattern:
 
 | Mode         | What It Does                  | Agent Use Case                                |
 |--------------|-------------------------------|-----------------------------------------------|
@@ -358,8 +367,7 @@ Both modes look the same to share recipients — a branded data room with file p
 features. The difference is whether the content is a snapshot (room) or a live view (shared folder).
 
 **Agent use case:** Generate a quarterly report, create a Send share with your client's branding, set a 30-day
-expiration, and share the link. The client sees a professional, branded page with instant file preview — not a raw
-download link.
+expiration, and share the link. The client sees a branded page with instant file preview — not a raw download link.
 
 ### 3. QuickShare — Instant File Handoff
 
@@ -407,7 +415,7 @@ indexed for RAG.
 - You're building a persistent knowledge base
 
 **Disable intelligence when:**
-- You're using the workspace purely for storage and sharing
+- You're using the workspace purely for team coordination and file exchange
 - You only need to analyze specific files (use file attachments instead)
 - You want to conserve credits (ingestion costs 10 credits/page for documents, 5 credits/second for video)
 
@@ -849,8 +857,9 @@ user to upgrade the org themselves.
 - Human can upgrade to Pro or Business at any time for unlimited credits and expanded limits
 
 **Agent use case:** A user says "Set up a project workspace for my team." You create the org, build out workspace
-structure, upload templates, configure shares for client deliverables, invite team members — then transfer ownership.
-The human walks into a fully configured platform. You stay on as admin to keep managing things.
+structure, upload templates, configure shares for client deliverables, invite agents and human team members — then
+transfer ownership. The human walks into a fully configured platform with an agentic team already in place. You stay on
+as admin to keep managing things.
 
 **Credit exhaustion use case:** Your agent hits the 5,000 credit limit mid-month. Create a transfer token, send the
 claim URL to the human user, and let them know they can upgrade to Pro or Business for unlimited credits. After
@@ -968,7 +977,7 @@ Use the `event` parameter to filter by exact event name. Here are the most usefu
 
 **Metadata:**
 `metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`,
-`metadata_template_update`, `metadata_template_delete`, `metadata_template_settings_update`,
+`metadata_template_update`, `metadata_template_delete`,
 `metadata_view_update`, `metadata_view_delete`, `metadata_template_select`
 
 **Quick shares:**
@@ -1066,6 +1075,185 @@ is identical, just slightly higher latency.
 of polling the file details endpoint every few seconds, open a single long-poll on the workspace. When
 `ai_state:{fileId}` appears in the activity response, the file is indexed and ready for AI chat.
 
+### 14. Metadata — Structured Data on Files
+
+The metadata system lets agents attach structured, typed key-value data to files. This goes beyond filenames and
+timestamps — you can store invoice amounts, contract parties, document categories, or any domain-specific fields, then
+query and sort files by those fields.
+
+#### Architecture
+
+The system has three layers:
+
+1. **Templates** — define a metadata schema: named fields with types (`string`, `int`, `float`, `bool`, `json`, `url`,
+   `datetime`), constraints (`min`, `max`, `fixed_list`), and descriptions. Templates belong to a workspace and are
+   grouped by category (`legal`, `financial`, `business`, `medical`, `technical`, `engineering`, `insurance`,
+   `educational`, `multimedia`, `hr`).
+
+2. **Template Assignments** — bind a single template to a workspace. All files in the workspace inherit that template
+   automatically. One template per workspace — assigning a new template replaces the previous one. This keeps resolution
+   simple and efficient (a single lookup instead of a tree-walk).
+
+3. **Node Metadata** — the actual key-value pairs stored on individual files. Each file's metadata is split into
+   **template metadata** (conforming to the resolved template's field definitions) and **custom metadata** (user-defined
+   fields not tied to any template).
+
+#### Template Management
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /current/metadata/templates/categories/` | List available template categories |
+| `POST /current/workspace/{id}/metadata/templates/` | Create a template (name, description, category, fields JSON) |
+| `DELETE /current/workspace/{id}/metadata/templates/` | Delete a template |
+| `GET /current/workspace/{id}/metadata/templates/list/` | List templates (sub-paths: `all`, `custom`, `system`, `enabled`, `disabled`) |
+| `GET /current/workspace/{id}/metadata/templates/{template_id}/details/` | Get template details with all fields |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/settings/` | Enable/disable, set priority (1-5) |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/update/` | Update definition (append `/create/` to copy) |
+
+#### Template Assignment & Resolution
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /current/workspace/{id}/metadata/template/assign/` | Assign template to the workspace (one per workspace) |
+| `DELETE /current/workspace/{id}/metadata/template/unassign/` | Remove the workspace template assignment |
+| `GET /current/workspace/{id}/metadata/template/resolve/{node_id}/` | Resolve the workspace template (`node_id` accepted for compat, ignored) |
+| `GET /current/workspace/{id}/metadata/template/assignments/` | List the workspace template assignment |
+
+#### Node Metadata Operations
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | Get all metadata (`template_metadata` + `custom_metadata`) |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/update/{template_id}/` | Set/update key-value pairs |
+| `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Delete metadata keys |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | AI-extract metadata from file content (documents, images, code) |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract-all/` | Batch-extract metadata for all files in a folder (async, returns job_id) |
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/list/{template_id}/` | List files with metadata for a template |
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/templates/` | List templates in use across files |
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/versions/` | Metadata version history |
+
+#### Saved Views
+
+Saved views persist filter/sort configurations for browsing metadata across files in a spreadsheet-like interface.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/view/` | Create or update a saved view |
+| `DELETE /current/workspace/{id}/storage/{node_id}/metadata/view/` | Delete a saved view |
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/views/` | List all saved views |
+
+#### AI-Powered Extraction
+
+Metadata extraction works in three modes:
+
+1. **Automatic (during ingestion)** — when intelligence is enabled and a template is assigned to the workspace, every
+   file uploaded is automatically extracted against the template schema during the ingestion pipeline. No API call
+   needed — metadata appears on the file after ingestion completes. This includes documents, spreadsheets, images
+   (PNG, JPEG, WebP up to 30 MB), and code files.
+
+2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) resolves the workspace template, reads
+   the file content, and uses AI to populate the template fields. You can optionally pass `template_id` to override the
+   workspace template. Extraction is synchronous — the response includes the extracted metadata immediately.
+
+3. **Batch (per folder)** — the extract-all endpoint (`POST .../metadata/extract-all/`) enqueues an async job that
+   processes every file in a folder against the workspace template. Returns a `job_id` for tracking. Rate-limited to
+   2 requests/minute, 10/hour. Use this when you assign a template to a workspace that already contains files.
+
+A daily background process also detects stale metadata — files whose extraction predates the template's last update —
+and automatically re-extracts them, ensuring metadata stays current when templates evolve.
+
+For example, uploading an invoice to a workspace with a "financial" template automatically fills in fields like
+`invoice_number`, `amount`, `vendor_name`, and `due_date` — no extraction call required if intelligence is enabled.
+
+#### Field Definition Structure
+
+When creating templates, each field in the `fields` JSON array supports:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | string | Field identifier (alphanumeric + underscore) |
+| `description` | string | Human-readable description |
+| `type` | string | `string`, `int`, `float`, `bool`, `json`, `url`, `datetime` |
+| `min` | number | Minimum value constraint |
+| `max` | number | Maximum value constraint |
+| `default` | mixed | Default value |
+| `fixed_list` | array | Allowed values (dropdown) |
+| `can_be_null` | bool | Whether null is allowed |
+
+#### Agent Use Cases
+
+- **Automatic classification:** Assign a template to the workspace, enable intelligence, upload files. Every file gets
+  structured metadata extracted automatically during ingestion — no manual extraction calls needed.
+- **Data pipeline:** Create a workspace with an invoice template assigned. Upload invoices — metadata (amounts, vendors,
+  dates) is extracted automatically. Query by field values using the list endpoint.
+- **Compliance tracking:** Create a template with required fields (review_date, reviewer, status). Assign to the
+  workspace. The metadata view shows which files are missing required fields at a glance.
+- **Bulk backfill:** Assign a template to a workspace that already has files, then use `extract-all` on each folder to
+  batch-extract metadata for existing content. The daily staleness walker re-extracts when templates are updated.
+- **Custom + template fields:** Files support both template metadata (structured, schema-enforced) and custom metadata
+  (user-defined, ad-hoc). Use template fields for consistent extraction and custom fields for one-off annotations.
+
+### 15. Reference Values — Enums & Constraints
+
+This section lists valid values for commonly used parameters across the API.
+
+#### Preview Types
+
+Valid `preview_type` values (used in preview read/preauthorize endpoints):
+`thumbnail`, `image`, `hlsstream`, `pdf`, `spreadsheet`
+
+Preview states returned in file details: `unknown`, `not possible`, `not generated`, `error`, `in progress`, `ready`
+
+#### Image Transformations
+
+The `transform_name` in transform endpoints is `image`. Supported query parameters:
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `output-format` | `png`, `jpg` | Output image format |
+| `width`, `height` | pixels | Resize dimensions |
+| `cropwidth`, `cropheight` | pixels | Crop region size |
+| `cropx`, `cropy` | pixels | Crop region origin |
+| `rotate` | `0`, `90`, `180`, `270` | Rotation angle |
+| `size` | `IconSmall`, `IconMedium`, `Preview` | Predefined size presets |
+
+Transformation states: `rendered`, `rendering`, `unrendered`, `unable to render`
+
+#### AI File States
+
+When intelligence is enabled, each file progresses through AI processing states (visible in node details `ai.state`):
+`disabled` → `pending` → `inprogress` → `ready` (or `failed`)
+
+#### AI Chat Parameters
+
+| Parameter | Constraint |
+|-----------|-----------|
+| `type` | `chat` or `chat_with_rag` |
+| `personality` | `concise` (default), `detailed`, `fun` |
+| `privacy` / `visibility` | `private`, `public` (default: `public`) |
+| `name` | Max 100 characters |
+| `question` | Max 12,768 characters |
+| `files_attach` | Max 20 files, 200 MB total |
+| `files_scope` | Max 100 `nodeId:versionId` pairs |
+
+#### Quick Share Constraints
+
+- Single file only, max 1 GB
+- Default expiration: 3 hours, maximum: 24 hours
+- Auto-deleted on expiration, public access (no auth)
+- Can update expiration but not beyond the original 24-hour window
+
+#### Download Tokens
+
+Use `GET .../storage/{node_id}/requestread/` to generate a temporary auth-free download token. Pass the returned
+`token` as a query parameter: `GET .../storage/{node_id}/read/?token={token}`. This is useful for opening files in
+browser tabs without sending Authorization headers.
+
+#### Unit Calculations
+
+- **Storage** is measured in GibiBytes (1024^3 bytes)
+- **Bandwidth** is measured in GigaBytes (1000^3 bytes)
+
 ---
 
 ## Agent Plan — What's Included (Free)
@@ -1153,14 +1341,14 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 5. Semantic search finds files by meaning, not just filename
 6. Answers include citations to specific pages and files
 
-### Set Up a Project for a Human
+### Set Up an Agentic Team Workspace
 
 1. Create org + workspace + folder structure
 2. Upload templates and reference docs
-3. Create shares for client deliverables (Send) and intake (Receive)
-4. Configure branding, passwords, expiration
-5. Transfer ownership to the human
-6. Human gets a fully configured platform, agent keeps admin access
+3. Invite other agents and human team members
+4. Create shares for client deliverables (Send) and intake (Receive)
+5. Configure branding, passwords, expiration
+6. Transfer ownership to a human when ready — they get a fully configured platform, agents keep admin access
 
 ### Collaborative Review Cycle (Exchange Share)
 
@@ -1169,6 +1357,16 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 3. Share the link — recipient can both download your files and upload theirs
 4. Comments and annotations on files enable inline feedback
 5. AI summarizes what changed between rounds (if intelligence is on)
+
+### Extract Structured Metadata From Documents
+
+1. Create a workspace **with intelligence enabled**
+2. Create a metadata template with the fields you need (e.g., invoice_number, amount, vendor, due_date)
+3. Assign the template to the workspace (`POST .../metadata/template/assign/`)
+4. Upload files — metadata is automatically extracted during ingestion against the template schema
+5. For existing files, use `POST .../metadata/extract-all/` on each folder to batch-extract
+6. Query files by metadata fields using the list endpoint, or view in the spreadsheet-like metadata view
+7. Custom fields can be added to any file independently of the template
 
 ### One-Off Document Analysis (No Intelligence Needed)
 
@@ -1325,6 +1523,22 @@ workspace's `folder_name` as the workspace identifier.
 | Note (in workspace)| `https://{org.domain}.fast.io/workspace/{workspace.folder_name}/storage/root?note={note_id}` |
 | Note (preview)     | `https://{org.domain}.fast.io/workspace/{workspace.folder_name}/preview/{note_id}` |
 | Browse workspaces  | `https://{org.domain}.fast.io/browse-workspaces`                            |
+
+#### Workspace View Query Parameters
+
+Append query parameters to workspace storage URLs to control the initial view mode and info panel tab:
+
+| Parameter | Values                                              | Effect                              |
+|-----------|-----------------------------------------------------|-------------------------------------|
+| `view`    | `list`, `grid`, `metadata`                          | Sets file list layout mode          |
+| `tab`     | `info`, `metadata`, `comments`, `activity`, `versions` | Opens info panel on specified tab |
+
+Parameters are applied on page load only — they set the initial view state but are not updated during in-app navigation.
+
+**Examples:**
+- `https://acme.fast.io/workspace/q4-planning/storage/root?view=metadata`
+- `https://acme.fast.io/workspace/q4-planning/storage/root?tab=metadata`
+- `https://acme.fast.io/workspace/q4-planning/storage/root?view=metadata&tab=info`
 
 **Examples:**
 - `https://acme.fast.io/workspace/q4-planning/storage/root`
