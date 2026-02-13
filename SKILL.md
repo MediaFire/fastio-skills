@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.55.0"
+  version: "1.56.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.55
+**Version:** 1.56
 **Last Updated:** 2026-02-13
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
@@ -74,12 +74,34 @@ Two transports are available on each:
 
 ### MCP Resources
 
-The server exposes two MCP resources that clients can read directly via `resources/list` and `resources/read`:
+The server exposes two static MCP resources and three file download resource templates. Clients can read them via `resources/list` and `resources/read`:
 
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 14 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (array of granted scopes or null), `agent_name` (string or null) | `application/json` |
+
+**File download resource templates** -- read file content directly through MCP without needing external HTTP access:
+
+| URI Template | Name | Auth | Description |
+|---|---|---|---|
+| `download://workspace/{workspace_id}/{node_id}` | download-workspace-file | Session token | Download a file from a workspace |
+| `download://share/{share_id}/{node_id}` | download-share-file | Session token | Download a file from a share |
+| `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | Download a quickshare file |
+
+Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
+
+### HTTP File Pass-Through
+
+For files larger than 50 MB or when raw binary streaming is needed, the server provides an HTTP pass-through endpoint that streams file content directly from the API:
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /file/workspace/{workspace_id}/{node_id}` | `Mcp-Session-Id` header | Stream a workspace file |
+| `GET /file/share/{share_id}/{node_id}` | `Mcp-Session-Id` header | Stream a share file |
+| `GET /file/quickshare/{quickshare_id}` | None (public) | Stream a quickshare file |
+
+The response includes proper `Content-Type`, `Content-Length`, and `Content-Disposition` headers from the upstream API. Errors are returned as HTML pages. The `Mcp-Session-Id` header is the same session identifier used for MCP protocol communication.
 
 ### MCP Prompts
 
@@ -804,13 +826,13 @@ File and folder operations within workspaces and shares. List, create folders, m
 
 ### upload
 
-File upload operations. Single-step text file upload, chunked upload lifecycle (create session, upload chunks as plain text, staged binary blobs, or legacy base64, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management.
+File upload operations. Single-step text file upload, chunked upload lifecycle (create session, stage binary blobs, upload chunks as plain text / base64 / blob reference, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management.
 
-**Actions:** create-session, chunk, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, text-file, web-import, web-list, web-cancel, web-status, limits, extensions
+**Actions:** create-session, chunk, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, stage-blob, text-file, web-import, web-list, web-cancel, web-status, limits, extensions
 
 ### download
 
-Generate download URLs and ZIP archive URLs for workspace files, share files, and quickshare links. MCP tools cannot stream binary data -- these actions return URLs that can be opened in a browser or passed to download utilities. Requires `context_type` parameter (`workspace` or `share`) for file-url and zip-url actions.
+Generate download URLs and ZIP archive URLs for workspace files, share files, and quickshare links. MCP tools cannot stream binary data -- these actions return URLs that can be opened in a browser or passed to download utilities. Requires `context_type` parameter (`workspace` or `share`) for file-url and zip-url actions. Responses include a `resource_uri` field (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly via MCP resources. Direct download URLs include `?error=html` so errors render as human-readable HTML in browsers.
 
 **Actions:** file-url, zip-url, quickshare-details
 
@@ -890,7 +912,7 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 2. `org` action `list-workspaces` with `org_id` -- get workspaces in the organization. Note the `workspace_id` values.
 3. `storage` action `list` with `context_type: "workspace"`, `context_id` (workspace ID), and `node_id: "root"` -- browse the root folder. Note the `node_id` values for files and subfolders.
 4. `storage` action `details` with `context_type: "workspace"`, `context_id`, and `node_id` -- get full details for a specific file (name, size, type, versions).
-5. `download` action `file-url` with `context_type: "workspace"`, `context_id`, and `node_id` -- get a temporary download URL with an embedded token. Return this URL to the user.
+5. `download` action `file-url` with `context_type: "workspace"`, `context_id`, and `node_id` -- get a temporary download URL with an embedded token. The response also includes a `resource_uri` (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly. Return the download URL to the user, or use the resource URI to read the file through MCP.
 
 ### 3. Upload a File to a Workspace
 
@@ -901,8 +923,8 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 1. `upload` action `create-session` with `profile_type: "workspace"`, `profile_id` (the workspace ID), `parent_node_id` (target folder or `"root"`), `filename`, and `filesize` in bytes. Returns an `upload_id`.
 2. `upload` action `chunk` with `upload_id`, `chunk_number` (1-indexed), and chunk data. Three options for passing data (provide exactly one):
    - **`content`** — for text (strings, code, JSON, etc.). Do NOT use `data` for text.
-   - **`blob_ref`** — *preferred for binary*. First `POST` raw bytes to `/blob` (with `Mcp-Session-Id` header, `Content-Type: application/octet-stream`). The server returns `{ blob_id, size }`. Then pass that `blob_id` as `blob_ref`. Avoids base64 overhead entirely. Blobs expire after 5 minutes and are consumed (deleted) on use.
-   - **`data`** — legacy base64-encoded binary. Still works but adds ~33% size overhead.
+   - **`data`** — base64-encoded binary. The simplest approach for binary uploads through MCP tool calls.
+   - **`blob_ref`** — blob ID from `upload` action `stage-blob` or `POST /blob`. Useful when pre-staging data or when using the HTTP blob endpoint from non-MCP clients. Blobs expire after 5 minutes and are consumed (deleted) on use.
    Repeat for each chunk. Wait for each chunk to return success before sending the next.
 3. `upload` action `finalize` with `upload_id` -- triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on assembly failure. The file is automatically added to the target workspace and folder specified in step 1 -- no separate add-file call is needed.
 
@@ -1016,20 +1038,35 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 
 `download` actions `zip-url` (workspace and share) return the URL along with the required `Authorization` header value.
 
-### Binary Uploads (Blob Staging)
+### Binary Uploads
 
-For binary chunk uploads, the server provides a sidecar `POST /blob` endpoint that accepts raw binary data outside the JSON-RPC pipe. This avoids the ~33% size overhead and CPU cost of base64 encoding.
+Three approaches for uploading binary data as chunks, each suited to different situations:
+
+**1. `data` parameter (base64) — simplest for MCP agents**
+
+Pass base64-encoded binary directly in the `data` parameter of `upload` action `chunk`. No extra steps required. Works with any MCP client. Adds ~33% size overhead from base64 encoding.
+
+**2. `stage-blob` action — MCP tool-based blob staging**
+
+Use `upload` action `stage-blob` with `data` (base64) to pre-stage binary data as a blob. Returns a `blob_id` that you pass as `blob_ref` in the chunk call. Useful when you want to decouple staging from uploading, or when preparing multiple chunks in advance.
 
 **Flow:**
-1. `POST /blob` with headers `Mcp-Session-Id: <session_id>` and `Content-Type: application/octet-stream`. Send raw binary bytes as the request body. The server returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
-2. Call `upload` action `chunk` with `blob_ref: "<blob_id>"` instead of `data`. The server retrieves the staged bytes and uploads them to the Fast.io API.
+1. `upload` action `stage-blob` with `data` (base64-encoded binary). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+2. `upload` action `chunk` with `blob_ref: "<blob_id>"`. The server retrieves the staged bytes and uploads them.
 
-**Constraints:**
+**3. `POST /blob` endpoint — HTTP blob staging for non-MCP clients**
+
+A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. This avoids base64 encoding entirely — useful for clients that can make direct HTTP requests alongside MCP tool calls.
+
+**Flow:**
+1. `POST /blob` with headers `Mcp-Session-Id: <session_id>` and `Content-Type: application/octet-stream`. Send raw binary bytes as the request body. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
+2. `upload` action `chunk` with `blob_ref: "<blob_id>"`.
+
+**Blob constraints (apply to both staging methods):**
 - Blobs expire after **5 minutes**. Stage and consume them promptly.
 - Each blob is consumed (deleted) on first use — it cannot be reused.
 - Maximum blob size: **100 MB**.
 - SSE transport clients must add `?transport=sse` to the `/blob` URL.
-- The `content` parameter (for text) and `data` parameter (for base64) remain available. `blob_ref` is the preferred method for binary data.
 
 ### Event Filtering Reference
 
@@ -1546,7 +1583,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **create-session** -- Create a chunked upload session for a file.
 
-**chunk** -- Upload a single chunk. Use `content` for text/strings, `blob_ref` for binary data staged via `POST /blob` (preferred — avoids base64 overhead), or `data` for legacy base64-encoded binary. Provide exactly one.
+**chunk** -- Upload a single chunk. Use `content` for text/strings, `data` for base64-encoded binary, or `blob_ref` for binary staged via `stage-blob` action or `POST /blob`. Provide exactly one.
 
 **finalize** -- Finalize an upload session, trigger file assembly, and poll until fully stored or failed. Returns the final session state.
 
@@ -1561,6 +1598,8 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 **chunk-status** -- Get chunk information for an upload session.
 
 **chunk-delete** -- Delete/reset a chunk in an upload session.
+
+**stage-blob** -- Stage base64-encoded binary data as a blob for later use with the `chunk` action's `blob_ref` parameter. Pass `data` (base64 string). Returns `{ blob_id, size }`. Blobs expire after 5 minutes and are consumed on first use. Alternative to passing `data` directly in the chunk call.
 
 **text-file** -- Upload a text file in a single step. Creates an upload session, uploads the content, finalizes, and polls until stored. Returns the new file ID. Use for text-based files (code, markdown, CSV, JSON, config) instead of the multi-step chunked flow.
 

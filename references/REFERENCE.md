@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.18.0 | **Last updated:** 2026-02-12
+> **Version:** 1.19.0 | **Last updated:** 2026-02-13
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -23,7 +23,8 @@ below for the full tool list.
 
 MCP-connected agents also receive guided prompts (`prompts/list`, `prompts/get`) for common multi-step operations — see
 the "MCP Prompts" section below — and can read resources (`resources/read`) including `skill://guide` for full tool
-documentation and `session://status` for current authentication state.
+documentation, `session://status` for current authentication state, and `download://` resource templates for direct
+file content retrieval.
 
 This guide covers platform concepts and capabilities; the MCP server provides tool-level details through its standard
 protocol interface. The API endpoints referenced below are what the MCP server calls under the hood, and are available
@@ -782,16 +783,37 @@ Body: from={"type":"upload","upload":{"id":"{session_id}"}}
 
 This is useful when you need to upload first and decide where to place the file later.
 
-#### MCP Binary Upload (Blob Sidecar)
+#### MCP Binary Upload — Three Approaches
 
-MCP-connected agents can avoid base64 encoding overhead (~33% size savings) by staging raw binary data through a
-sidecar endpoint:
+MCP agents have three ways to pass binary data when uploading chunks. Each uses the `upload` tool's `chunk` action
+with exactly one of `data`, `blob_ref`, or `content` (for text):
 
-1. `POST /blob` with your `Mcp-Session-Id` header and the raw bytes as the request body
-2. The server returns a `blob_id`
-3. Pass `blob_ref` (the `blob_id`) instead of the base64-encoded `chunk` field when calling the `upload` tool with action `chunk`
+**1. `data` parameter (base64) — simplest for MCP agents**
 
-This is MCP-specific — the REST API continues to use `multipart/form-data` as described above.
+Pass base64-encoded binary directly in the `data` parameter of the `chunk` action. No extra steps required. Works
+with any MCP client. Adds ~33% size overhead from base64 encoding.
+
+**2. `stage-blob` action — MCP tool-based blob staging**
+
+Use the `upload` tool's `stage-blob` action with `data` (base64) to pre-stage binary data as a blob. Returns a
+`blob_id` that you pass as `blob_ref` in the `chunk` call. Useful when decoupling staging from uploading or preparing
+multiple chunks in advance.
+
+1. `upload` action `stage-blob` with `data` (base64-encoded binary) → returns `{ blob_id, size }`
+2. `upload` action `chunk` with `blob_ref` set to the `blob_id`
+
+**3. `POST /blob` endpoint — HTTP blob staging for non-MCP clients**
+
+A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe, avoiding base64 encoding entirely.
+Useful for clients that can make direct HTTP requests alongside MCP tool calls.
+
+1. `POST /blob` with `Mcp-Session-Id` header and raw bytes as the request body → returns `{ blob_id, size }`
+2. `upload` action `chunk` with `blob_ref` set to the `blob_id`
+
+**Blob constraints (apply to both staging methods):**
+- Blobs expire after **5 minutes** — stage and consume them promptly
+- Each blob is consumed (deleted) on first use and cannot be reused
+- Maximum blob size: **100 MB**
 
 **Agent use case:** You're generating a 200 MB report. Create an upload session targeting the client's workspace, split
 the file into 5 MB chunks, upload 3 at a time, trigger assembly, and poll until `stored`. The file appears in the
@@ -1249,6 +1271,10 @@ Use `GET .../storage/{node_id}/requestread/` to generate a temporary auth-free d
 `token` as a query parameter: `GET .../storage/{node_id}/read/?token={token}`. This is useful for opening files in
 browser tabs without sending Authorization headers.
 
+**MCP agents** have additional download options: use the `download://` resource templates for direct content retrieval
+(up to 50 MB), or the `/file/` HTTP pass-through endpoint for streaming larger files. See the "MCP Tool Architecture"
+section for details.
+
 #### Unit Calculations
 
 - **Storage** is measured in GibiBytes (1024^3 bytes)
@@ -1414,8 +1440,8 @@ named actions.
 | `workspace`  | Workspaces                      | `list`, `details`, `create`, `update`, `check-name`                           |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
 | `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url`, `preview-transform` |
-| `upload`     | File uploads                    | `create-session`, `chunk`, `complete`, `text-file`, `web-import`              |
-| `download`   | Downloads                       | `file-url`, `zip-create`, `quickshare-details`                                |
+| `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
+| `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
 | `ai`         | AI chat (scope defaults to entire workspace — omit scope params to search all files). Folder scope expands subfolder tree only — files within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list` |
 | `member`     | Members                         | `add`, `update`, `remove`, `details`                                          |
 | `invitation` | Invitations                     | `list`, `send`, `revoke`, `accept-all`                                        |
@@ -1427,6 +1453,29 @@ named actions.
 **Resources** available via `resources/read`:
 - `skill://guide` — full tool documentation with parameters and examples
 - `session://status` — current authentication state
+- `download://workspace/{workspace_id}/{node_id}` — download a workspace file (returns base64 content up to 50 MB)
+- `download://share/{share_id}/{node_id}` — download a share file (returns base64 content up to 50 MB)
+- `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, up to 50 MB)
+
+The `download://` resource templates provide direct file content retrieval via the MCP `resources/read` protocol.
+Files up to 50 MB are returned inline as base64 blobs. Larger files return a fallback message directing to the HTTP
+pass-through endpoint (see below). The `download` tool's `file-url` and `quickshare-details` actions include a
+`resource_uri` field in their response that points to the corresponding `download://` resource URI.
+
+**HTTP pass-through endpoint** for file downloads:
+
+The MCP server exposes a `/file/` HTTP endpoint that streams file content directly with proper `Content-Type`,
+`Content-Length`, and `Content-Disposition` headers — useful for large files that exceed the 50 MB MCP resource limit
+or when streaming is preferred over base64 encoding.
+
+| Path | Auth | Description |
+|------|------|-------------|
+| `GET /file/workspace/{workspace_id}/{node_id}` | `Mcp-Session-Id` header required | Stream a workspace file |
+| `GET /file/share/{share_id}/{node_id}` | `Mcp-Session-Id` header required | Stream a share file |
+| `GET /file/quickshare/{quickshare_id}` | None (public) | Stream a quickshare file |
+
+For workspace and share downloads, include the `Mcp-Session-Id` header from your active MCP session. The server uses
+the session's auth token to fetch the file and streams it back.
 
 ### Tool Annotations — Safety & Side Effects
 
@@ -1463,7 +1512,7 @@ Retrieve the full list with `prompts/list` and get detailed guidance for a speci
 | Prompt                 | Name                          | When to Use                                                                                          |
 |------------------------|-------------------------------|------------------------------------------------------------------------------------------------------|
 | `get-started`          | Getting Started Guide         | First-time onboarding: create account, org, and workspace. Covers autonomous agents, API key auth, browser login (PKCE), and agents invited to existing orgs. |
-| `add-file`             | Add File Guide                | Adding files from text content, chunked binary upload (with blob staging), or URL import (Google Drive, OneDrive, Dropbox). |
+| `add-file`             | Add File Guide                | Adding files from text content, chunked binary upload (with `stage-blob` action or `POST /blob` for binary data), or URL import (Google Drive, OneDrive, Dropbox). |
 | `ask-ai`               | AI Chat Guide                 | Querying files with AI. Covers RAG-indexed vs file attachment modes, intelligence state checks, scoping (folder scope = search boundary, not file enumeration), polling, and response structure. |
 | `comment-conversation` | Comment Collaboration Guide   | Agent-human feedback loop on files. Read/write anchored comments (image regions, video timestamps, PDF pages), threaded replies, emoji reactions, and deep-link URL construction. |
 | `catch-up`             | Activity Catch-Up Guide       | Understanding what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll. |
