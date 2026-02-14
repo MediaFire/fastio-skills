@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.20.0 | **Last updated:** 2026-02-13
+> **Version:** 1.21.0 | **Last updated:** 2026-02-14
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -1472,7 +1472,7 @@ named actions.
 
 ### `web_url` in Tool Responses — Use It Instead of Building URLs
 
-Most tool responses include a `web_url` field containing a ready-to-use link to the resource in the Fast.io web UI.
+All entity-returning tool responses include a `web_url` field containing a ready-to-use link to the resource in the Fast.io web UI.
 **Use `web_url` directly** instead of constructing URLs manually from API response fields. This avoids errors from
 slug generation, subdomain routing, or parameter formatting.
 
@@ -1480,15 +1480,15 @@ Tools that return `web_url`:
 
 | Tool | Actions |
 |------|---------|
-| `storage` | `list`, `details`, `search`, `preview-url`, `preview-transform` |
-| `share` | `list`, `details`, `update`, `public-details` |
-| `workspace` | `list`, `update`, `update-note` |
-| `ai` | `chat-details`, `chat-list` |
+| `org` | `list`, `details`, `create`, `update`, `public-details`, `list-workspaces`, `list-shares`, `create-workspace`, `transfer-token-create`, `transfer-token-list`, `discover-all`, `discover-available`, `discover-external` |
+| `workspace` | `list`, `details`, `update`, `available`, `list-shares`, `create-note`, `update-note`, `quickshare-get`, `quickshares-list` |
+| `share` | `list`, `details`, `create`, `update`, `public-details`, `available` |
+| `storage` | `list`, `details`, `search`, `trash-list`, `create-folder`, `copy`, `move`, `rename`, `restore`, `add-file`, `version-list`, `version-restore`, `preview-url`, `preview-transform` |
+| `ai` | `chat-create`, `chat-details`, `chat-list` |
+| `upload` | `text-file`, `finalize` |
 | `download` | `file-url`, `quickshare-details` |
-| `upload` | `finalize`, `text-file` |
-| `org` | `details`, `create`, `create-workspace` |
 
-When presenting links to users, prefer `web_url` over manually constructed URLs.
+When presenting links to users, always use `web_url` from tool responses. Never construct URLs manually.
 
 **Resources** available via `resources/read`:
 - `skill://guide` — full tool documentation with parameters and examples
@@ -1526,13 +1526,18 @@ Larger files return a fallback message directing to the `/file/` HTTP pass-throu
 **`web_url` in download responses:** The `download` tool's `file-url` and `quickshare-details` actions include both
 a `resource_uri` (for MCP resource reads) and a `web_url` (for browser-facing links) in their responses.
 
+**Resource completion** — The workspace and share `download://` resource templates support MCP `completion/complete`
+for tab-completion of IDs. Agents can use this to discover valid workspace IDs, share IDs, and node IDs without
+needing to call separate list actions first.
+
 ### Tool Annotations — Safety & Side Effects
 
-All 14 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`) so agents and agent
-frameworks can make informed decisions about confirmation prompts and automated execution.
+All 14 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+`openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
+automated execution.
 
-**Read-only tools** (safe, no confirmation needed):
-- `download`, `event` — these tools only read data and never modify state
+**Read-only tools** (safe, no confirmation needed, `idempotentHint: true`):
+- `download`, `event` — these tools only read data, never modify state, and are safe to retry
 
 **Non-destructive mutation tools** (create or update, no delete actions):
 - `upload`, `invitation` — these tools create or modify resources but cannot delete them
@@ -1542,11 +1547,86 @@ frameworks can make informed decisions about confirmation prompts and automated 
   least one action that permanently removes or closes a resource. Agent frameworks should prompt for confirmation before
   executing destructive actions.
 
+**Discovery tools** (`openWorldHint: true`):
+- `org`, `user`, `workspace`, `share`, `storage` — these tools can discover resources beyond the agent's current
+  context. Agents may encounter resources they haven't seen before in list/search results.
+
 **Credit-consuming operations** to be aware of:
 - AI chat: 1 credit per 100 tokens
 - File uploads: storage credits (100 credits/GB)
 - Downloads: bandwidth credits (212 credits/GB)
 - Document ingestion: 10 credits/page (when intelligence is enabled)
+
+### Response Hints — Guided Agent Workflows
+
+Tool responses include structured hints that help agents navigate multi-step workflows, handle errors gracefully, and
+understand resource state. Agents should read and act on these hints rather than guessing the next step.
+
+**`_next` — Suggested next actions:**
+
+Successful tool responses include a `_next` array of contextual next-step suggestions using exact tool names, action
+names, and IDs from the response. Agents should follow these hints instead of guessing the next step or consulting
+docs. Present on approximately 30 actions across all tools.
+
+Example: after `storage` action `list`, `_next` might suggest `["storage folder-details {node_id}",
+"download file-url {node_id}", "ai chat"]` with actual IDs from the response populated in the suggestions.
+
+**`_warnings` — Destructive or gated action warnings:**
+
+Actions that are destructive, irreversible, or have significant side effects include `_warnings` strings in their
+response. Agents should read these warnings before proceeding and present them to the user when appropriate. Present on
+the following actions:
+- `storage`: purge, bulk copy/move/delete/restore (partial failure warnings)
+- `workspace`: update (intelligence disable), archive, delete
+- `org`: close, billing-create
+- `share`: delete, archive, update (type change)
+- `ai`: chat-delete
+- `download`: file-url (token expiry), zip-url
+- `upload`: stage-blob (5-minute expiry)
+- `org`: transfer-token-create
+
+**`_recovery` — Error recovery hints:**
+
+Error responses (`isError: true`) include `_recovery` hints as actionable bullet points appended to the error text.
+Hints are matched by HTTP status code (10 codes) and error message patterns (12 patterns), guiding agents toward the
+correct resolution. All errors also include `(during: <tool> <action>)` so agents know exactly which operation failed.
+
+| Status | Recovery hint |
+|--------|---------------|
+| 400    | Bad request — check required parameters and value formats |
+| 401    | Re-authenticate using `auth` action `signin` or `pkce-login` |
+| 402    | Credits exhausted — check with `org` action `limits` |
+| 403    | Permission denied — check role with `org` action `details` |
+| 404    | Resource not found — verify the ID is correct |
+| 405    | Method not allowed — check the action name is valid for this tool |
+| 409    | Conflict — resource may already exist |
+| 413    | Payload too large — reduce file size or use chunked upload |
+| 422    | Validation failed — check field values against documented constraints |
+| 429    | Rate limited — wait 2–4 seconds, retry with exponential backoff |
+
+Error message pattern matching provides additional context-specific recovery steps (e.g., "email not verified" →
+use `auth` action `email-verify`; "workspace not found" → check workspace ID with `workspace` action `list`).
+
+**`ai_capabilities` — AI mode availability:**
+
+Included in `workspace` action `details` responses. Shows the available AI modes for the workspace:
+- **Intelligence ON:** `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed search)
+- **Intelligence OFF:** `files_attach` only (max 20 files, 200 MB total)
+
+**`_ai_state_legend` — File AI processing state:**
+
+Included in `storage` action `list` and `search` responses when files have AI state. Describes the possible states:
+- `ready` — file is indexed and available for AI queries
+- `pending` — file is queued for AI processing
+- `inprogress` — file is currently being processed
+- `disabled` — AI processing is disabled for this file
+- `failed` — AI processing failed for this file
+
+**`_context` — Contextual metadata:**
+
+Certain responses include `_context` with additional metadata specific to the operation. For example, `comment` action
+`add` responses include `anchor_formats` describing supported anchor types for positioning comments on files (image
+regions, video/audio timestamps, PDF pages).
 
 ---
 
@@ -1592,6 +1672,8 @@ becomes the subdomain for all org URLs:
 Organization domain: `"acme"` → All org URLs live at: `https://acme.fast.io/...`
 
 The base domain `go.fast.io` is used for routes that don't require org context (public shares, auth, claim).
+
+> **Prefer `web_url`.** The URL patterns below are reference material. In practice, always use the `web_url` field from tool responses — it handles subdomain routing, slug generation, and edge cases automatically. Only fall back to manual construction when `web_url` is absent (e.g., share-context storage operations).
 
 ### Building URLs From API Responses
 

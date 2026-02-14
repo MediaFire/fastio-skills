@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.57.0"
+  version: "1.64.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.57
-**Last Updated:** 2026-02-13
+**Version:** 1.64
+**Last Updated:** 2026-02-14
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
 
@@ -79,7 +79,7 @@ The server exposes two static MCP resources and three file download resource tem
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 14 tools, workflows, and platform documentation | `text/markdown` |
-| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (array of granted scopes or null), `agent_name` (string or null) | `application/json` |
+| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
@@ -1192,9 +1192,9 @@ The auth token, user ID, email, and token expiry are persisted in the server ses
 
 ### Human-Facing URLs
 
-MCP tools manage data via the API, but humans access Fast.io through a web browser. **You must construct real, clickable URLs and include them in your responses whenever you create or reference a workspace, share, or transfer.** The human cannot see API responses directly -- the URL you provide is how they get to their content. Build the URL by substituting values from API responses into these patterns:
+MCP tools manage data via the API, but humans access Fast.io through a web browser. **Always use the `web_url` field from tool responses** -- it is a ready-to-use, clickable URL for the resource. Include it in your responses whenever you create or reference a workspace, share, file, note, or transfer. The human cannot see API responses directly -- the URL you provide is how they get to their content. Fall back to the URL patterns below only when `web_url` is absent (e.g., share-context storage operations):
 
-> **Automatic `web_url` field.** Most tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **Always check for `web_url` first and use it directly.** It appears on: org/workspace/share/storage details, workspace/share list items, storage list/search result items, file previews and transforms, uploads, AI chats, and downloads. Fall back to the URL patterns below only when `web_url` is absent.
+> **Automatic `web_url` field.** All entity-returning tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **NEVER construct URLs manually — always use the `web_url` field from tool responses.** It appears on: org list/details/create/update/public-details/discover-*, org list-workspaces/list-shares, workspace list/details/update/available/list-shares, share list/details/create/update/public-details/available, storage list/details/search/trash-list/copy/move/rename/restore/add-file/create-folder/version-list/version-restore/preview-url/preview-transform, quickshare create/get/list, upload text-file/finalize, download file-url/quickshare-details, AI chat-create/chat-details/chat-list, transfer-token create/list, and notes create/update. Fall back to the URL patterns below only when `web_url` is absent (e.g., share context storage operations).
 
 Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.io/`. The base domain `go.fast.io` handles public routes that do not require org context.
 
@@ -1253,6 +1253,55 @@ Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.
 
 **Important:** The `domain` is the org's domain string (e.g. `acme`), not the numeric org ID. The `folder_name` is the workspace's folder name string (e.g. `q4-reports`), not the numeric workspace ID. Both are returned by their respective API tools.
 
+### Response Hints (`_next`, `_warnings`, and `_recovery`)
+
+Workflow-critical tool responses include a `_next` field -- a short array of suggested next actions using exact tool and action names. Use these hints to guide your workflow instead of guessing what to do next. Example:
+
+```json
+{
+  "workspace_id": "...",
+  "web_url": "https://acme.fast.io/workspace/q4-reports/storage/root",
+  "_next": [
+    "Upload files: upload action text-file or web-import",
+    "Create a share: share action create",
+    "Query with AI: ai action chat-create"
+  ]
+}
+```
+
+**`_warnings`** appear on destructive, irreversible, or potentially problematic actions. Always read warnings before proceeding -- they flag permanent consequences or important caveats. Actions with `_warnings`: storage purge, storage bulk copy/move/delete/restore (partial failures), workspace details (intelligence=false), workspace update (intelligence=false), workspace archive/delete, org close, org billing-create, share delete, share archive, share update (type change), ai chat-delete, download file-url (token expiry), download zip-url (auth required), upload stage-blob (5-min expiry), org transfer-token-create.
+
+**`_recovery`** hints appear on error responses (when `isError: true`). They provide recovery actions based on HTTP status codes AND error message pattern matching. Error messages also include action context (e.g., "during: org create") to help pinpoint the failing operation.
+
+| HTTP Status | Recovery |
+|-------------|----------|
+| 400 | Check required parameters and ID formats |
+| 401 | Re-authenticate: auth action signin or pkce-login |
+| 402 | Credits exhausted -- check balance: org action limits |
+| 403 | Permission denied -- check role: org action details |
+| 404 | Resource not found -- verify the ID, use list actions to discover valid IDs |
+| 409 | Conflict -- resource may already exist |
+| 413 | Request too large -- reduce file/chunk size |
+| 422 | Validation error -- check field formats and constraints |
+| 429 | Rate limited -- wait 2-4s and retry with exponential backoff |
+| 500/503 | Server error -- retry after 2-5 seconds |
+
+Pattern-based recovery: error messages are also matched against common patterns (e.g., "email not verified", "workspace not found", "intelligence disabled") to provide specific recovery steps even when the HTTP status is generic.
+
+**`ai_capabilities`** is included in workspace details responses. It shows which AI modes are available based on the workspace intelligence setting:
+- Intelligence ON: `files_scope`, `folders_scope`, `files_attach` (full RAG indexing)
+- Intelligence OFF: `files_attach` only (max 20 files, 200 MB, no RAG indexing)
+
+**`_ai_state_legend`** is included in storage list and search responses when files have AI indexing state. States: `ready` (indexed, queryable), `pending` (queued), `inprogress` (indexing), `disabled` (intelligence off), `failed` (re-upload needed).
+
+**`_context`** provides contextual metadata on specific responses. Currently used by comment add when anchoring is involved, providing `anchor_formats` with the expected format for image regions, video/audio timestamps, and PDF pages.
+
+**All tool actions now include `_next` hints.** Every successful tool response includes contextual next-step suggestions. Key workflow transitions: auth → org list/create, org create → workspace create, workspace create → upload/share/AI, upload → AI chat/comment/download, share create → add files/members, AI chat create → message read. The hints include the exact tool name, action, and relevant IDs from the current response.
+
+**Tool annotations:** Tools include MCP annotation hints -- `readOnlyHint`, `destructiveHint`, `idempotentHint` (download, event), and `openWorldHint` (org, user, workspace, share, storage) -- to help clients understand tool behavior without documentation.
+
+**Resource completion:** The `download://workspace/{workspace_id}` and `download://share/{share_id}` resource templates support tab-completion for IDs. MCP clients that support `completion/complete` will automatically suggest valid workspace and share IDs from your session.
+
 ### Unauthenticated Tools
 
 The following actions work without a session: `auth` actions `signin`, `signup`, `set-api-key`, `pkce-login`, `email-check`, `password-reset-request`, `password-reset`; and `download` action `quickshare-details`.
@@ -1287,7 +1336,7 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **email-verify** -- Send or validate an email verification code. When email_token is omitted a new code is sent. When provided the code is validated and the email marked as verified.
 
-**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, token expiry, scopes (if scoped access), and agent_name (if set).
+**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, token expiry, scopes (raw string), scopes_detail (hydrated array with entity names, domains, and parent hierarchy -- or null if not yet fetched), and agent_name (if set).
 
 **pkce-login** -- Start a browser-based PKCE login flow. Returns a URL for the user to open in their browser. After signing in and approving access, the browser displays an authorization code. The user copies the code and provides it to pkce-complete to finish signing in. No password is sent through the agent. Optional params: `scope_type` (default `"user"` for full access; use `"org"`, `"workspace"`, `"all_orgs"`, `"all_workspaces"`, or `"all_shares"` for scoped access), `agent_name` (displayed in the approval screen and audit logs; defaults to MCP client name).
 
@@ -1355,9 +1404,9 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 ### org
 
-**list** -- List internal organizations (orgs the user is a direct member of, `member: true`). Returns member orgs with subscription status, user permission, and plan info. Non-admin members only see orgs with active subscriptions. Does not include external orgs -- use discover-external for those.
+**list** -- List internal organizations (orgs the user is a direct member of, `member: true`). Each org includes `web_url`. Returns member orgs with subscription status, user permission, and plan info. Non-admin members only see orgs with active subscriptions. Does not include external orgs -- use discover-external for those.
 
-**details** -- Get detailed information about an organization. Fields returned vary by the caller's role: owners see encryption keys and storage config, admins see billing and permissions, members see basic info.
+**details** -- Get detailed information about an organization. Returns `web_url`. Fields returned vary by the caller's role: owners see encryption keys and storage config, admins see billing and permissions, members see basic info.
 
 **members** -- List all members of an organization with their IDs, emails, names, and permission levels.
 
@@ -1369,19 +1418,19 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **limits** -- Get organization plan limits and credit usage. Returns credit limits, usage stats, billing period, trial info, and run-rate projections. Requires admin or owner role.
 
-**list-workspaces** -- List workspaces in an organization that the current user can access. Owners and admins see all workspaces; members see workspaces matching the join permission setting.
+**list-workspaces** -- List workspaces in an organization that the current user can access. Each workspace includes `web_url`. Owners and admins see all workspaces; members see workspaces matching the join permission setting.
 
-**list-shares** -- List shares accessible to the current user. Returns all shares including parent org and workspace info. Use parent_org in the response to identify shares belonging to a specific organization.
+**list-shares** -- List shares accessible to the current user. Each share includes `web_url`. Returns all shares including parent org and workspace info. Use parent_org in the response to identify shares belonging to a specific organization.
 
 **create** -- Create a new organization on the "agent" billing plan. The authenticated user becomes the owner. A storage instance and agent-plan subscription (free, 50 GB, 5,000 credits/month) are created automatically. Returns the new org and trial status.
 
-**update** -- Update organization details. Only provided fields are changed. Supports identity, branding, social links, permissions, and billing email. Requires admin or owner role.
+**update** -- Update organization details. Returns `web_url`. Only provided fields are changed. Supports identity, branding, social links, permissions, and billing email. Requires admin or owner role.
 
 **close** -- Close/delete an organization. Cancels any active subscription and initiates deletion. Requires owner role. The confirm field must match the org domain or org ID.
 
-**public-details** -- Get public details for an organization. Does not require membership -- returns public-level fields only (name, domain, logo, accent color). The org must exist and not be closed/suspended.
+**public-details** -- Get public details for an organization. Returns `web_url`. Does not require membership -- returns public-level fields only (name, domain, logo, accent color). The org must exist and not be closed/suspended.
 
-**create-workspace** -- Create a new workspace within the organization. Checks workspace feature availability and creation limits based on the org billing plan. The creating user becomes the workspace owner.
+**create-workspace** -- Create a new workspace within the organization. Returns `web_url`. Checks workspace feature availability and creation limits based on the org billing plan. The creating user becomes the workspace owner.
 
 **billing-plans** -- List available billing plans with pricing, features, and plan defaults. Returns plan IDs needed for subscription creation.
 
@@ -1407,7 +1456,7 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **transfer-token-create** -- Create a transfer token (valid 72 hours) for an organization. Send the claim URL `https://go.fast.io/claim?token=<token>` to a human. Use when handing off an org or when hitting 402 Payment Required on the agent plan. Requires owner role.
 
-**transfer-token-list** -- List all active transfer tokens for an organization. Requires owner role.
+**transfer-token-list** -- List all active transfer tokens for an organization. Each token includes `web_url` (claim URL). Requires owner role.
 
 **transfer-token-delete** -- Delete (revoke) a pending transfer token. Requires owner role.
 
@@ -1429,21 +1478,21 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **asset-list** -- List all organization assets.
 
-**discover-all** -- List all accessible organizations (joined + invited). Returns org data with user_status indicating relationship.
+**discover-all** -- List all accessible organizations (joined + invited). Each org includes `web_url`. Returns org data with user_status indicating relationship.
 
-**discover-available** -- List organizations available to join. Excludes orgs the user is already a member of.
+**discover-available** -- List organizations available to join. Each org includes `web_url`. Excludes orgs the user is already a member of.
 
 **discover-check-domain** -- Check if an organization domain name is available for use. Validates format, checks reserved names, and checks existing domains.
 
-**discover-external** -- List external organizations (`member: false`) -- orgs the user can access only through workspace membership, not as a direct org member. Common when a human invites an agent to a workspace without inviting them to the org. See **Internal vs External Orgs** in the Organizations section.
+**discover-external** -- List external organizations (`member: false`). Each org includes `web_url`. Orgs the user can access only through workspace membership, not as a direct org member. Common when a human invites an agent to a workspace without inviting them to the org. See **Internal vs External Orgs** in the Organizations section.
 
 ### workspace
 
-**list** -- List all workspaces the user has access to across all organizations.
+**list** -- List all workspaces the user has access to across all organizations. Each workspace includes `web_url`.
 
-**details** -- Get detailed information about a specific workspace.
+**details** -- Get detailed information about a specific workspace. Returns `web_url`.
 
-**update** -- Update workspace settings such as name, description, branding, and permissions.
+**update** -- Update workspace settings such as name, description, branding, and permissions. Returns `web_url`.
 
 **delete** -- Permanently close (soft-delete) a workspace. Requires Owner permission and confirmation.
 
@@ -1453,23 +1502,23 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **members** -- List all members of a workspace with their roles and status.
 
-**list-shares** -- List all shares within a workspace, optionally filtered by archive status.
+**list-shares** -- List all shares within a workspace, optionally filtered by archive status. Each share includes `web_url`.
 
 **import-share** -- Import a user-owned share into a workspace. You must be the sole owner of the share.
 
-**available** -- List workspaces the current user can join but has not yet joined.
+**available** -- List workspaces the current user can join but has not yet joined. Each workspace includes `web_url`.
 
 **check-name** -- Check if a workspace folder name is available for use.
 
-**create-note** -- Create a new markdown note in workspace storage.
+**create-note** -- Create a new markdown note in workspace storage. Returns `web_url` (note preview link).
 
-**update-note** -- Update a note's markdown content and/or name (at least one required).
+**update-note** -- Update a note's markdown content and/or name (at least one required). Returns `web_url` (note preview link).
 
-**quickshare-get** -- Get existing quickshare details for a node.
+**quickshare-get** -- Get existing quickshare details for a node. Returns `web_url`.
 
 **quickshare-delete** -- Revoke and delete a quickshare link for a node.
 
-**quickshares-list** -- List all active quickshares in the workspace.
+**quickshares-list** -- List all active quickshares in the workspace. Each quickshare includes `web_url`.
 
 **metadata-template-create** -- Create a new metadata template in the workspace. Requires name, description, category (legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr), and fields (JSON-encoded array of field definitions). Each field has name, description, type (string, int, float, bool, json, url, datetime), and optional constraints (min, max, default, fixed_list, can_be_null).
 
@@ -1527,7 +1576,7 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **members** -- List all members of a share.
 
-**available** -- List shares available to join (joined and owned, excludes pending invitations).
+**available** -- List shares available to join (joined and owned, excludes pending invitations). Each share includes `web_url`.
 
 **check-name** -- Check if a share custom name (URL name) is available.
 
@@ -1537,37 +1586,37 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 All storage actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
 
-**list** -- List files and folders in a directory with pagination.
+**list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only).
 
 **details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
 
-**search** -- Search for files by keyword or semantic query.
+**search** -- Search for files by keyword or semantic query. Each result includes `web_url` (workspace only).
 
-**trash-list** -- List items currently in the trash.
+**trash-list** -- List items currently in the trash. Each item includes `web_url` (workspace only).
 
-**create-folder** -- Create a new folder.
+**create-folder** -- Create a new folder. Returns `web_url` (workspace only).
 
-**copy** -- Copy files or folders to another location.
+**copy** -- Copy files or folders to another location. Returns `web_url` on the new copy (workspace only).
 
-**move** -- Move files or folders to a different parent folder.
+**move** -- Move files or folders to a different parent folder. Returns `web_url` (workspace only).
 
 **delete** -- Delete files or folders by moving them to the trash.
 
-**rename** -- Rename a file or folder.
+**rename** -- Rename a file or folder. Returns `web_url` (workspace only).
 
 **purge** -- Permanently delete a trashed node (irreversible). Requires Member permission.
 
-**restore** -- Restore files or folders from the trash.
+**restore** -- Restore files or folders from the trash. Returns `web_url` on the restored node (workspace only).
 
-**add-file** -- Link a completed upload to a storage location.
+**add-file** -- Link a completed upload to a storage location. Returns `web_url` (workspace only).
 
 **add-link** -- Add a share reference link node to storage.
 
 **transfer** -- Copy a node to another workspace or share storage instance.
 
-**version-list** -- List version history for a file.
+**version-list** -- List version history for a file. Returns `web_url` for the file (workspace only).
 
-**version-restore** -- Restore a file to a previous version.
+**version-restore** -- Restore a file to a previous version. Returns `web_url` for the file (workspace only).
 
 **lock-acquire** -- Acquire an exclusive lock on a file to prevent concurrent edits.
 
