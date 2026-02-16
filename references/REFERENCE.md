@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.21.0 | **Last updated:** 2026-02-14
+> **Version:** 1.22.0 | **Last updated:** 2026-02-16
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -52,9 +52,9 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your files                             |
-| Building a RAG pipeline from scratch         | Enable intelligence on a workspace and files are automatically indexed, summarized, and queryable |
-| Finding the right file in a large collection | Semantic search finds files by meaning, not just filename                                         |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code                |
+| Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable |
+| Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Handing a project off to a human             | One-click ownership transfer — human gets the org, agent keeps admin access                       |
 | Tracking what happened                       | Full audit trail with AI-powered activity summaries                                               |
 | Cost                                         | Free. 50 GB storage, 5,000 monthly credits, no credit card                                        |
@@ -312,7 +312,7 @@ activity feed — a shared environment where agents collaborate with other agent
 - **Files up to 1 GB** per upload
 - **File versioning** — every edit creates a new version, old versions are recoverable
 - **Folder hierarchy** — organize files however you want
-- **Full-text and semantic search** — find files by name, content, or meaning
+- **Full-text and semantic search** — find files by name or content, and documents by meaning
 - **Member roles** — Owner, Admin, Editor, Viewer with granular permissions
 - **Real-time sync** — changes appear instantly for all members via WebSockets
 
@@ -324,17 +324,19 @@ Workspaces have an **intelligence** toggle that controls whether AI features are
 conversation (up to 20 files), but files are not persistently indexed. This is fine for coordination workflows where
 you don't need to query your content.
 
-**Intelligence ON** — the workspace becomes an AI-powered knowledge base. Every file uploaded is automatically ingested,
-summarized, and indexed. This enables:
+**Intelligence ON** — the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested,
+summarized, and indexed for RAG. This enables:
 
 - **RAG (retrieval-augmented generation)** — scope AI chat to entire folders or the full workspace and ask questions
-  across all your content. The AI retrieves relevant passages and answers with citations.
+  across your indexed documents and code. The AI retrieves relevant passages and answers with citations.
 - **Semantic search** — find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even
   if those exact words don't appear in the filename.
-- **Auto-summarization** — short and long summaries generated for every file, searchable and visible in the UI.
-- **Metadata extraction** — AI pulls structured metadata from documents and images automatically using templates.
-  Assign a template to a workspace, and every file uploaded is automatically extracted against that schema during
+- **Auto-summarization** — short and long summaries generated for every indexed document and code file, searchable and visible in the UI.
+- **Metadata extraction** — AI pulls structured metadata from documents, code, and images automatically using templates.
+  Assign a template to a workspace, and every document uploaded is automatically extracted against that schema during
   ingestion. You can also trigger extraction manually or in batch. See section 14 (Metadata) for the full API.
+
+> **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
 Intelligence is enabled by default when creating workspaces via the API for agent accounts. If your team only needs a
 shared workspace for coordination, you can disable it to conserve credits. If you want to query your content — enable it.
@@ -425,7 +427,7 @@ These two modes cannot be combined in a single chat — use scope OR attachments
 
 #### Intelligence Setting — When to Enable It
 
-The `intelligence` toggle on a workspace controls whether uploaded files are automatically ingested, summarized, and
+The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested, summarized, and
 indexed for RAG.
 
 **Enable intelligence when:**
@@ -437,14 +439,14 @@ indexed for RAG.
 **Disable intelligence when:**
 - You're using the workspace purely for team coordination and file exchange
 - You only need to analyze specific files (use file attachments instead)
-- You want to conserve credits (ingestion costs 10 credits/page for documents, 5 credits/second for video)
+- You want to conserve credits (ingestion costs 10 credits/page)
 
 Even with intelligence disabled, you can still use `chat_with_files` with **file attachments** — any file that has a
 ready preview can be attached directly to a chat for one-off analysis.
 
 #### AI State — File Readiness for RAG
 
-Every file in an intelligent workspace has an `ai_state` field that tracks its ingestion progress:
+Every document and code file in an intelligent workspace has an `ai_state` field that tracks its ingestion progress:
 
 | State         | Meaning                                           |
 |---------------|---------------------------------------------------|
@@ -454,7 +456,7 @@ Every file in an intelligent workspace has an `ai_state` field that tracks its i
 | `ready`       | Processing complete — file is available for RAG   |
 | `failed`      | Processing failed                                 |
 
-**Only files with `ai_state: ready` are included in folder/file scope searches.** If you upload files and immediately
+**Only documents and code files with `ai_state: ready` are included in folder/file scope searches.** If you upload files and immediately
 create a scoped chat, recently uploaded files may not yet be indexed. Use the activity polling endpoint to wait for
 `ai_state` changes before querying.
 
@@ -472,17 +474,17 @@ create a scoped chat, recently uploaded files may not yet be indexed. Use the ac
 **Folder scope parameters:**
 - `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). The depth controls how
   many levels of subfolders are expanded — only subfolder references count toward the 100 limit, not individual files
-  within those folders. The RAG backend automatically searches all indexed files inside the scoped folders.
+  within those folders. The RAG backend automatically searches all indexed documents inside the scoped folders.
 - `files_scope` — comma-separated `nodeId:versionId` pairs (max 100 refs). Both nodeId and versionId are **required
   and must be non-empty** in each pair. Get the versionId from the file's `version` field in storage list/details
   responses. Limits RAG retrieval to specific file versions.
 - **Default scope is the entire workspace** — if you omit both `files_scope` and `folders_scope`, the AI searches
-  all indexed files. This is the recommended approach when you want to query across everything. Only provide scope
+  all indexed documents. This is the recommended approach when you want to query across everything. Only provide scope
   parameters when you need to narrow the search to specific files or folders.
 
 **Important — how folder scope works internally:**
 Folder scope defines a search boundary, not a file list. When you pass `folders_scope`, the system expands the specified
-folders into a set of subfolder references up to the given depth. The RAG backend then searches all indexed files within
+folders into a set of subfolder references up to the given depth. The RAG backend then searches all indexed documents within
 those folders automatically. You do **not** need to enumerate or list individual files — just provide the top-level
 folder ID and the desired depth. A folder containing thousands of files with only a few subfolders will work fine,
 because only the subfolder references (not file references) count toward the 100 limit. If you need to query the
@@ -521,7 +523,7 @@ for an answer.
 - Bad: "Tell me about these files" — too vague for retrieval, no specific content to match
 - Bad: "What's in this workspace?" — the AI can't meaningfully search for "everything"
 
-If no folder scope is specified, the search defaults to all files in the workspace. For large workspaces, narrowing the
+If no folder scope is specified, the search defaults to all indexed documents in the workspace. For large workspaces, narrowing the
 scope to specific folders improves relevance and reduces token usage.
 
 **With file attachments:**
@@ -597,12 +599,15 @@ This opens the workspace with the specified chat visible in the AI panel.
 
 #### Supported Content Types
 
+**Indexed for RAG** (requires Intelligence ON):
 - Documents (PDF, Word, text, markdown)
-- Spreadsheets (Excel, CSV)
 - Code files (all common languages)
-- Images (all common formats)
-- Video (all common formats)
-- Audio (all common formats)
+
+**File attachments only** (no RAG indexing):
+- Spreadsheets (Excel, CSV)
+- Images (all common formats) — *RAG indexing coming soon*
+- Video (all common formats) — *RAG indexing coming soon*
+- Audio (all common formats) — *RAG indexing coming soon*
 
 #### AI Share — Export to External AI Tools
 
@@ -655,7 +660,7 @@ Notes can also be moved, copied, deleted, and restored using the same storage en
 
 #### Notes as Long-Term Knowledge Grounding
 
-In an intelligent workspace, notes are automatically ingested and indexed just like uploaded files. This makes notes a
+In an intelligent workspace, notes are automatically ingested and indexed just like uploaded documents. This makes notes a
 powerful way to **bank knowledge over time** — any facts, context, or decisions stored in notes become grounding
 material for future AI queries.
 
@@ -1384,7 +1389,7 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 2. Upload all reference documents
 3. AI auto-indexes and summarizes everything on upload
 4. Use AI chat scoped to folders or the full workspace to query across all documents
-5. Semantic search finds files by meaning, not just filename
+5. Use `ai` action `search` to find files by meaning, not just filename — returns ranked document chunks with relevance scores
 6. Answers include citations to specific pages and files
 
 ### Set Up an Agentic Team Workspace
@@ -1462,7 +1467,7 @@ named actions.
 | `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
-| `ai`         | AI chat (scope defaults to entire workspace — omit scope params to search all files). Folder scope expands subfolder tree only — files within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list` |
+| `ai`         | AI chat and semantic search (scope defaults to entire workspace — omit scope params to search all indexed documents). Folder scope expands subfolder tree only — documents within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list`, `search` |
 | `member`     | Members                         | `add`, `update`, `remove`, `details`                                          |
 | `invitation` | Invitations                     | `list`, `send`, `revoke`, `accept-all`                                        |
 | `asset`      | Branding assets                 | `types`, `list`, `upload`, `delete`                                           |
@@ -1610,8 +1615,8 @@ use `auth` action `email-verify`; "workspace not found" → check workspace ID w
 **`ai_capabilities` — AI mode availability:**
 
 Included in `workspace` action `details` responses. Shows the available AI modes for the workspace:
-- **Intelligence ON:** `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed search)
-- **Intelligence OFF:** `files_attach` only (max 20 files, 200 MB total)
+- **Intelligence ON:** `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed search), plus `search` action for semantic search (vector-based document chunk retrieval with relevance scores)
+- **Intelligence OFF:** `files_attach` only (max 20 files, 200 MB total). Semantic search is not available.
 
 **`_ai_state_legend` — File AI processing state:**
 

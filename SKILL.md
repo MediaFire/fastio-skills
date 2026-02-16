@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.64.0"
+  version: "1.67.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.64
-**Last Updated:** 2026-02-14
+**Version:** 1.66
+**Last Updated:** 2026-02-16
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
 
@@ -51,7 +51,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 | Collecting files from humans is harder | Receive shares let humans upload directly to your workspace -- no email attachments |
 | Understanding document contents | Built-in AI reads, summarizes, and answers questions about your files |
 | Building a RAG pipeline from scratch | Enable intelligence on a workspace and files are automatically indexed, summarized, and queryable |
-| Finding the right file in a large collection | Semantic search finds files by meaning, not just filename |
+| Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename |
 | Handing a project off to a human | One-click ownership transfer -- human gets the org, agent keeps admin access |
 | Tracking what happened | Full audit trail with AI-powered activity summaries |
 | Cost | Free. 50 GB storage, 5,000 monthly credits, no credit card |
@@ -299,12 +299,14 @@ Workspaces have an **intelligence** toggle that controls whether AI features are
 
 **Intelligence OFF** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total), but files are not persistently indexed. This is fine for simple storage and sharing where you do not need to query your content.
 
-**Intelligence ON** -- the workspace becomes an AI-powered knowledge base. Every file uploaded is automatically ingested, summarized, and indexed. This enables:
+**Intelligence ON** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed for RAG. This enables:
 
 - **RAG (retrieval-augmented generation)** -- scope AI chat to entire folders or the full workspace and ask questions across all your content. The AI retrieves relevant passages and answers with citations.
 - **Semantic search** -- find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
-- **Auto-summarization** -- short and long summaries generated for every file, searchable and visible in the UI.
+- **Auto-summarization** -- short and long summaries generated for every indexed document and code file, searchable and visible in the UI.
 - **Metadata extraction** -- AI pulls key metadata from documents automatically.
+
+> **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
 Intelligence defaults to ON for workspaces created via the API by agent accounts. If the workspace is only used for file storage and sharing, disable it to conserve credits. If you need to query your content, leave it enabled.
 
@@ -379,7 +381,7 @@ Create notes with `workspace` action `create-note` and update with `workspace` a
 
 #### Notes as Long-Term Knowledge Grounding
 
-In an intelligent workspace, notes are automatically ingested and indexed just like uploaded files. This makes notes a way to bank knowledge over time -- any facts, context, or decisions stored in notes become grounding material for future AI queries.
+In an intelligent workspace, notes are automatically ingested and indexed just like uploaded documents. This makes notes a way to bank knowledge over time -- any facts, context, or decisions stored in notes become grounding material for future AI queries.
 
 When an AI chat uses folder scope (or defaults to the entire workspace), notes within that scope are searched alongside files. The AI retrieves relevant passages from notes and cites them in answers.
 
@@ -435,9 +437,9 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 
 **Scope parameters** (requires intelligence):
 
-- `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds files within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
+- `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds documents within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
 - `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. Both `nodeId` AND `versionId` are required and must be non-empty — get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
-- **If neither is specified, the default scope is the entire workspace (all indexed files).** This is the recommended default — omit scope parameters unless you specifically need to narrow the search.
+- **If neither is specified, the default scope is the entire workspace (all indexed documents).** This is the recommended default — omit scope parameters unless you specifically need to narrow the search.
 
 **Attachment parameter** (no intelligence required):
 
@@ -449,7 +451,7 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 
 #### Intelligence and AI State
 
-The workspace intelligence toggle (see Workspaces above) controls whether uploaded files are auto-ingested, summarized, and indexed for RAG. When intelligence is enabled, each file has an `ai_state` indicating its readiness:
+The workspace intelligence toggle (see Workspaces above) controls whether uploaded documents and code files are auto-ingested, summarized, and indexed for RAG. When intelligence is enabled, each file has an `ai_state` indicating its readiness:
 
 | State | Meaning |
 |-------|---------|
@@ -505,8 +507,8 @@ Create a chat with `ai` action `chat-create` (with `context_type: "workspace"`) 
 - `query_text` (required for workspace, optional for share) — initial message, 2-12,768 characters
 - `personality` (optional) — `concise` or `detailed` (default: `detailed`)
 - `privacy` (optional) — `private` or `public` (default: `public`)
-- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence). Both parts required and non-empty. **Omit to search all files (recommended default).**
-- `folders_scope` (optional) — `nodeId:depth,...` (depth 1-10, max 100 subfolder refs, requires `chat_with_files` + intelligence). Folder scope = search boundary, not file enumeration. **Omit to search all files (recommended default).**
+- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence). Both parts required and non-empty. **Omit to search all indexed documents (recommended default).**
+- `folders_scope` (optional) — `nodeId:depth,...` (depth 1-10, max 100 subfolder refs, requires `chat_with_files` + intelligence). Folder scope = search boundary, not file enumeration. **Omit to search all indexed documents (recommended default).**
 - `files_attach` (optional) — `nodeId:versionId,...` (max 20 / 200 MB, both parts required and non-empty, mutually exclusive with scope params)
 
 #### Follow-up Messages
@@ -721,10 +723,32 @@ Several tools use permission parameters with specific allowed values. Use these 
 - Receive and Exchange shares cannot use `Anyone with the link` access -- this option is only available for Send shares.
 - Password protection (`password` parameter) is only allowed when `access_options` is `Anyone with the link`.
 - Expiration (`expires` parameter in MySQL format `YYYY-MM-DD HH:MM:SS`) is not allowed on `workspace_folder` shares.
-- `custom_name` must be 10-100 characters, alphanumeric + unicode.
-- `title` (or `name`) must be 2-80 characters.
+- Field length and format constraints for `custom_name`, `title`, and `description` are documented in the **Profile Field Constraints** table below.
 - Color parameters (`accent_color`, `background_color1`, `background_color2`) accept JSON strings.
 - `create_folder` creates a new workspace folder for the share when used with `storage_mode='workspace_folder'`.
+
+### Profile Field Constraints
+
+All profile fields are validated server-side. Requests that violate these constraints are rejected with a 400 error.
+
+| Entity | Field | API Key | Min | Max | Pattern | Required | Nullable |
+|--------|-------|---------|-----|-----|---------|----------|----------|
+| Org | domain | `domain` | 2 | 80 | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` | Yes (create) | No |
+| Org | name | `name` | 3 | 100 | No control chars | Yes | No |
+| Org | description | `description` | 10 | 1000 | No control chars | No | Yes |
+| Workspace | folder_name | `folder_name` | 4 | 80 | `^[\p{L}\p{N}-]+$` (letters, digits, hyphens) | Yes (create) | No |
+| Workspace | name | `name` | 2 | 100 | No control chars | Yes | No |
+| Workspace | description | `description` | 10 | 1000 | No control chars | No | Yes |
+| Share | custom_name | `custom_name` | 4 | 80 | `^[\p{L}\p{N}]+$` (letters, digits only) | Yes (create) | No |
+| Share | custom_url | `custom_url` | 10 | 100 | — | Yes | Yes |
+| Share | title | `title` | 2 | 80 | No control chars | Yes | Yes |
+| Share | description | `description` | 10 | 500 | No control chars | No | Yes |
+
+- **"No control chars"** = rejects Unicode control characters (`\p{C}`)
+- **Org domain**: lowercase ASCII alphanumeric + hyphens; cannot start/end with hyphen
+- **Workspace folder_name**: Unicode letters, digits, and hyphens
+- **Share custom_name**: Unicode letters and digits only (no hyphens or special chars)
+- **Share description** max is 500 (org/workspace is 1000)
 
 ---
 
@@ -838,9 +862,9 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 ### ai
 
-AI-powered chat with RAG in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
+AI-powered chat with RAG, semantic search, and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, search indexed files by meaning with relevance scores, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
 
-**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
+**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, search, share-generate, transactions, autotitle
 
 ### comment
 
@@ -1676,7 +1700,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 All AI actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
 
-**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed files) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, both `nodeId` AND `versionId` are required and must be non-empty (get `versionId` from storage list/details `version` field). Returns chat ID and initial message ID -- use message-read to get the AI response.
+**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, both `nodeId` AND `versionId` are required and must be non-empty (get `versionId` from storage list/details `version` field). Returns chat ID and initial message ID -- use message-read to get the AI response.
 
 **chat-list** -- List AI chats.
 
@@ -1695,6 +1719,8 @@ All AI actions require `context_type` parameter (`workspace` or `share`) and `co
 **message-details** -- Get details for a specific message in an AI chat including response text and citations.
 
 **message-read** -- Read an AI message response. Polls the message details endpoint until the AI response is complete, then returns the full text.
+
+**search** -- Semantic search across indexed documents and code. Returns ranked document chunks with relevance scores -- faster and lighter than AI chat (stateless GET, no LLM inference). Requires Intelligence ON. Params: `query_text` (2-1,000 chars), optional `files_scope`, `folders_scope` (same format as chat scoping), `limit` (1-500, default 100), `offset`. Results include content snippets, scores, and source file details with `web_url` (workspace only). Use search to find relevant files, then chat to ask questions about them.
 
 **share-generate** -- Generate AI Share markdown with temporary download URLs for files that can be pasted into external AI chatbots.
 
