@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.22.0 | **Last updated:** 2026-02-16
+> **Version:** 1.23.0 | **Last updated:** 2026-02-16
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -648,12 +648,12 @@ live in the same folder hierarchy as files, are versioned like any other node, a
 **Create:** `POST /current/workspace/{id}/storage/{parent_id}/createnote/`
 
 - `name` (required) — filename, must end in `.md`, max 100 characters (e.g., `"project-context.md"`)
-- `content` (required) — markdown text, max 100 KB
+- `content` (required) — markdown text, max 100 KB. Must be valid UTF-8 (UTF8MB4). Control characters (`\p{C}` except `\t`, `\n`, `\r`) are stripped.
 
 **Update:** `POST /current/workspace/{id}/storage/{node_id}/updatenote/`
 
 - `name` (optional) — rename the note (must end in `.md`)
-- `content` (optional) — replace the markdown content (max 100 KB)
+- `content` (optional) — replace the markdown content (max 100 KB). Must be valid UTF-8 (UTF8MB4). Control characters (`\p{C}` except `\t`, `\n`, `\r`) are stripped.
 - At least one of `name` or `content` must be provided
 
 Notes can also be moved, copied, deleted, and restored using the same storage endpoints as files and folders.
