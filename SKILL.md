@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.67.0"
+  version: "1.68.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.66
+**Version:** 1.68
 **Last Updated:** 2026-02-16
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
@@ -374,6 +374,7 @@ Create notes with `workspace` action `create-note` and update with `workspace` a
 
 | Constraint | Limit |
 |------------|-------|
+| Content encoding | Valid UTF-8 (UTF8MB4). Invalid byte sequences and control characters (`\p{C}` except `\t`, `\n`, `\r`) are stripped. |
 | Content size | 100 KB max |
 | Filename | 1-100 characters, must end in `.md` |
 | Markdown validation | Code blocks and emphasis markers must be balanced |
