@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.23.0 | **Last updated:** 2026-02-16
+> **Version:** 1.24.0 | **Last updated:** 2026-02-18
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -17,14 +17,13 @@ needed.
 - **Streamable HTTP (recommended):** `https://mcp.fast.io/mcp`
 - **Legacy SSE:** `https://mcp.fast.io/sse`
 
-The MCP server exposes **14 consolidated tools** using action-based routing — each tool covers a domain (e.g., `auth`,
+The MCP server exposes **18 consolidated tools** using action-based routing — each tool covers a domain (e.g., `auth`,
 `storage`, `upload`) and uses an `action` parameter to select the operation. See the "MCP Tool Architecture" section
 below for the full tool list.
 
-MCP-connected agents also receive guided prompts (`prompts/list`, `prompts/get`) for common multi-step operations — see
-the "MCP Prompts" section below — and can read resources (`resources/read`) including `skill://guide` for full tool
-documentation, `session://status` for current authentication state, and `download://` resource templates for direct
-file content retrieval.
+MCP-connected agents receive comprehensive workflow guidance through SERVER_INSTRUCTIONS at connection time, and can
+read resources (`resources/read`) including `skill://guide` for full tool documentation, `session://status` for current
+authentication state, and `download://` resource templates for direct file content retrieval.
 
 This guide covers platform concepts and capabilities; the MCP server provides tool-level details through its standard
 protocol interface. The API endpoints referenced below are what the MCP server calls under the hood, and are available
@@ -1454,16 +1453,16 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 ## MCP Tool Architecture
 
-The MCP server exposes **14 consolidated tools**, each covering a domain. Every tool uses an `action` parameter to
-select the specific operation — agents don't need to discover hundreds of separate tools, just 14 tools with clearly
+The MCP server exposes **18 consolidated tools**, each covering a domain. Every tool uses an `action` parameter to
+select the specific operation — agents don't need to discover hundreds of separate tools, just 18 tools with clearly
 named actions.
 
 | Tool         | Domain                          | Example Actions                                                               |
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus 17 `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
-| `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
+| `workspace`  | Workspaces, metadata & workflow | `list`, `details`, `update`, `delete`, `members`, `list-shares`, `import-share`, `check-name`, `create-note`, `enable-workflow`, plus 17 `metadata-*` actions |
+| `share`      | Shares & workflow               | `list`, `create`, `update`, `delete`, `quickshare-create`, `enable-workflow`  |
 | `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
@@ -1474,6 +1473,10 @@ named actions.
 | `comment`    | Comments                        | `list`, `create`, `details`, `delete`                                         |
 | `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
 | `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
+| `task`       | Task lists & tasks              | `list-lists`, `create-list`, `list-details`, `update-list`, `delete-list`, `list-tasks`, `create-task`, `task-details`, `update-task`, `delete-task`, `change-status`, `assign-task`, `bulk-status` |
+| `todo`       | Todo checklists                 | `list`, `create`, `details`, `update`, `delete`, `toggle`, `bulk-toggle`      |
+| `approval`   | Approval workflows              | `list`, `create`, `details`, `resolve`                                        |
+| `worklog`    | Activity logs & interjections   | `list`, `append`, `interject`, `details`, `acknowledge`, `unacknowledged`     |
 
 ### `web_url` in Tool Responses — Use It Instead of Building URLs
 
@@ -1537,7 +1540,7 @@ needing to call separate list actions first.
 
 ### Tool Annotations — Safety & Side Effects
 
-All 14 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+All 18 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
 automated execution.
 
@@ -1545,10 +1548,10 @@ automated execution.
 - `download`, `event` — these tools only read data, never modify state, and are safe to retry
 
 **Non-destructive mutation tools** (create or update, no delete actions):
-- `upload`, `invitation` — these tools create or modify resources but cannot delete them
+- `upload`, `invitation`, `worklog` — these tools create or modify resources but cannot delete them
 
 **Destructive tools** (include delete, purge, or close actions — require user confirmation):
-- `auth`, `user`, `org`, `workspace`, `share`, `storage`, `ai`, `comment`, `member`, `asset` — these tools have at
+- `auth`, `user`, `org`, `workspace`, `share`, `storage`, `ai`, `comment`, `member`, `asset`, `task`, `todo`, `approval` — these tools have at
   least one action that permanently removes or closes a resource. Agent frameworks should prompt for confirmation before
   executing destructive actions.
 
@@ -1589,6 +1592,8 @@ the following actions:
 - `download`: file-url (token expiry), zip-url
 - `upload`: stage-blob (5-minute expiry)
 - `org`: transfer-token-create
+- `task`: delete-list (cascade to child tasks), delete-task (soft-delete)
+- `approval`: resolve (irreversible approve/reject)
 
 **`_recovery` — Error recovery hints:**
 
@@ -1610,7 +1615,9 @@ correct resolution. All errors also include `(during: <tool> <action>)` so agent
 | 429    | Rate limited — wait 2–4 seconds, retry with exponential backoff |
 
 Error message pattern matching provides additional context-specific recovery steps (e.g., "email not verified" →
-use `auth` action `email-verify`; "workspace not found" → check workspace ID with `workspace` action `list`).
+use `auth` action `email-verify`; "workspace not found" → check workspace ID with `workspace` action `list`;
+"workflow not enabled" → use `workspace` or `share` action `enable-workflow`; "already resolved" → check status with
+`approval` action `details`; "only interjection" → verify entry type with `worklog` action `details`).
 
 **`ai_capabilities` — AI mode availability:**
 
@@ -1635,32 +1642,10 @@ regions, video/audio timestamps, PDF pages).
 
 ---
 
-## MCP Prompts — Guided Workflows
+## MCP Workflow Guidance
 
-MCP-connected agents can use **guided prompts** to get step-by-step instructions for common operations. These are
-especially useful for agents unfamiliar with Fast.io workflows, complex multi-step operations, or operations with
-non-obvious parameter requirements.
-
-Retrieve the full list with `prompts/list` and get detailed guidance for a specific prompt with `prompts/get`.
-
-| Prompt                 | Name                          | When to Use                                                                                          |
-|------------------------|-------------------------------|------------------------------------------------------------------------------------------------------|
-| `get-started`          | Getting Started Guide         | First-time onboarding: create account, org, and workspace. Covers autonomous agents, API key auth, browser login (PKCE), and agents invited to existing orgs. |
-| `add-file`             | Add File Guide                | Adding files from text content, chunked binary upload (with `stage-blob` action or `POST /blob` for binary data), or URL import (Google Drive, OneDrive, Dropbox). |
-| `ask-ai`               | AI Chat Guide                 | Querying files with AI. Covers RAG-indexed vs file attachment modes, intelligence state checks, scoping (folder scope = search boundary, not file enumeration), polling, and response structure. |
-| `comment-conversation` | Comment Collaboration Guide   | Agent-human feedback loop on files. Read/write anchored comments (image regions, video timestamps, PDF pages), threaded replies, emoji reactions, and deep-link URL construction. |
-| `catch-up`             | Activity Catch-Up Guide       | Understanding what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll. |
-| `metadata`             | Metadata Extraction Guide     | Extracting structured metadata from files. Covers template creation, workspace assignment, manual and batch AI extraction, and saved views. |
-
-**When to use prompts instead of this guide:**
-
-- **Starting a new workflow** — prompts provide concise, actionable steps tailored to the specific operation
-- **Choosing between approaches** — prompts explain trade-offs (e.g., which upload method, which chat scoping mode)
-- **Parameter-heavy operations** — prompts list exact parameters, required values, and common pitfalls
-- **First-time operations** — prompts walk through prerequisites and setup in order
-
-Prompts complement the reference material in this guide and in `skill.md`. Use this guide for concepts and
-capabilities, `skill.md` for tool-level details, and prompts for guided walkthroughs of specific workflows.
+> **Note:** The MCP server does not provide guided prompts. All workflow guidance is available through
+> SERVER_INSTRUCTIONS (received at connection time), the `skill://guide` resource, and the `/skill.md` endpoint.
 
 ---
 
@@ -1780,3 +1765,144 @@ It's optional — routing works with just the `custom_name` — but improves lin
    - File link: `https://go.fast.io/shared/{custom_name}/client-docs/preview/{file.id}`
 6. **Transfer ownership** → API returns token
    - Claim link: `https://go.fast.io/claim?token={token}`
+
+---
+
+## Workflow Primitives
+
+Fast.io provides five workflow primitives for structured agent collaboration. These enable agents and humans to organize
+work, track progress, handle urgent corrections, manage approvals, and maintain simple checklists — all within the same
+workspaces and shares where files live.
+
+**MCP-connected agents** use four workflow tools — `task`, `worklog`, `approval`, `todo` — instead of calling these
+REST endpoints directly. Enable workflow first via `workspace` action `enable-workflow` or `share` action
+`enable-workflow`.
+
+### 1. Task Lists & Tasks
+
+Organize work into lists with individual tasks. Task lists belong to a workspace or share and contain ordered tasks.
+
+- **Task statuses:** `pending` → `in_progress` → `complete`, `blocked` (blocked → pending to unblock)
+- **Priorities:** `0` (none), `1` (low), `2` (medium), `3` (high), `4` (critical) — integer values
+- **Assignees:** assign tasks to specific members
+- **Dependencies:** tasks can depend on other tasks
+- **File linking:** connect tasks to files or notes via `node_id` — the linked node provides context and is indexed by AI
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /tasks/workspace/{workspace_id}/` | List task lists in a workspace |
+| `GET /tasks/share/{share_id}/` | List task lists in a share |
+| `POST /tasks/workspace/{workspace_id}/create/` | Create a task list in a workspace |
+| `POST /tasks/share/{share_id}/create/` | Create a task list in a share |
+| `GET /tasks/{list_id}/details/` | Get task list details |
+| `POST /tasks/{list_id}/update/` | Update a task list |
+| `POST /tasks/{list_id}/delete/` | Delete a task list |
+| `GET /tasks/{list_id}/items/` | List tasks in a list |
+| `POST /tasks/{list_id}/items/create/` | Create a task |
+| `GET /tasks/{list_id}/items/{task_id}/` | Get task details |
+| `POST /tasks/{list_id}/items/{task_id}/update/` | Update a task |
+| `POST /tasks/{list_id}/items/{task_id}/delete/` | Delete a task |
+| `POST /tasks/{list_id}/items/{task_id}/status/` | Change task status |
+| `POST /tasks/{list_id}/items/{task_id}/assign/` | Assign a task |
+| `POST /tasks/{list_id}/items/bulk-status/` | Bulk status change |
+
+### 2. Worklogs
+
+Append-only activity logs attached to any entity (task, task list, profile, node). Worklogs provide a chronological
+record of progress, decisions, and issues — visible to all members with access to the entity.
+
+- **Entry types:** `info`, `decision`, `error`, `status_change`, `request`, `interjection`
+- **Priority levels:** support priority to highlight important entries
+- **Attached to any entity:** task, task list, workspace, share, or node
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /worklogs/{entity_type}/{entity_id}/` | List worklog entries |
+| `POST /worklogs/{entity_type}/{entity_id}/append/` | Append a worklog entry |
+| `GET /worklogs/{entry_id}/details/` | Get entry details |
+
+### 3. Interjections
+
+Urgent priority corrections or instructions that require acknowledgement. Interjections are created via a dedicated
+endpoint and are always urgent priority. They must be acknowledged before being cleared — ensuring critical messages
+are not missed.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /worklogs/{entity_type}/{entity_id}/interjection/` | Create an interjection |
+| `GET /worklogs/{entity_type}/{entity_id}/interjections/` | List unacknowledged interjections |
+| `POST /worklogs/{entry_id}/acknowledge/` | Acknowledge an interjection |
+
+**Agent use case:** A human notices an agent is heading in the wrong direction. They create an interjection on the
+task. The agent checks for unacknowledged interjections before continuing work, sees the correction, acknowledges it,
+and adjusts course.
+
+### 4. Approvals
+
+Request/response approval workflow. Create an approval request with a designated approver, who can approve or reject
+with a comment.
+
+- **Statuses:** `pending` → `approved` or `rejected`
+- **Scoped to workspace or share** — list all approvals for a given profile
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /approvals/workspace/{workspace_id}/` | List approvals in a workspace |
+| `GET /approvals/share/{share_id}/` | List approvals in a share |
+| `POST /approvals/{entity_type}/{entity_id}/create/` | Create an approval request |
+| `GET /approvals/{approval_id}/details/` | Get approval details |
+| `POST /approvals/{approval_id}/resolve/` | Resolve (approve or reject) |
+
+**Agent use case:** An agent completes a deliverable and needs human sign-off before publishing. It creates an
+approval request. The human reviews, approves or rejects with a comment, and the agent proceeds accordingly.
+
+### 5. Todos
+
+Simple checklist items with toggle. Lightweight compared to full tasks — no statuses, no dependencies, just done or
+not done. Support assignees and bulk toggle operations.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /todos/workspace/{workspace_id}/` | List todos in a workspace |
+| `GET /todos/share/{share_id}/` | List todos in a share |
+| `POST /todos/workspace/{workspace_id}/create/` | Create a todo in a workspace |
+| `POST /todos/share/{share_id}/create/` | Create a todo in a share |
+| `GET /todos/{todo_id}/details/` | Get todo details |
+| `POST /todos/{todo_id}/details/update/` | Update a todo |
+| `POST /todos/{todo_id}/details/delete/` | Delete a todo |
+| `POST /todos/{todo_id}/details/toggle/` | Toggle done/not done |
+| `POST /todos/workspace/{workspace_id}/bulk-toggle/` | Bulk toggle in a workspace |
+| `POST /todos/share/{share_id}/bulk-toggle/` | Bulk toggle in a share |
+
+### Enabling Workflow
+
+Workflow features must be enabled on each workspace or share before use:
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /workspace/{workspace_id}/workflow/enable/` | Enable workflow on a workspace |
+| `POST /workspace/{workspace_id}/workflow/disable/` | Disable workflow on a workspace |
+| `POST /share/{share_id}/workflow/enable/` | Enable workflow on a share |
+| `POST /share/{share_id}/workflow/disable/` | Disable workflow on a share |
+
+### Key Patterns for Agents
+
+- **Enable workflow first:** Call `POST /workspace/{id}/workflow/enable/` before using any workflow endpoints on that
+  workspace.
+- **All workflow endpoints require the `workflow` feature enabled** on the target workspace or share.
+- **All GET endpoints support `format=md`** for LLM-friendly Markdown output — use this when consuming responses in
+  agent context windows.
+- **Create notes for context, link tasks to notes via `node_id`** — notes are indexed by AI/RAG, so linked context
+  becomes searchable and citable in AI chat.
+- **Always log your work:** After any significant state-changing action, use `POST /worklogs/{entity_type}/{entity_id}/append/` to record what was done and why. Without worklog entries, agent activity is invisible to humans reviewing the workspace.
+- **Pattern:** Create context note → Create task list → Link tasks to notes → Log progress → AI searches across all.
+
+### Recommended Workflow for Agent Teams
+
+1. Enable workflow on the workspace
+2. Create a task list for the project
+3. Create tasks with descriptions and link to reference notes
+4. Log activity with worklog entries — after uploads, task changes, share creation, member changes, or file moves/deletes, append a worklog entry describing what was done and why. This is how humans track agent activity. For batches of related actions, a single summary entry is sufficient.
+5. Use interjections for urgent corrections
+6. Request approvals for important decisions
+7. Use todos for simple checklists

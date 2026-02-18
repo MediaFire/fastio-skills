@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.73.0"
+  version: "1.80.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.73
+**Version:** 1.80
 **Last Updated:** 2026-02-18
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, and all 18 consolidated tools with action-based routing.
@@ -84,13 +84,15 @@ The server exposes two static MCP resources and three file download resource tem
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
-| URI Template | Name | Auth | Description |
-|---|---|---|---|
-| `download://workspace/{workspace_id}/{node_id}` | download-workspace-file | Session token | Download a file from a workspace |
-| `download://share/{share_id}/{node_id}` | download-share-file | Session token | Download a file from a share |
-| `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | Download a quickshare file |
+| URI Template | Name | Auth | Dynamic Listing | Description |
+|---|---|---|---|---|
+| `download://workspace/{workspace_id}/{node_id}` | download-workspace-file | Session token | Yes | Download a file from a workspace |
+| `download://share/{share_id}/{node_id}` | download-share-file | Session token | Yes | Download a file from a share |
+| `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | No | Download a quickshare file |
 
 Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
+
+**Dynamic resource listing:** When authenticated, workspace and share file resources are dynamically listed via `resources/list`. MCP clients (such as Claude Desktop's @ picker) can discover available files without any tool calls. The listing includes root-level files from up to 5 workspaces and 10 shares, sorted by most recently updated. Each entry includes the file name, workspace/share name, file size, and MIME type. Results are cached for 1 minute. Files in subdirectories are not listed -- use the `storage` tool with action `list` to browse deeper.
 
 ### HTTP File Pass-Through
 
@@ -104,21 +106,11 @@ For files larger than 50 MB or when raw binary streaming is needed, the server p
 
 The response includes proper `Content-Type`, `Content-Length`, and `Content-Disposition` headers from the upstream API. Errors are returned as HTML pages. The `Mcp-Session-Id` header is the same session identifier used for MCP protocol communication.
 
-### MCP Prompts
+### Workflow Overview
 
-The server provides 9 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
+The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
 
-| Prompt | Description |
-|--------|-------------|
-| `get-started` | Complete onboarding: create account, org, and workspace. Covers new agents, returning users, API key auth, browser login (PKCE), and invited agents. |
-| `add-file` | Add a file from text content, binary upload (with blob staging), or URL import (Google Drive, OneDrive, Dropbox). Helps choose the right method. |
-| `ask-ai` | Guide for AI chat. Explains scoping (folder/file scope vs attachments), intelligence requirements, polling. |
-| `comment-conversation` | Agent-human collaboration via comments on files. Read/write anchored comments (image regions, video timestamps, PDF pages), reply in threads, react with emoji, and construct deep-link URLs so humans land directly on the conversation. |
-| `catch-up` | Understand what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll, and the polling loop pattern. |
-| `metadata` | Structured metadata on files. Template setup (create, assign), setting values, AI extraction, querying files by metadata, and version tracking. |
-| `manage-tasks` | Task management workflow: create task lists, add tasks with priorities and assignees, track status, and use bulk operations. |
-| `agent-workflow` | Full agentic workflow: enable workflow, create tasks, log progress with worklogs, handle interjections, request approvals, and manage todos. |
-| `project-setup` | Set up an agent project workspace: enable workflow, create context notes, build task lists linked to notes, use worklogs for reasoning, and leverage AI/RAG integration. |
+**Best practice (IMPORTANT):** After state-changing actions (uploading files, creating shares, changing task status, member changes, file moves/deletes), append a worklog entry describing what you did and why. Without worklog entries, agent work is invisible to humans reviewing the workspace. For multiple related actions (e.g., uploading several files), you may log once after the batch completes rather than after each individual action. Worklog entries are append-only and permanent.
 
 ### Additional References
 
@@ -924,9 +916,9 @@ Share CRUD, public details, archiving, password authentication, asset management
 
 ### storage
 
-File and folder operations within workspaces and shares. List, create folders, move, copy, delete, rename, purge, restore, search, add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `context_type` parameter (`workspace` or `share`).
+File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search, add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `context_type` parameter (`workspace` or `share`).
 
-**Actions:** list, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
+**Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
 
 ### upload
 
@@ -984,9 +976,9 @@ Task list and task management for workspaces and shares. Create and manage task 
 
 ### worklog
 
-Append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. Log progress, decisions, and status changes. Create urgent interjections that require acknowledgement. Entries cannot be edited or deleted after creation. Requires workflow to be enabled on the target entity.
+Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. Also create urgent interjections that require acknowledgement. Entries are append-only and permanent. Requires workflow to be enabled on the target entity.
 
-**Actions:** list, append, interject, details, acknowledge, unacknowledged
+**Actions:** append, list, interject, details, acknowledge, unacknowledged
 
 ### approval
 
@@ -1459,7 +1451,7 @@ Pattern-based recovery: error messages are also matched against common patterns 
 
 **Tool annotations:** Tools include MCP annotation hints -- `readOnlyHint`, `destructiveHint`, `idempotentHint` (download, event), and `openWorldHint` (org, user, workspace, share, storage) -- to help clients understand tool behavior without documentation.
 
-**Resource completion:** The `download://workspace/{workspace_id}` and `download://share/{share_id}` resource templates support tab-completion for IDs. MCP clients that support `completion/complete` will automatically suggest valid workspace and share IDs from your session.
+**Resource completion and listing:** The workspace and share download resource templates support both dynamic listing (`resources/list`) and tab-completion (`completion/complete`). Dynamic listing shows root-level files across workspaces and shares in the client's resource picker. Tab-completion suggests valid workspace and share IDs as you type.
 
 ### Unauthenticated Tools
 
@@ -1755,6 +1747,8 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only).
 
+**recent** -- List recently modified files and folders across all directories, sorted by updated descending. Unlike `list` which is scoped to a single folder, this returns nodes from the entire storage tree. Supports optional `type` filter (`file`, `folder`, `link`, `note`), `page_size` (100, 250, or 500), and `cursor` for pagination. For workspace folder shares, results are automatically filtered to the share's subtree.
+
 **details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
 
 **search** -- Search for files by keyword or semantic query. Each result includes `web_url` (workspace only).
@@ -1981,11 +1975,11 @@ Task list and task management for workspaces and shares. All task actions requir
 
 ### worklog
 
-Append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. All worklog actions require workflow to be enabled on the target entity.
+Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. All worklog actions require workflow to be enabled on the target entity.
+
+**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Use after making changes to record what was done and why. Entries are immutable after creation.
 
 **list** -- List worklog entries. Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"). Supports `type` filter ("entry" or "interjection"), `sort_dir` ("asc" or "desc", default "desc"), `limit` (1-200), `offset`, and `format` ("md" for markdown).
-
-**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Entries are immutable after creation.
 
 **interject** -- Create an urgent interjection entry that requires acknowledgement. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Interjections are priority corrections -- always treated as urgent.
 
