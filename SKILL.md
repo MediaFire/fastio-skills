@@ -1,29 +1,30 @@
 ---
 name: fast-io
 description: >-
-  Workspaces for agentic teams. Complete agent guide with all 14 consolidated
+  Workspaces for agentic teams. Complete agent guide with all 18 consolidated
   tools using action-based routing — parameters, workflows, ID formats, and
   constraints. Use this skill when agents need shared workspaces to collaborate
   with other agents and humans, create branded shares (Send/Receive/Exchange),
   or query documents using built-in AI. Supports ownership transfer to humans,
-  workspace management, and real-time collaboration. Free agent plan with
-  50 GB storage and 5,000 monthly credits.
+  workspace management, workflow primitives (tasks, worklogs, approvals, todos),
+  and real-time collaboration. Free agent plan with 50 GB storage and 5,000
+  monthly credits.
 license: Proprietary
 compatibility: >-
   Requires network access. Connects to the Fast.io MCP server at mcp.fast.io
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.69.0"
+  version: "1.73.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.69
-**Last Updated:** 2026-02-16
+**Version:** 1.73
+**Last Updated:** 2026-02-18
 
-The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, ownership transfer), 10 end-to-end workflows, and all 14 consolidated tools with action-based routing.
+The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, and all 18 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
@@ -50,7 +51,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 | Sharing outputs with humans is awkward | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration |
 | Collecting files from humans is harder | Receive shares let humans upload directly to your workspace -- no email attachments |
 | Understanding document contents | Built-in AI reads, summarizes, and answers questions about your files |
-| Building a RAG pipeline from scratch | Enable intelligence on a workspace and files are automatically indexed, summarized, and queryable |
+| Building a RAG pipeline from scratch | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename |
 | Handing a project off to a human | One-click ownership transfer -- human gets the org, agent keeps admin access |
 | Tracking what happened | Full audit trail with AI-powered activity summaries |
@@ -58,7 +59,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 
 ### MCP Server
 
-This MCP server exposes 14 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
+This MCP server exposes 18 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
 
 Once a user authenticates, the auth token is stored in the server session and automatically attached to all subsequent API calls. There is no need to pass tokens between tool invocations.
 
@@ -78,7 +79,7 @@ The server exposes two static MCP resources and three file download resource tem
 
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
-| `skill://guide` | skill-guide | Full agent guide (this document) with all 14 tools, workflows, and platform documentation | `text/markdown` |
+| `skill://guide` | skill-guide | Full agent guide (this document) with all 18 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
@@ -105,7 +106,7 @@ The response includes proper `Content-Type`, `Content-Length`, and `Content-Disp
 
 ### MCP Prompts
 
-The server provides 6 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
+The server provides 9 guided prompts for complex, multi-step operations via `prompts/list` and `prompts/get`:
 
 | Prompt | Description |
 |--------|-------------|
@@ -115,6 +116,9 @@ The server provides 6 guided prompts for complex, multi-step operations via `pro
 | `comment-conversation` | Agent-human collaboration via comments on files. Read/write anchored comments (image regions, video timestamps, PDF pages), reply in threads, react with emoji, and construct deep-link URLs so humans land directly on the conversation. |
 | `catch-up` | Understand what happened. AI-powered activity summaries, event search with filters, real-time change monitoring with activity-poll, and the polling loop pattern. |
 | `metadata` | Structured metadata on files. Template setup (create, assign), setting values, AI extraction, querying files by metadata, and version tracking. |
+| `manage-tasks` | Task management workflow: create task lists, add tasks with priorities and assignees, track status, and use bulk operations. |
+| `agent-workflow` | Full agentic workflow: enable workflow, create tasks, log progress with worklogs, handle interjections, request approvals, and manage todos. |
+| `project-setup` | Set up an agent project workspace: enable workflow, create context notes, build task lists linked to notes, use worklogs for reasoning, and leverage AI/RAG integration. |
 
 ### Additional References
 
@@ -289,7 +293,7 @@ Workspaces are file storage containers within organizations. Each workspace has:
 - **Archive/unarchive** lifecycle management.
 - **50 GB included storage** on the free agent plan, with files up to 1 GB per upload.
 - **File versioning** -- every edit creates a new version, old versions are recoverable.
-- **Full-text and semantic search** -- find files by name, content, or meaning.
+- **Full-text and semantic search** -- find files by name or content, and documents by meaning.
 
 Workspaces are identified by a 19-digit numeric profile ID.
 
@@ -301,7 +305,7 @@ Workspaces have an **intelligence** toggle that controls whether AI features are
 
 **Intelligence ON** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed for RAG. This enables:
 
-- **RAG (retrieval-augmented generation)** -- scope AI chat to entire folders or the full workspace and ask questions across all your content. The AI retrieves relevant passages and answers with citations.
+- **RAG (retrieval-augmented generation)** -- scope AI chat to entire folders or the full workspace and ask questions across your indexed documents and code. The AI retrieves relevant passages and answers with citations.
 - **Semantic search** -- find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
 - **Auto-summarization** -- short and long summaries generated for every indexed document and code file, searchable and visible in the UI.
 - **Metadata extraction** -- AI pulls key metadata from documents automatically.
@@ -480,7 +484,7 @@ This flag is independent of the workspace intelligence setting — a file can ha
 
 **When to enable intelligence:** You need scoped RAG queries, cross-file search, auto-summarization, or a persistent knowledge base.
 
-**When to disable intelligence:** The workspace is for storage/sharing only, or you only need to analyze specific files via attachments. Saves credits (ingestion costs 10 credits/page, 5 credits/sec for video).
+**When to disable intelligence:** The workspace is for storage/sharing only, or you only need to analyze specific files via attachments. Saves credits (ingestion costs 10 credits/page).
 
 Even with intelligence off, `chat_with_files` with file attachments still works for files with `ai.attach: true`.
 
@@ -639,8 +643,6 @@ Agents can import files directly from URLs without downloading them locally firs
 
 Use `upload` action `web-import` with the source URL, target profile, and parent node ID. Use `upload` action `web-status` to check progress and `upload` action `web-list` to list active import jobs.
 
-**Security note:** The `upload` action `web-import` instructs the **Fast.io cloud server** to fetch the URL -- not the agent's local environment. The Fast.io server is a public cloud service with no access to your local network, internal systems, or private infrastructure. It can only reach publicly accessible URLs and supported OAuth-authenticated cloud storage providers. This is functionally equivalent to the agent downloading a file and re-uploading it; the same data is transferred, just more efficiently since the server handles it directly. No internal or private data is exposed beyond what the agent could already access through its own network requests.
-
 **Agent use case:** A user says "Add this Google Doc to the project." You call `upload` action `web-import` with the URL. Fast.io downloads it server-side, generates previews, indexes it for AI, and it appears in the workspace. No local I/O.
 
 ### Metadata
@@ -696,6 +698,69 @@ The primary way agents deliver value: build something, then give it to a human. 
 **402 Payment Required use case (agent account):** While working, the agent hits credit limits. Call `org` action `transfer-token-create`, send the claim URL to the human, and explain they can upgrade to continue. The agent keeps admin access and resumes work once the human upgrades.
 
 **402 Payment Required use case (human account):** The agent cannot transfer the org. Instead, inform the user that their org has run out of credits and they need to upgrade their billing plan. Direct them to the Fast.io dashboard or use `org` action `billing-create` to update to a paid plan.
+
+### Workflow (Tasks, Worklogs, Approvals, Todos)
+
+Workspaces and shares support an optional workflow layer that adds structured task management, activity logging, approval gates, and simple checklists. Workflow features are controlled by a toggle -- they must be explicitly enabled before use.
+
+#### Enabling Workflow
+
+- **Workspaces:** `workspace` action `enable-workflow` with `workspace_id`
+- **Shares:** `share` action `enable-workflow` with `share_id`
+
+Check whether workflow is enabled via `workspace` action `details` or `share` action `details` -- look for `workflow: true` in the response.
+
+Disabling workflow (`workspace` action `disable-workflow` or `share` action `disable-workflow`) makes all workflow data inaccessible but preserves it. Re-enabling restores access.
+
+#### Task Lists and Tasks
+
+Tasks are organized into lists. Each workspace or share can have multiple task lists, and each list contains individual tasks.
+
+- **Task lists** have a name and optional description. Create with `task` action `create-list`, list with `task` action `list-lists`.
+- **Tasks** have a title, description, status, priority, assignee, dependencies, and optional node link. Create with `task` action `create-task`, list with `task` action `list-tasks`.
+- **Statuses:** `pending`, `in_progress`, `complete`, `blocked`
+- **Priorities:** 0 = none, 1 = low, 2 = medium, 3 = high, 4 = critical
+- **Assignees** are profile IDs (workspace or share members). Use `task` action `assign-task` to assign or unassign.
+- **Bulk operations:** `task` action `bulk-status` changes status on up to 100 tasks at once.
+- **Markdown output:** Pass `format: "md"` to get human-readable markdown instead of JSON.
+
+#### Worklogs
+
+Worklogs are append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. Entries cannot be edited or deleted after creation.
+
+- **Entries:** Regular log entries appended with `worklog` action `append`. Use for progress updates, decisions, reasoning, and status changes.
+- **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
+- **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement.
+- **Markdown output:** Pass `format: "md"` for human-readable output.
+
+#### Approvals
+
+Formal approval requests scoped to tasks, storage nodes, or worklog entries. Use when a decision requires explicit sign-off.
+
+- **Create:** `approval` action `create` with `profile_id`, `description` (1-5000 chars), `entity_type` ("task", "node", or "worklog_entry"), and optionally `approver_id` (a single profile ID, must be an entity member).
+- **Resolve:** `approval` action `resolve` with `resolve_action: "approve"` or `"reject"` and an optional comment. Only designated approvers can resolve.
+- **Statuses:** `pending`, `approved`, `rejected`
+- **Markdown output:** Pass `format: "md"` for human-readable output.
+
+#### Todos
+
+Simple flat checklists scoped to workspaces and shares. No nesting -- just a list of items that can be checked off.
+
+- **Create:** `todo` action `create` with a title.
+- **Toggle:** `todo` action `toggle` flips the done state of a single todo. `todo` action `bulk-toggle` sets done state on up to 100 todos at once.
+- **Update/Delete:** `todo` action `update` changes title. `todo` action `delete` soft-deletes a todo.
+- **Markdown output:** Pass `format: "md"` for human-readable output.
+
+#### Notes as Agent Knowledge Layer
+
+Notes (`type: "note"`) are markdown files stored in workspace storage (see **Notes** above). When combined with workflow features, notes become a knowledge layer:
+
+- **Automatic AI indexing:** When workspace intelligence is enabled, notes are ingested and indexed for RAG just like uploaded files.
+- **Link tasks to notes:** Tasks can reference storage nodes, including notes. Create context notes for project background, requirements, or reference material, then create tasks that link to those notes for full context.
+- **Worklogs for reasoning:** Use worklog entries to record decisions, progress, and reasoning over time. The chronological log builds a narrative that complements the structured task list.
+- **AI can search all context:** With intelligence enabled, AI chat can search across notes, worklogs, task descriptions, and uploaded files -- giving comprehensive answers grounded in the project's full history.
+
+**Recommended pattern:** Create notes for project context and requirements. Create task lists for work phases. Link tasks to relevant notes. Log progress with worklogs. Request approvals for decisions. The AI can then answer questions like "Why did we choose this approach?" by searching across all of these artifacts.
 
 ### Permission Parameter Values
 
@@ -825,7 +890,7 @@ The transfer flow is the primary way agents deliver value: set everything up on 
 
 ## 5. Tool Categories
 
-The 14 tools use action-based routing. Each tool covers a specific area of the Fast.io platform and exposes multiple actions.
+The 18 tools use action-based routing. Each tool covers a specific area of the Fast.io platform and exposes multiple actions.
 
 ### auth
 
@@ -847,15 +912,15 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, and metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
 
 ### share
 
-Share CRUD, public details, archiving, password authentication, asset management, and share name availability checks.
+Share CRUD, public details, archiving, password authentication, asset management, share name availability checks, and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create
+**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, enable-workflow, disable-workflow
 
 ### storage
 
@@ -877,7 +942,7 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 ### ai
 
-AI-powered chat with RAG, semantic search, and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, search indexed files by meaning with relevance scores, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
+AI-powered chat with RAG, semantic search, and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, search indexed documents and code by meaning with relevance scores, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
 
 **Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, search, share-generate, transactions, autotitle
 
@@ -910,6 +975,30 @@ Invitation management for organizations, workspaces, and shares. List invitation
 Asset management (upload, delete, list, read) for organizations, workspaces, shares, and users. Requires `entity_type` parameter (`org`, `workspace`, `share`, or `user`).
 
 **Actions:** upload, delete, types, list, read
+
+### task
+
+Task list and task management for workspaces and shares. Create and manage task lists, then create tasks within them with statuses, priorities, assignees, and dependencies. Supports bulk status changes and markdown output. Requires workflow to be enabled on the target entity.
+
+**Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status
+
+### worklog
+
+Append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. Log progress, decisions, and status changes. Create urgent interjections that require acknowledgement. Entries cannot be edited or deleted after creation. Requires workflow to be enabled on the target entity.
+
+**Actions:** list, append, interject, details, acknowledge, unacknowledged
+
+### approval
+
+Formal approval requests scoped to tasks, storage nodes, or worklog entries. Create approval requests with designated approvers, then resolve them with approve or reject decisions. Requires workflow to be enabled on the target entity.
+
+**Actions:** list, create, details, resolve
+
+### todo
+
+Simple flat checklists scoped to workspaces and shares. Create, update, delete, and toggle completion state on individual todos or in bulk. No nesting. Requires workflow to be enabled on the target entity.
+
+**Actions:** list, create, details, update, delete, toggle, bulk-toggle
 
 ---
 
@@ -1052,6 +1141,37 @@ The full agent-to-human handoff workflow. This is the primary way agents deliver
 2. `org` action `billing-create` with `org_id` and optionally `billing_plan` -- create or update a subscription. For new subscriptions, this creates a Stripe Setup Intent.
 3. `org` action `billing-details` with `org_id` -- check the current subscription status, Stripe customer info, and payment details.
 4. `org` action `limits` with `org_id` -- check credit usage against plan limits, including storage, transfer, AI tokens, and billing period info.
+
+### 11. Manage Tasks in a Workspace
+
+Track work with structured task lists and tasks.
+
+1. `workspace` action `enable-workflow` with `workspace_id` -- enable workflow features (required before using task, worklog, approval, or todo tools).
+2. `task` action `create-list` with `profile_type: "workspace"`, `profile_id` (workspace ID), and `name` -- create a task list. Returns `list_id`.
+3. `task` action `create-task` with `list_id`, `title`, and optionally `description`, `priority` (0-4), `assignee_id`, `dependencies`, `node_id`, and `status` -- add tasks to the list.
+4. `task` action `list-tasks` with `list_id` -- view all tasks, optionally filtered by `status` or `assignee`.
+5. `task` action `change-status` with `list_id`, `task_id`, and `status` -- update task progress (`pending` → `in_progress` → `complete`).
+6. `task` action `assign-task` with `list_id`, `task_id`, and `assignee_id` -- assign work to team members.
+7. `task` action `bulk-status` with `list_id`, `task_ids`, and `status` -- batch-update up to 100 tasks at once.
+
+### 12. Full Agent Workflow (Tasks + Worklogs + Approvals)
+
+The complete agentic workflow pattern: plan work, execute with logging, and gate decisions with approvals.
+
+1. `workspace` action `enable-workflow` with `workspace_id` -- enable workflow features on the workspace.
+2. `workspace` action `create-note` -- create context notes with project background, requirements, and reference material.
+3. `task` action `create-list` -- create task lists for each work phase (e.g., "Research", "Implementation", "Review").
+4. `task` action `create-task` -- add tasks linked to context. Include descriptive titles and reference note node_ids in descriptions.
+5. `task` action `change-status` with `status: "in_progress"` -- mark a task as started.
+6. `worklog` action `append` with `entity_type` ("task", "task_list", "node", or "profile"), `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"), and `content` -- log progress, decisions, and reasoning as you work. Build a chronological narrative.
+7. If a priority correction is needed: `worklog` action `interject` -- creates an urgent entry that requires acknowledgement from other participants.
+8. `worklog` action `unacknowledged` -- check for unacknowledged interjections before proceeding.
+9. `worklog` action `acknowledge` -- mark interjections as seen.
+10. When a decision needs sign-off: `approval` action `create` with `profile_id`, `description`, `entity_type` ("task", "node", or "worklog_entry"), and optionally `approver_id` -- request formal approval.
+11. `approval` action `resolve` with `resolve_action: "approve"` or `"reject"` and optional `comment` -- approvers resolve the request.
+12. `task` action `change-status` with `status: "complete"` -- mark completed tasks.
+13. `todo` action `create` -- track simple checklist items alongside the main task flow.
+14. With intelligence enabled, `ai` action `chat-create` -- the AI can search across notes, task descriptions, and worklogs to answer questions about the project.
 
 ---
 
@@ -1328,7 +1448,7 @@ Workflow-critical tool responses include a `_next` field -- a short array of sug
 Pattern-based recovery: error messages are also matched against common patterns (e.g., "email not verified", "workspace not found", "intelligence disabled") to provide specific recovery steps even when the HTTP status is generic.
 
 **`ai_capabilities`** is included in workspace details responses. It shows which AI modes are available based on the workspace intelligence setting:
-- Intelligence ON: `files_scope`, `folders_scope`, `files_attach` (full RAG indexing)
+- Intelligence ON: `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed document search)
 - Intelligence OFF: `files_attach` only (max 20 files, 200 MB, no RAG indexing)
 
 **`_ai_state_legend`** is included in storage list and search responses when files have AI indexing state. States: `ready` (indexed, queryable), `pending` (queued), `inprogress` (indexing), `disabled` (intelligence off), `failed` (re-upload needed). Also includes `_attach_field` explaining the `ai.attach` boolean — check this flag before using `files_attach`.
@@ -1349,7 +1469,7 @@ The following actions work without a session: `auth` actions `signin`, `signup`,
 
 ## 8. Complete Tool Reference
 
-All 14 tools with their actions organized by functional area. Each entry shows the action name and its description.
+All 18 tools with their actions organized by functional area. Each entry shows the action name and its description. Workflow tools (task, worklog, approval, todo) require workflow to be enabled on the target workspace or share.
 
 ### auth
 
@@ -1593,6 +1713,10 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 
 **metadata-versions** -- Get metadata version history for a file. Returns snapshots of metadata changes over time. Requires node_id.
 
+**enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a workspace. Must be called before using workflow tools on the workspace.
+
+**disable-workflow** -- Disable workflow features on a workspace. All workflow data is preserved but inaccessible until re-enabled.
+
 ### share
 
 **list** -- List shares the authenticated user has access to. Each share includes `web_url`.
@@ -1620,6 +1744,10 @@ All 14 tools with their actions organized by functional area. Each entry shows t
 **check-name** -- Check if a share custom name (URL name) is available.
 
 **quickshare-create** -- Create a temporary QuickShare link for a file in a workspace.
+
+**enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a share. Must be called before using workflow tools on the share.
+
+**disable-workflow** -- Disable workflow features on a share. All workflow data is preserved but inaccessible until re-enabled.
 
 ### storage
 
@@ -1735,7 +1863,7 @@ All AI actions require `context_type` parameter (`workspace` or `share`) and `co
 
 **message-read** -- Read an AI message response. Polls the message details endpoint until the AI response is complete, then returns the full text.
 
-**search** -- Semantic search across indexed documents and code. Returns ranked document chunks with relevance scores -- faster and lighter than AI chat (stateless GET, no LLM inference). Requires Intelligence ON. Params: `query_text` (2-1,000 chars), optional `files_scope`, `folders_scope` (same format as chat scoping), `limit` (1-500, default 100), `offset`. Results include content snippets, scores, and source file details with `web_url` (workspace only). Use search to find relevant files, then chat to ask questions about them.
+**search** -- Semantic search across indexed documents and code. Returns ranked document chunks with relevance scores -- faster and lighter than AI chat (stateless GET, no LLM inference). Requires Intelligence ON. Params: `query_text` (2-1,000 chars), optional `files_scope`, `folders_scope` (same format as chat scoping), `limit` (1-500, default 100), `offset`. Results include content snippets, scores, and source file details with `web_url` (workspace only). Use search to find relevant documents, then chat to ask questions about them.
 
 **share-generate** -- Generate AI Share markdown with temporary download URLs for files that can be pasted into external AI chatbots.
 
@@ -1820,3 +1948,79 @@ All asset actions require `entity_type` parameter (`org`, `workspace`, `share`, 
 **list** -- List all assets for the entity.
 
 **read** -- Read/download an asset.
+
+### task
+
+Task list and task management for workspaces and shares. All task actions require workflow to be enabled on the target entity (`workspace` action `enable-workflow` or `share` action `enable-workflow`).
+
+**list-lists** -- List all task lists for a workspace or share. Requires `profile_type` and `profile_id`. Supports `sort_by` (created, updated, name), `sort_dir`, `limit` (1-200), `offset`, and `format` ("md" for markdown).
+
+**create-list** -- Create a new task list. Requires `profile_type`, `profile_id`, and `name` (1-255 chars). Optional `description` (max 2000 chars).
+
+**list-details** -- Get details of a specific task list. Requires `list_id`. Supports `format`.
+
+**update-list** -- Update a task list's name or description. Requires `list_id`. Optional `name`, `description`.
+
+**delete-list** -- Soft-delete a task list and all its tasks. Requires `list_id`. Destructive.
+
+**list-tasks** -- List tasks in a task list. Requires `list_id`. Supports `status` filter, `assignee` filter, `sort_by` (created, updated, name, priority, status), `sort_dir`, `limit` (1-200), `offset`, and `format`.
+
+**create-task** -- Create a new task in a list. Requires `list_id` and `title` (1-500 chars). Optional `description` (max 5000 chars), `status` (pending, in_progress, complete, blocked), `priority` (0=none, 1=low, 2=medium, 3=high, 4=critical), `assignee_id` (profile ID), `dependencies` (array of task IDs), `node_id` (link to file/folder/note).
+
+**task-details** -- Get full details of a specific task. Requires `list_id` and `task_id`. Supports `format`.
+
+**update-task** -- Update a task's title, description, status, priority, assignee, dependencies, or node link. Requires `list_id` and `task_id`.
+
+**delete-task** -- Soft-delete a task. Requires `list_id` and `task_id`. Destructive.
+
+**change-status** -- Change a task's status. Requires `list_id`, `task_id`, and `status`.
+
+**assign-task** -- Assign or unassign a task. Requires `list_id` and `task_id`. Pass `assignee_id` (profile ID) to assign, or null/omit to unassign.
+
+**bulk-status** -- Change status on multiple tasks at once. Requires `list_id`, `task_ids` (array of task IDs, max 100), and `status`.
+
+### worklog
+
+Append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. All worklog actions require workflow to be enabled on the target entity.
+
+**list** -- List worklog entries. Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"). Supports `type` filter ("entry" or "interjection"), `sort_dir` ("asc" or "desc", default "desc"), `limit` (1-200), `offset`, and `format` ("md" for markdown).
+
+**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Entries are immutable after creation.
+
+**interject** -- Create an urgent interjection entry that requires acknowledgement. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Interjections are priority corrections -- always treated as urgent.
+
+**details** -- Get full details of a specific worklog entry. Requires `entry_id`. Supports `format`.
+
+**acknowledge** -- Acknowledge an interjection entry, marking it as seen. Requires `entry_id`.
+
+**unacknowledged** -- List unacknowledged interjections. Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
+
+### approval
+
+Formal approval requests scoped to tasks, storage nodes, or worklog entries. All approval actions require workflow to be enabled on the target entity.
+
+**list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 100), `offset`, and `format`.
+
+**create** -- Create a new approval request. Requires `entity_type` ("task", "node", or "worklog_entry"), `entity_id`, `profile_id`, and `description` (1-5000 chars). Optional `approver_id` (profile ID of designated approver), `deadline` (ISO 8601), `node_id` (artifact reference).
+
+**details** -- Get full details of an approval request including approver list and resolution. Requires `approval_id` (opaque alphanumeric). Supports `format`.
+
+**resolve** -- Resolve an approval request. Requires `approval_id` and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
+
+### todo
+
+Simple flat checklists scoped to workspaces and shares. No nesting. All todo actions require workflow to be enabled on the target entity.
+
+**list** -- List todos for a workspace or share. Requires `profile_type` and `profile_id`. Supports `filter_done` (boolean), `sort_by` (created, updated, title), `sort_dir`, `limit` (1-200, default 50), `offset`, and `format`.
+
+**create** -- Create a new todo item. Requires `profile_type`, `profile_id`, and `title` (1-500 chars). Optional `assignee_id`.
+
+**details** -- Get full details of a todo. Requires `todo_id` (opaque alphanumeric). Supports `format`.
+
+**update** -- Update a todo. Requires `todo_id`. Supports `title`, `assignee_id`, `done`.
+
+**delete** -- Soft-delete a todo. Requires `todo_id`. Destructive.
+
+**toggle** -- Toggle the done state of a todo. Requires `todo_id`. Flips between done and not done.
+
+**bulk-toggle** -- Set done state on multiple todos at once. Requires `profile_type`, `profile_id`, `todo_ids` (array of todo IDs, max 100), and `done` (boolean: true to mark done, false to mark not done).
