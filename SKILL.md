@@ -1,30 +1,30 @@
 ---
 name: fast-io
 description: >-
-  Workspaces for agentic teams. Complete agent guide with all 18 consolidated
+  Workspaces for agentic teams. Complete agent guide with all 19 consolidated
   tools using action-based routing — parameters, workflows, ID formats, and
   constraints. Use this skill when agents need shared workspaces to collaborate
   with other agents and humans, create branded shares (Send/Receive/Exchange),
   or query documents using built-in AI. Supports ownership transfer to humans,
   workspace management, workflow primitives (tasks, worklogs, approvals, todos),
-  and real-time collaboration. Free agent plan with 50 GB storage and 5,000
-  monthly credits.
+  cloud import from external storage providers, and real-time collaboration.
+  Free agent plan with 50 GB storage and 5,000 monthly credits.
 license: Proprietary
 compatibility: >-
   Requires network access. Connects to the Fast.io MCP server at mcp.fast.io
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.80.0"
+  version: "1.84.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.80
-**Last Updated:** 2026-02-18
+**Version:** 1.84
+**Last Updated:** 2026-02-19
 
-The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, and all 18 consolidated tools with action-based routing.
+The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, cloud import, ownership transfer), 13 end-to-end workflows, and all 19 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
@@ -59,7 +59,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 
 ### MCP Server
 
-This MCP server exposes 18 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
+This MCP server exposes 19 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
 
 Once a user authenticates, the auth token is stored in the server session and automatically attached to all subsequent API calls. There is no need to pass tokens between tool invocations.
 
@@ -79,7 +79,7 @@ The server exposes two static MCP resources and three file download resource tem
 
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
-| `skill://guide` | skill-guide | Full agent guide (this document) with all 18 tools, workflows, and platform documentation | `text/markdown` |
+| `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
@@ -92,7 +92,7 @@ The server exposes two static MCP resources and three file download resource tem
 
 Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
 
-**Dynamic resource listing:** When authenticated, workspace and share file resources are dynamically listed via `resources/list`. MCP clients (such as Claude Desktop's @ picker) can discover available files without any tool calls. The listing includes root-level files from up to 5 workspaces and 10 shares, sorted by most recently updated. Each entry includes the file name, workspace/share name, file size, and MIME type. Results are cached for 1 minute. Files in subdirectories are not listed -- use the `storage` tool with action `list` to browse deeper.
+**Dynamic resource listing:** When authenticated, workspace and share file resources are dynamically listed via `resources/list`. MCP clients (such as Claude Desktop's `@` mention picker) can discover available files without any tool calls. Up to 10 workspaces and 10 shares are enumerated, with up to 25 most recently updated root-level files from each. Resources appear as "WorkspaceName / filename.ext" or "ShareTitle / filename.ext". Results are cached for 1 minute per session. Only root-level files are listed -- subdirectories are not recursively enumerated. Use the `storage` tool with action `list` to browse deeper. The quickshare template remains template-only and is not dynamically enumerable.
 
 ### HTTP File Pass-Through
 
@@ -111,6 +111,18 @@ The response includes proper `Content-Type`, `Content-Length`, and `Content-Disp
 The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
 
 **Best practice (IMPORTANT):** After state-changing actions (uploading files, creating shares, changing task status, member changes, file moves/deletes), append a worklog entry describing what you did and why. Without worklog entries, agent work is invisible to humans reviewing the workspace. For multiple related actions (e.g., uploading several files), you may log once after the batch completes rather than after each individual action. Worklog entries are append-only and permanent.
+
+### Cloud Import Overview
+
+The server supports importing files from external cloud storage providers (Google Drive, Dropbox, Box, OneDrive for Business) into workspace storage. Enable cloud import on a workspace with `workspace` action `enable-import` before using import tools. See the **Cloud Import** workflow in section 6 for the complete pattern.
+
+Cloud import uses a service-account model: each workspace gets a unique agent identity per provider. The user shares a folder with the agent email, and the system discovers and syncs those shared folders into workspace storage. Imported files are regular storage nodes with import metadata -- search, AI, previews, and comments all work without changes.
+
+**Key concepts:**
+- **Provider identity** -- a service account email provisioned per workspace per provider. The user shares cloud folders with this email.
+- **Import source** -- a mapping from one remote shared folder to a local workspace folder. Syncs periodically (default: 1 hour).
+- **Import job** -- a sync operation (full_sync, incremental, or discovery). Jobs track progress with file counts, bytes transferred, and ETA.
+- **Write-back** -- for read_write sources, modified files are automatically queued to push back to the remote provider. Conflicts are detected when the remote file changed since last sync.
 
 ### Additional References
 
@@ -882,7 +894,7 @@ The transfer flow is the primary way agents deliver value: set everything up on 
 
 ## 5. Tool Categories
 
-The 18 tools use action-based routing. Each tool covers a specific area of the Fast.io platform and exposes multiple actions.
+The 19 tools use action-based routing. Each tool covers a specific area of the Fast.io platform and exposes multiple actions.
 
 ### auth
 
@@ -904,9 +916,9 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and cloud import toggle (enable/disable external storage import).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow, enable-import, disable-import
 
 ### share
 
@@ -992,6 +1004,12 @@ Simple flat checklists scoped to workspaces and shares. Create, update, delete, 
 
 **Actions:** list, create, details, update, delete, toggle, bulk-toggle
 
+### import
+
+Cloud import operations for syncing files from external cloud storage providers (Google Drive, Dropbox, Box, OneDrive for Business) into workspace storage. Manage provider identities (service accounts), discover shared folders, create and monitor import sources with periodic sync, and handle write-back operations for bidirectional sync. Requires cloud import to be enabled on the workspace (`workspace` action `enable-import`).
+
+**Actions:** list-identities, provision-identity, identity-details, revoke-identity, list-sources, discover, create-source, source-details, update-source, delete-source, disconnect, refresh, list-jobs, job-details, cancel-job, list-writebacks, writeback-details, push-writeback, retry-writeback, resolve-conflict, cancel-writeback
+
 ---
 
 ## 6. Common Workflows
@@ -1040,10 +1058,10 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 **Binary or large files (chunked flow):**
 
-1. `upload` action `create-session` with `profile_type: "workspace"`, `profile_id` (the workspace ID), `parent_node_id` (target folder or `"root"`), `filename`, and `filesize` in bytes. Returns an `upload_id`.
-2. `upload` action `chunk` with `upload_id`, `chunk_number` (1-indexed), and chunk data. Three options for passing data (provide exactly one):
+1. `upload` action `create-session` with `profile_type: "workspace"`, `profile_id` (the workspace ID), `parent_node_id` (target folder or `"root"`), `filename`, and `filesize` in bytes. Returns an `upload_id`, `recommended_mcp_chunk_bytes` (default 24576), and `total_chunks` — use these to split the file.
+2. `upload` action `chunk` with `upload_id`, `chunk_number` (1-indexed), and chunk data. **Split files into pieces of `recommended_mcp_chunk_bytes`** (24 KB binary / ~32 KB base64) — even small files. Three options for passing data (provide exactly one):
    - **`content`** — for text (strings, code, JSON, etc.). Do NOT use `data` for text.
-   - **`data`** — base64-encoded binary. The simplest approach for binary uploads through MCP tool calls.
+   - **`data`** — base64-encoded binary (**≤32 KB per call**). The simplest approach for binary uploads through MCP tool calls. Split the file and send each piece as a separate chunk.
    - **`blob_ref`** — blob ID from `upload` action `stage-blob` or `POST /blob`. Useful when pre-staging data or when using the HTTP blob endpoint from non-MCP clients. Blobs expire after 5 minutes and are consumed (deleted) on use.
    Repeat for each chunk. Wait for each chunk to return success before sending the next.
 3. `upload` action `finalize` with `upload_id` -- triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on assembly failure. The file is automatically added to the target workspace and folder specified in step 1 -- no separate add-file call is needed.
@@ -1054,8 +1072,8 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 Use this when you have a file URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox) and want to add it to a workspace without downloading locally.
 
-1. `upload` action `web-import` with `url` (the source URL), `profile_type: "workspace"`, `profile_id` (the workspace ID), and `parent_node_id` (target folder or `"root"`). Returns a `job_id`.
-2. `upload` action `web-status` with `job_id` -- check import progress. The server downloads the file, scans it, generates previews, and indexes it for AI (if intelligence is enabled).
+1. `upload` action `web-import` with `url` (the source URL), `profile_type: "workspace"`, `profile_id` (the workspace ID), and `parent_node_id` (target folder or `"root"`). Returns an `upload_id`.
+2. `upload` action `web-status` with `upload_id` -- check import progress. The server downloads the file, scans it, generates previews, and indexes it for AI (if intelligence is enabled).
 3. The file appears in the workspace storage tree once the job completes.
 
 ### 5. Deliver Files to a Client
@@ -1165,6 +1183,50 @@ The complete agentic workflow pattern: plan work, execute with logging, and gate
 13. `todo` action `create` -- track simple checklist items alongside the main task flow.
 14. With intelligence enabled, `ai` action `chat-create` -- the AI can search across notes, task descriptions, and worklogs to answer questions about the project.
 
+### 13. Cloud Import (External Storage Sync)
+
+Import files from Google Drive, Dropbox, Box, or OneDrive for Business into a workspace. Files sync periodically and remain queryable by AI.
+
+**Setup:**
+
+1. `workspace` action `enable-import` with `workspace_id` -- enable cloud import features on the workspace.
+2. `import` action `provision-identity` with `workspace_id` and `provider` (one of: `google_drive`, `box`, `onedrive_business`, `dropbox`) -- provisions a service account. Returns an `identity_email` and user `instructions`.
+3. Tell the user to share a folder in their cloud storage with the `identity_email`. Wait for confirmation.
+4. `import` action `discover` with `workspace_id` and `identity_id` -- lists all folders shared with the agent. Returns `shared_folders` with `remote_path`, `name`, `size`, and `file_count`.
+5. `import` action `create-source` with `workspace_id`, `identity_id`, `remote_path` (from discover), and optionally `remote_name`, `sync_interval` (default 3600s), and `access_mode` (`read_only` default, or `read_write` for bidirectional sync). Returns the new import source and triggers an initial sync job.
+6. `import` action `job-details` with `source_id` and `job_id` -- poll for progress. The `progress` field shows percentage, current file, speed, and ETA.
+7. `storage` action `list` with `context_type: "workspace"` -- imported files appear under an "Imports/" folder. Nodes have `is_imported: true` and `import_metadata` in responses.
+
+**Ongoing management:**
+
+- `import` action `list-sources` -- view all active imports for a workspace.
+- `import` action `refresh` with `source_id` -- trigger an immediate sync instead of waiting for the next scheduled interval.
+- `import` action `update-source` with `source_id` -- change `sync_interval`, `access_mode`, or pause/resume with `status: "paused"` / `status: "synced"`.
+- `import` action `list-jobs` with `source_id` -- view sync history.
+
+**Write-back (read_write sources only):**
+
+When `access_mode` is `read_write`, files modified in the workspace are automatically queued for write-back to the remote provider.
+
+1. `import` action `list-writebacks` with `source_id` -- view pending and completed write-back jobs.
+2. `import` action `push-writeback` with `source_id` and `node_id` -- force push a specific file immediately.
+3. If a conflict occurs (remote file changed since last sync), the write-back enters `conflict` status.
+4. `import` action `resolve-conflict` with `source_id`, `writeback_id`, and `conflict_resolution`: `keep_local` (push local version) or `keep_remote` (pull remote version).
+5. `import` action `retry-writeback` with `source_id` and `writeback_id` -- retry a failed write-back.
+
+**Disconnect:**
+
+- `import` action `disconnect` with `source_id` and `disconnect_action`: `keep` (imported files become regular workspace files) or `delete` (imported files moved to trash).
+
+**Provider-specific notes:**
+
+| Provider | Sharing method | Acceptance |
+|----------|---------------|------------|
+| Google Drive | Share folder with agent email | Instant (no acceptance needed) |
+| Box | Invite agent email to folder | Instant (no acceptance needed) |
+| OneDrive Business | Grant app access to SharePoint site/library | Requires admin |
+| Dropbox | Invite agent email to folder | Requires acceptance via API |
+
 ---
 
 ## 7. Key Patterns and Gotchas
@@ -1191,23 +1253,25 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 
 ### Binary Uploads
 
-Three approaches for uploading binary data as chunks, each suited to different situations:
+Three approaches for uploading binary data as chunks, each suited to different situations.
+
+> **Chunk size limit for MCP agents.** MCP tool parameters pass through the AI model's output, which limits how much data you can include in a single tool call. **Keep each chunk's base64 `data` under 32 KB** (~24 KB of binary). For example, a 145 KB PDF needs at least 6 chunks, and even a 17 KB file should be split into 1-2 chunks rather than assumed to fit in one call. The `create-session` response includes a `recommended_mcp_chunk_bytes` hint (default 24576) — use it to calculate the number of chunks: `ceil(filesize / recommended_mcp_chunk_bytes)`. Always split files into multiple chunks when using `data` or `stage-blob` through MCP tool calls.
 
 **1. `data` parameter (base64) — simplest for MCP agents**
 
-Pass base64-encoded binary directly in the `data` parameter of `upload` action `chunk`. No extra steps required. Works with any MCP client. Adds ~33% size overhead from base64 encoding.
+Pass base64-encoded binary directly in the `data` parameter of `upload` action `chunk`. No extra steps required. Works with any MCP client. Adds ~33% size overhead from base64 encoding. **Split files into chunks of ≤24 KB binary (≤32 KB base64)** to stay within MCP client parameter limits.
 
 **2. `stage-blob` action — MCP tool-based blob staging**
 
-Use `upload` action `stage-blob` with `data` (base64) to pre-stage binary data as a blob. Returns a `blob_id` that you pass as `blob_ref` in the chunk call. Useful when you want to decouple staging from uploading, or when preparing multiple chunks in advance.
+Use `upload` action `stage-blob` with `data` (base64) to pre-stage binary data as a blob. Returns a `blob_id` that you pass as `blob_ref` in the chunk call. Useful when you want to decouple staging from uploading, or when preparing multiple chunks in advance. The same **32 KB base64 limit per call** applies — stage one chunk-sized piece at a time.
 
 **Flow:**
-1. `upload` action `stage-blob` with `data` (base64-encoded binary). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+1. `upload` action `stage-blob` with `data` (base64-encoded binary, ≤32 KB). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
 2. `upload` action `chunk` with `blob_ref: "<blob_id>"`. The server retrieves the staged bytes and uploads them.
 
 **3. `POST /blob` endpoint — HTTP blob staging for non-MCP clients**
 
-A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. This avoids base64 encoding entirely — useful for clients that can make direct HTTP requests alongside MCP tool calls.
+A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. This avoids base64 encoding entirely — useful for clients that can make direct HTTP requests alongside MCP tool calls. No chunk size splitting needed with this approach.
 
 **Flow:**
 1. `POST /blob` with headers `Mcp-Session-Id: <session_id>` and `Content-Type: application/octet-stream`. Send raw binary bytes as the request body. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
@@ -1461,7 +1525,7 @@ The following actions work without a session: `auth` actions `signin`, `signup`,
 
 ## 8. Complete Tool Reference
 
-All 18 tools with their actions organized by functional area. Each entry shows the action name and its description. Workflow tools (task, worklog, approval, todo) require workflow to be enabled on the target workspace or share.
+All 19 tools with their actions organized by functional area. Each entry shows the action name and its description. Workflow tools (task, worklog, approval, todo) require workflow to be enabled on the target workspace or share.
 
 ### auth
 
@@ -1709,6 +1773,10 @@ All 18 tools with their actions organized by functional area. Each entry shows t
 
 **disable-workflow** -- Disable workflow features on a workspace. All workflow data is preserved but inaccessible until re-enabled.
 
+**enable-import** -- Enable cloud import features on a workspace. Required before using the `import` tool to connect external cloud storage providers.
+
+**disable-import** -- Disable cloud import features on a workspace. Existing import sources stop syncing. Import data is preserved but inaccessible until re-enabled.
+
 ### share
 
 **list** -- List shares the authenticated user has access to. Each share includes `web_url`.
@@ -1745,7 +1813,7 @@ All 18 tools with their actions organized by functional area. Each entry shows t
 
 All storage actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
 
-**list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only).
+**list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only). Requires `context_type`, `context_id`, and `node_id` (use `root` for root folder).
 
 **recent** -- List recently modified files and folders across all directories, sorted by updated descending. Unlike `list` which is scoped to a single folder, this returns nodes from the entire storage tree. Supports optional `type` filter (`file`, `folder`, `link`, `note`), `page_size` (100, 250, or 500), and `cursor` for pagination. For workspace folder shares, results are automatically filtered to the share's subtree.
 
@@ -1757,17 +1825,17 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **create-folder** -- Create a new folder. Returns `web_url` (workspace only).
 
-**copy** -- Copy files or folders to another location. Returns `web_url` on the new copy (workspace only).
+**copy** -- Copy files/folders. Single copy via `node_id` (workspace or share). Bulk copy via `node_ids` array (workspace only). Returns `web_url` on the new copy (workspace only).
 
-**move** -- Move files or folders to a different parent folder. Returns `web_url` (workspace only).
+**move** -- Move files/folders. Single move via `node_id` (workspace or share). Bulk move via `node_ids` array (workspace only). Returns `web_url` (workspace only).
 
-**delete** -- Delete files or folders by moving them to the trash.
+**delete** -- Delete files/folders by moving them to the trash. Single delete via `node_id` (workspace or share). Bulk delete via `node_ids` array (workspace only).
 
 **rename** -- Rename a file or folder. Returns `web_url` (workspace only).
 
 **purge** -- Permanently delete a trashed node (irreversible). Requires Member permission.
 
-**restore** -- Restore files or folders from the trash. Returns `web_url` on the restored node (workspace only).
+**restore** -- Restore files/folders from the trash. Single restore via `node_id` (workspace or share). Bulk restore via `node_ids` array (workspace only). Returns `web_url` on the restored node (workspace only).
 
 **add-file** -- Link a completed upload to a storage location. Returns `web_url` (workspace only).
 
@@ -1827,9 +1895,9 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 ### download
 
-**file-url** -- Get a download token and URL for a file. Optionally specify a version. Requires `context_type` (`workspace` or `share`) and `context_id`.
+**file-url** -- Get a download token and URL for a file. Optionally specify a version. Requires `context_type`, `context_id`, and `node_id`.
 
-**zip-url** -- Get a ZIP download URL for a folder or entire workspace/share. Returns the URL with auth instructions. Requires `context_type` and `context_id`.
+**zip-url** -- Get a ZIP download URL for a folder or entire workspace/share. Returns the URL with auth instructions. Requires `context_type`, `context_id`, and `node_id` (use `root` for entire storage tree).
 
 **quickshare-details** -- Get metadata and download info for a quickshare link. No authentication required.
 
@@ -1901,11 +1969,11 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 All member actions require `entity_type` parameter (`workspace` or `share`) and `entity_id` (the 19-digit profile ID).
 
-**add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`.
+**add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`. For workspaces, set access level with `permissions` (admin/member/guest). For shares, use `role` (admin/member/guest/view).
 
 **remove** -- Remove a member (cannot remove the owner).
 
-**details** -- Get detailed membership info for a specific member.
+**details** -- Get detailed membership info for a specific member. For workspaces, pass `member_id`; for shares, pass `user_id`.
 
 **update** -- Update a member's role, notifications, or expiration.
 
@@ -2018,3 +2086,49 @@ Simple flat checklists scoped to workspaces and shares. No nesting. All todo act
 **toggle** -- Toggle the done state of a todo. Requires `todo_id`. Flips between done and not done.
 
 **bulk-toggle** -- Set done state on multiple todos at once. Requires `profile_type`, `profile_id`, `todo_ids` (array of todo IDs, max 100), and `done` (boolean: true to mark done, false to mark not done).
+
+### import
+
+Cloud import operations for syncing files from external cloud storage providers into workspace storage. All import actions require cloud import to be enabled on the target workspace (`workspace` action `enable-import`).
+
+**list-identities** -- List all provider identities for a workspace. Requires `workspace_id`. Supports `format` ("md" for markdown). Returns identity records with provider, email, status, and creation dates.
+
+**provision-identity** -- Provision a new service account identity for a cloud provider. Requires `workspace_id` and `provider` (google_drive, box, onedrive_business, or dropbox). Returns the identity with `identity_email` (the address the user shares folders with) and setup `instructions`.
+
+**identity-details** -- Get full details of a provider identity. Requires `workspace_id` and `identity_id`. Returns identity record including the agent email address.
+
+**revoke-identity** -- Revoke and delete a provider identity. Requires `workspace_id` and `identity_id`. All import sources using this identity stop syncing. Destructive.
+
+**list-sources** -- List import sources for a workspace. Requires `workspace_id`. Supports `status` filter and `format` ("md" for markdown). Returns source records with remote path, sync status, file counts, and schedule.
+
+**discover** -- Discover shared folders for a provider identity. Requires `workspace_id` and `identity_id`. Runs a discovery scan of folders shared with the agent and returns `shared_folders` with `remote_path`, `name`, `size`, `file_count`, and `already_imported` flag.
+
+**create-source** -- Create a new import source to start syncing a shared folder. Requires `workspace_id`, `identity_id`, and `remote_path` (from discover results). Optional `remote_name` (display name), `sync_interval` (300-86400 seconds, default 3600), and `access_mode` ("read_only" default or "read_write" for bidirectional sync). Returns the new source and triggers an initial sync job.
+
+**source-details** -- Get full details of an import source. Requires `source_id`. Supports `format` ("md" for markdown). Returns source record including `root_node_id` (the workspace folder node), sync schedule, file counts, and total size. The `root_node_id` points to a Folder node with the Imported flag set; all descendants inherit import behavior.
+
+**update-source** -- Update import source settings. Requires `source_id`. Supports `sync_interval`, `access_mode`, `remote_name`, and `status` ("paused" to pause syncing, "synced" to resume).
+
+**delete-source** -- Delete an import source and its associated data. Requires `source_id`. Destructive.
+
+**disconnect** -- Disconnect an import source with a choice of what happens to imported files. Requires `source_id` and `disconnect_action`: "keep" (imported files become regular workspace files) or "delete" (imported files moved to trash). The source is removed either way.
+
+**refresh** -- Trigger an immediate sync for an import source instead of waiting for the next scheduled interval. Requires `source_id`. Returns the new sync job.
+
+**list-jobs** -- List sync jobs for an import source. Requires `source_id`. Supports `limit` (1-100) and `format` ("md" for markdown). Returns job records with type, status, file counts, bytes transferred, and timing.
+
+**job-details** -- Get full details of a sync job including real-time progress. Requires `source_id` and `job_id`. For running jobs, the `progress` field shows `percentage`, `current_file`, `speed_bytes_per_sec`, and `eta_seconds`.
+
+**cancel-job** -- Cancel a running sync job. Requires `source_id` and `job_id`.
+
+**list-writebacks** -- List write-back jobs for an import source (read_write access mode only). Requires `source_id`. Supports `status` filter, `limit` (1-100), `offset`, and `format` ("md" for markdown). Returns write-back records with node ID, remote path, upload progress, and conflict status.
+
+**writeback-details** -- Get full details of a write-back job. Requires `source_id` and `writeback_id`. Returns write-back record with file size, bytes uploaded, retry count, and conflict information.
+
+**push-writeback** -- Force push a workspace file back to the remote provider. Requires `source_id` and `node_id` (the storage node to push). Creates a new write-back job. Only works on read_write import sources.
+
+**retry-writeback** -- Retry a failed write-back job. Requires `source_id` and `writeback_id`. Resets the job to pending and re-queues it.
+
+**resolve-conflict** -- Resolve a write-back conflict when both local and remote files changed. Requires `source_id`, `writeback_id`, and `conflict_resolution`: "keep_local" (push the local version to remote, overwriting) or "keep_remote" (pull the remote version, discarding local changes).
+
+**cancel-writeback** -- Cancel a pending write-back job. Requires `source_id` and `writeback_id`. Only pending or uploading write-backs can be canceled.

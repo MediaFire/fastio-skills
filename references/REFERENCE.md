@@ -1461,8 +1461,8 @@ named actions.
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces, metadata & workflow | `list`, `details`, `update`, `delete`, `members`, `list-shares`, `import-share`, `check-name`, `create-note`, `enable-workflow`, plus 17 `metadata-*` actions |
-| `share`      | Shares & workflow               | `list`, `create`, `update`, `delete`, `quickshare-create`, `enable-workflow`  |
+| `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus 17 `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
+| `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
 | `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
