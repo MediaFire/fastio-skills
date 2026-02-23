@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.24.0 | **Last updated:** 2026-02-18
+> **Version:** 1.25.0 | **Last updated:** 2026-02-21
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -17,7 +17,7 @@ needed.
 - **Streamable HTTP (recommended):** `https://mcp.fast.io/mcp`
 - **Legacy SSE:** `https://mcp.fast.io/sse`
 
-The MCP server exposes **18 consolidated tools** using action-based routing — each tool covers a domain (e.g., `auth`,
+The MCP server exposes **19 consolidated tools** using action-based routing — each tool covers a domain (e.g., `auth`,
 `storage`, `upload`) and uses an `action` parameter to select the operation. See the "MCP Tool Architecture" section
 below for the full tool list.
 
@@ -491,7 +491,8 @@ entire workspace, omit `folders_scope` entirely — the default scope is already
 
 **File attachment parameter:**
 - `files_attach` — comma-separated `nodeId:versionId` pairs (max 20 files, 200MB total, both parts required and
-  non-empty). Files are read directly, not searched via RAG.
+  non-empty). **Only file nodes are accepted — passing a folder nodeId will be rejected.** Files are read directly,
+  not searched via RAG. To include folder contents, use `folders_scope` instead.
 
 #### Notes as Knowledge Grounding
 
@@ -1453,8 +1454,8 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 ## MCP Tool Architecture
 
-The MCP server exposes **18 consolidated tools**, each covering a domain. Every tool uses an `action` parameter to
-select the specific operation — agents don't need to discover hundreds of separate tools, just 18 tools with clearly
+The MCP server exposes **19 consolidated tools**, each covering a domain. Every tool uses an `action` parameter to
+select the specific operation — agents don't need to discover hundreds of separate tools, just 19 tools with clearly
 named actions.
 
 | Tool         | Domain                          | Example Actions                                                               |
@@ -1477,6 +1478,7 @@ named actions.
 | `todo`       | Todo checklists                 | `list`, `create`, `details`, `update`, `delete`, `toggle`, `bulk-toggle`      |
 | `approval`   | Approval workflows              | `list`, `create`, `details`, `resolve`                                        |
 | `worklog`    | Activity logs & interjections   | `list`, `append`, `interject`, `details`, `acknowledge`, `unacknowledged`     |
+| `apps`       | Apps discovery                  | `list`                                                                        |
 
 ### `web_url` in Tool Responses — Use It Instead of Building URLs
 
@@ -1540,12 +1542,12 @@ needing to call separate list actions first.
 
 ### Tool Annotations — Safety & Side Effects
 
-All 18 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+All 19 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
 automated execution.
 
 **Read-only tools** (safe, no confirmation needed, `idempotentHint: true`):
-- `download`, `event` — these tools only read data, never modify state, and are safe to retry
+- `download`, `event`, `apps` — these tools only read data, never modify state, and are safe to retry
 
 **Non-destructive mutation tools** (create or update, no delete actions):
 - `upload`, `invitation`, `worklog` — these tools create or modify resources but cannot delete them
@@ -1564,6 +1566,85 @@ automated execution.
 - File uploads: storage credits (100 credits/GB)
 - Downloads: bandwidth credits (212 credits/GB)
 - Document ingestion: 10 credits/page (when intelligence is enabled)
+
+### Code Mode — Streamlined Tools for Headless Agents
+
+The MCP server (v2026.02.102+) detects the connecting client and serves one of two tool sets:
+
+**Named Mode** (Claude Desktop, Cline, unknown clients): All 19 core tools listed above plus 12 app-specific widget
+tools — the full interactive experience with action-based routing across every domain.
+
+**Code Mode** (Claude Code, Cursor, Continue): 4 tools optimized for programmatic workflows:
+
+| Tool       | Purpose                                                                                     |
+|------------|---------------------------------------------------------------------------------------------|
+| `auth`     | Authentication — same as Named Mode (`signin`, `signup`, `set-api-key`, `pkce-login`, etc.) |
+| `upload`   | File uploads — same as Named Mode (`create-session`, `chunk`, `finalize`, `text-file`, etc.)|
+| `search`   | Keyword/tag search over 285 API endpoints                                                   |
+| `execute`  | Run agent-provided JavaScript against the Fast.io API in a sandboxed environment            |
+
+#### `search` Tool
+
+Discovers API endpoints by keyword and tag. Returns scored matches with method, path, summary, parameters, and relevant
+concept docs (pagination, error codes, etc.).
+
+**Parameters:**
+
+| Parameter          | Type    | Required | Description                                                    |
+|--------------------|---------|----------|----------------------------------------------------------------|
+| `query`            | string  | Yes      | Keyword search query (e.g., "list workspaces", "upload file")  |
+| `tag`              | string  | No       | Filter results by API tag (e.g., "workspace", "storage", "ai") |
+| `include_concepts` | boolean | No       | Include related concept docs (pagination, error codes, etc.)   |
+| `max_results`      | number  | No       | Maximum number of endpoint matches to return                   |
+
+#### `execute` Tool
+
+Runs agent-provided JavaScript in a sandboxed `AsyncFunction` with a `fastio` proxy object that handles auth
+injection, envelope parsing, and error extraction. The sandbox has whitelisted globals only (`JSON`, `Math`, `Date`,
+etc.), blocks prototype chain escapes, and enforces a 60-second timeout.
+
+**Parameters:**
+
+| Parameter    | Type   | Required | Description                                              |
+|--------------|--------|----------|----------------------------------------------------------|
+| `code`       | string | Yes      | JavaScript code to execute in the sandbox                |
+| `timeout_ms` | number | No       | Execution timeout in milliseconds (1,000–60,000)         |
+
+**`fastio` proxy methods:**
+
+| Method              | Description                           |
+|---------------------|---------------------------------------|
+| `fastio.get(path)`  | `GET` request to the Fast.io API      |
+| `fastio.post(path, body)` | `POST` with form-encoded body   |
+| `fastio.postJson(path, body)` | `POST` with JSON body        |
+| `fastio.put(path, body)` | `PUT` request                    |
+| `fastio.delete(path)` | `DELETE` request                   |
+
+The proxy automatically injects the authenticated session token, unwraps the API response envelope, and extracts errors
+— agents receive clean response data without boilerplate.
+
+#### Code Mode Workflow Pattern
+
+Code Mode agents follow a **search → review → execute → iterate** loop:
+
+1. **Search** — use the `search` tool to discover relevant API endpoints by keyword or tag
+2. **Review** — examine the returned endpoint details (method, path, parameters, summary)
+3. **Execute** — call the endpoint programmatically via the `execute` tool using the `fastio` proxy
+4. **Iterate** — refine based on results, search for additional endpoints as needed
+
+This pattern replaces the need for 19+ individually named tools. Agents discover endpoints dynamically via search and
+call them programmatically via execute, without needing pre-registered tool definitions for each operation.
+
+**Example — list workspaces in an org:**
+
+```javascript
+// Search: search tool with query "list workspaces"
+// → returns: GET /current/org/{id}/list/workspaces/
+
+// Execute:
+const result = await fastio.get('/current/org/{org_id}/list/workspaces/');
+return result;
+```
 
 ### Response Hints — Guided Agent Workflows
 
