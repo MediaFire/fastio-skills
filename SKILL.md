@@ -7,7 +7,7 @@ description: >-
   with other agents and humans, create branded shares (Send/Receive/Exchange),
   or query documents using built-in AI. Supports ownership transfer to humans,
   workspace management, workflow primitives (tasks, worklogs, approvals, todos),
-  cloud import from external storage providers, and real-time collaboration.
+  and real-time collaboration.
   Free agent plan with 50 GB storage and 5,000 monthly credits.
 license: Proprietary
 compatibility: >-
@@ -15,16 +15,16 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.84.0"
+  version: "1.94.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.84
-**Last Updated:** 2026-02-19
+**Version:** 1.94
+**Last Updated:** 2026-02-22
 
-The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, cloud import, ownership transfer), 13 end-to-end workflows, and all 19 consolidated tools with action-based routing.
+The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
@@ -75,12 +75,13 @@ Two transports are available on each:
 
 ### MCP Resources
 
-The server exposes two static MCP resources and three file download resource templates. Clients can read them via `resources/list` and `resources/read`:
+The server exposes static MCP resources, widget resources, and file download resource templates. Clients can read them via `resources/list` and `resources/read`:
 
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
+| `widget://*` | Widget HTML | Interactive HTML5 widgets (5 total) -- use the `apps` tool to discover and launch | `text/html` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
@@ -93,6 +94,17 @@ The server exposes two static MCP resources and three file download resource tem
 Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
 
 **Dynamic resource listing:** When authenticated, workspace and share file resources are dynamically listed via `resources/list`. MCP clients (such as Claude Desktop's `@` mention picker) can discover available files without any tool calls. Up to 10 workspaces and 10 shares are enumerated, with up to 25 most recently updated root-level files from each. Resources appear as "WorkspaceName / filename.ext" or "ShareTitle / filename.ext". Results are cached for 1 minute per session. Only root-level files are listed -- subdirectories are not recursively enumerated. Use the `storage` tool with action `list` to browse deeper. The quickshare template remains template-only and is not dynamically enumerable.
+
+### MCP Prompts
+
+The server registers MCP prompts that appear in the client's "Add From" / "+" menu as user-clickable app launchers. These are primarily for desktop MCP clients (e.g., Claude Desktop); code-mode clients (Claude Code, Cursor) do not surface prompts.
+
+| Prompt Name | Description |
+|---|---|
+| `App: Choose Workspace or Org` | Launch the Workspace Picker to browse orgs, select workspaces, and manage shares |
+| `App: Pick a File` | Launch the File Picker with built-in workspace navigator for browsing, searching, and selecting files |
+| `App: Open Workflow` | Launch the Workflow Manager (auto-selects workspace if only one, otherwise opens Workspace Picker first) |
+| `App: Available Apps` | List all available MCP App widgets with descriptions and launch instructions |
 
 ### HTTP File Pass-Through
 
@@ -111,18 +123,6 @@ The response includes proper `Content-Type`, `Content-Length`, and `Content-Disp
 The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
 
 **Best practice (IMPORTANT):** After state-changing actions (uploading files, creating shares, changing task status, member changes, file moves/deletes), append a worklog entry describing what you did and why. Without worklog entries, agent work is invisible to humans reviewing the workspace. For multiple related actions (e.g., uploading several files), you may log once after the batch completes rather than after each individual action. Worklog entries are append-only and permanent.
-
-### Cloud Import Overview
-
-The server supports importing files from external cloud storage providers (Google Drive, Dropbox, Box, OneDrive for Business) into workspace storage. Enable cloud import on a workspace with `workspace` action `enable-import` before using import tools. See the **Cloud Import** workflow in section 6 for the complete pattern.
-
-Cloud import uses a service-account model: each workspace gets a unique agent identity per provider. The user shares a folder with the agent email, and the system discovers and syncs those shared folders into workspace storage. Imported files are regular storage nodes with import metadata -- search, AI, previews, and comments all work without changes.
-
-**Key concepts:**
-- **Provider identity** -- a service account email provisioned per workspace per provider. The user shares cloud folders with this email.
-- **Import source** -- a mapping from one remote shared folder to a local workspace folder. Syncs periodically (default: 1 hour).
-- **Import job** -- a sync operation (full_sync, incremental, or discovery). Jobs track progress with file counts, bytes transferred, and ETA.
-- **Write-back** -- for read_write sources, modified files are automatically queued to push back to the remote provider. Conflicts are detected when the remote file changed since last sync.
 
 ### Additional References
 
@@ -444,7 +444,7 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 | Max references | 100 folder refs (subfolder tree expansion) or 100 file refs | 20 files / 200 MB |
 | Default (no scope given) | Entire workspace | N/A |
 
-**Scope parameters** (requires intelligence):
+**Scope parameters** (REQUIRES intelligence — will error if intelligence is off):
 
 - `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds documents within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
 - `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. Both `nodeId` AND `versionId` are required and must be non-empty — get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
@@ -452,9 +452,11 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 
 **Attachment parameter** (no intelligence required):
 
-- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20, 200 MB total). Both `nodeId` AND `versionId` are required and must be non-empty. Files are read directly, not via RAG. **Only files with `ai.attach: true` in storage details can be attached** — check before using.
+- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20, 200 MB total). Both `nodeId` AND `versionId` are required and must be non-empty. Files are read directly, not via RAG. **FILES ONLY: passing a folder nodeId returns a 406 error.** To include folder contents in AI context, use `folders_scope` instead (requires intelligence). **Only files with `ai.attach: true` in storage details can be attached** — check before using.
 
 **Do not** list folder contents and pass individual file IDs as `files_scope` when you mean to search a folder — use `folders_scope` with the folder's nodeId instead. `files_scope` is only for targeting specific known file versions.
+
+**Scope vs attach:** `files_scope` and `folders_scope` narrow the RAG search boundary and **require workspace intelligence to be enabled** — they will error on non-intelligent workspaces. `files_attach` sends files directly to the AI without indexing and works regardless of intelligence setting, but accepts only file nodeIds (not folders).
 
 `files_scope`/`folders_scope` and `files_attach` are mutually exclusive — sending both will error.
 
@@ -916,9 +918,9 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and cloud import toggle (enable/disable external storage import).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow, enable-import, disable-import
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
 
 ### share
 
@@ -1004,11 +1006,11 @@ Simple flat checklists scoped to workspaces and shares. Create, update, delete, 
 
 **Actions:** list, create, details, update, delete, toggle, bulk-toggle
 
-### import
+### apps
 
-Cloud import operations for syncing files from external cloud storage providers (Google Drive, Dropbox, Box, OneDrive for Business) into workspace storage. Manage provider identities (service accounts), discover shared folders, create and monitor import sources with periodic sync, and handle write-back operations for bidirectional sync. Requires cloud import to be enabled on the workspace (`workspace` action `enable-import`).
+Interactive MCP App widget discovery and launching. List available widgets, get details for a specific widget, launch a widget with workspace or share context, and find widgets associated with a specific tool domain.
 
-**Actions:** list-identities, provision-identity, identity-details, revoke-identity, list-sources, discover, create-source, source-details, update-source, delete-source, disconnect, refresh, list-jobs, job-details, cancel-job, list-writebacks, writeback-details, push-writeback, retry-writeback, resolve-conflict, cancel-writeback
+**Actions:** list, details, launch, get-tool-apps
 
 ---
 
@@ -1183,50 +1185,6 @@ The complete agentic workflow pattern: plan work, execute with logging, and gate
 13. `todo` action `create` -- track simple checklist items alongside the main task flow.
 14. With intelligence enabled, `ai` action `chat-create` -- the AI can search across notes, task descriptions, and worklogs to answer questions about the project.
 
-### 13. Cloud Import (External Storage Sync)
-
-Import files from Google Drive, Dropbox, Box, or OneDrive for Business into a workspace. Files sync periodically and remain queryable by AI.
-
-**Setup:**
-
-1. `workspace` action `enable-import` with `workspace_id` -- enable cloud import features on the workspace.
-2. `import` action `provision-identity` with `workspace_id` and `provider` (one of: `google_drive`, `box`, `onedrive_business`, `dropbox`) -- provisions a service account. Returns an `identity_email` and user `instructions`.
-3. Tell the user to share a folder in their cloud storage with the `identity_email`. Wait for confirmation.
-4. `import` action `discover` with `workspace_id` and `identity_id` -- lists all folders shared with the agent. Returns `shared_folders` with `remote_path`, `name`, `size`, and `file_count`.
-5. `import` action `create-source` with `workspace_id`, `identity_id`, `remote_path` (from discover), and optionally `remote_name`, `sync_interval` (default 3600s), and `access_mode` (`read_only` default, or `read_write` for bidirectional sync). Returns the new import source and triggers an initial sync job.
-6. `import` action `job-details` with `source_id` and `job_id` -- poll for progress. The `progress` field shows percentage, current file, speed, and ETA.
-7. `storage` action `list` with `context_type: "workspace"` -- imported files appear under an "Imports/" folder. Nodes have `is_imported: true` and `import_metadata` in responses.
-
-**Ongoing management:**
-
-- `import` action `list-sources` -- view all active imports for a workspace.
-- `import` action `refresh` with `source_id` -- trigger an immediate sync instead of waiting for the next scheduled interval.
-- `import` action `update-source` with `source_id` -- change `sync_interval`, `access_mode`, or pause/resume with `status: "paused"` / `status: "synced"`.
-- `import` action `list-jobs` with `source_id` -- view sync history.
-
-**Write-back (read_write sources only):**
-
-When `access_mode` is `read_write`, files modified in the workspace are automatically queued for write-back to the remote provider.
-
-1. `import` action `list-writebacks` with `source_id` -- view pending and completed write-back jobs.
-2. `import` action `push-writeback` with `source_id` and `node_id` -- force push a specific file immediately.
-3. If a conflict occurs (remote file changed since last sync), the write-back enters `conflict` status.
-4. `import` action `resolve-conflict` with `source_id`, `writeback_id`, and `conflict_resolution`: `keep_local` (push local version) or `keep_remote` (pull remote version).
-5. `import` action `retry-writeback` with `source_id` and `writeback_id` -- retry a failed write-back.
-
-**Disconnect:**
-
-- `import` action `disconnect` with `source_id` and `disconnect_action`: `keep` (imported files become regular workspace files) or `delete` (imported files moved to trash).
-
-**Provider-specific notes:**
-
-| Provider | Sharing method | Acceptance |
-|----------|---------------|------------|
-| Google Drive | Share folder with agent email | Instant (no acceptance needed) |
-| Box | Invite agent email to folder | Instant (no acceptance needed) |
-| OneDrive Business | Grant app access to SharePoint site/library | Requires admin |
-| Dropbox | Invite agent email to folder | Requires acceptance via API |
-
 ---
 
 ## 7. Key Patterns and Gotchas
@@ -1320,7 +1278,6 @@ The `event` tool's `search` and `summarize` actions accept `category`, `subcateg
 | `assets` | Avatar/asset updates |
 | `upload` | Upload session management |
 | `transfer` | Cross-profile file transfers |
-| `import_export` | Data import/export operations |
 | `quickshare` | Quick share operations |
 | `metadata` | Metadata operations |
 
@@ -1523,7 +1480,57 @@ The following actions work without a session: `auth` actions `signin`, `signup`,
 
 ---
 
-## 8. Complete Tool Reference
+## 8. MCP Apps (Interactive UI Widgets)
+
+Fast.io MCP Server includes interactive HTML5 widgets that render rich UIs directly in agent conversations. Widgets communicate with the MCP server through tool calls and display file browsers, dashboards, workflow managers, and more.
+
+### Available Widgets
+
+| Widget | Resource URI | Description |
+|--------|-------------|-------------|
+| File Picker | `widget://file-picker` | Browse and pick files to attach to your conversation — navigate folders, search, preview, select files for the agent. Also supports file management (upload, move, copy, delete) in workspace and share contexts |
+| Workspace Picker | `widget://workspace-picker` | Org/workspace/share selection with search, 4-step workspace creation wizard, 5-step share creation wizard |
+| File Viewer | `widget://file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
+| Workflow Manager | `widget://workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
+| Comments Panel | `widget://comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
+
+### Using the Apps Tool
+
+The `apps` tool provides widget discovery and launching:
+
+1. **List apps:** `apps` action `list` -- returns all available widgets with metadata
+2. **App details:** `apps` action `details` with `app_id` -- full metadata for a specific widget
+3. **Launch app:** `apps` action `launch` with `app_id`, `context_type`, `context_id` -- opens widget with context
+4. **Find apps for a tool:** `apps` action `get-tool-apps` with `tool_name` -- maps tools to their widgets
+
+### Widget Context
+
+All widgets accept workspace or share context:
+- `context_type: "workspace"` + `context_id: "<workspace_id>"`
+- `context_type: "share"` + `context_id: "<share_id>"`
+
+### Design System
+
+Widgets use a shared design system matching the Fast.io frontend:
+- Light and dark mode support (follows system preference or explicit `data-theme` attribute)
+- Consistent typography, spacing, colors, and icons derived from the frontend theme
+- Responsive layout (desktop, tablet, mobile breakpoints)
+
+### Example: Launch File Picker
+
+```
+apps action launch app_id file-picker context_type workspace context_id <workspace_id>
+```
+
+### Example: Find Widgets for Storage Operations
+
+```
+apps action get-tool-apps tool_name storage
+```
+
+---
+
+## 9. Complete Tool Reference
 
 All 19 tools with their actions organized by functional area. Each entry shows the action name and its description. Workflow tools (task, worklog, approval, todo) require workflow to be enabled on the target workspace or share.
 
@@ -1772,10 +1779,6 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 **enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a workspace. Must be called before using workflow tools on the workspace.
 
 **disable-workflow** -- Disable workflow features on a workspace. All workflow data is preserved but inaccessible until re-enabled.
-
-**enable-import** -- Enable cloud import features on a workspace. Required before using the `import` tool to connect external cloud storage providers.
-
-**disable-import** -- Disable cloud import features on a workspace. Existing import sources stop syncing. Import data is preserved but inaccessible until re-enabled.
 
 ### share
 
@@ -2087,48 +2090,80 @@ Simple flat checklists scoped to workspaces and shares. No nesting. All todo act
 
 **bulk-toggle** -- Set done state on multiple todos at once. Requires `profile_type`, `profile_id`, `todo_ids` (array of todo IDs, max 100), and `done` (boolean: true to mark done, false to mark not done).
 
-### import
+### apps
 
-Cloud import operations for syncing files from external cloud storage providers into workspace storage. All import actions require cloud import to be enabled on the target workspace (`workspace` action `enable-import`).
+Interactive MCP App widget discovery and launching. Widgets are interactive HTML5 UIs that render in agent conversations.
 
-**list-identities** -- List all provider identities for a workspace. Requires `workspace_id`. Supports `format` ("md" for markdown). Returns identity records with provider, email, status, and creation dates.
+**list** -- List all available MCP App widgets with their metadata (title, description, supported tools, supported actions, resource URI).
 
-**provision-identity** -- Provision a new service account identity for a cloud provider. Requires `workspace_id` and `provider` (google_drive, box, onedrive_business, or dropbox). Returns the identity with `identity_email` (the address the user shares folders with) and setup `instructions`.
+**details** -- Get full metadata for a specific widget. Requires `app_id` (the widget name, e.g., "file-picker").
 
-**identity-details** -- Get full details of a provider identity. Requires `workspace_id` and `identity_id`. Returns identity record including the agent email address.
+**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `context_type` ("workspace" or "share"), and `context_id` (the 19-digit profile ID). Returns the widget HTML content ready for rendering.
 
-**revoke-identity** -- Revoke and delete a provider identity. Requires `workspace_id` and `identity_id`. All import sources using this identity stop syncing. Destructive.
+**get-tool-apps** -- Find widgets associated with a specific tool domain. Requires `tool_name` (e.g., "storage", "ai", "comment"). Returns widgets that provide UI for that tool's operations.
 
-**list-sources** -- List import sources for a workspace. Requires `workspace_id`. Supports `status` filter and `format` ("md" for markdown). Returns source records with remote path, sync status, file counts, and schedule.
+---
 
-**discover** -- Discover shared folders for a provider identity. Requires `workspace_id` and `identity_id`. Runs a discovery scan of folders shared with the agent and returns `shared_folders` with `remote_path`, `name`, `size`, `file_count`, and `already_imported` flag.
+## 10. Code Mode (Headless Agents)
 
-**create-source** -- Create a new import source to start syncing a shared folder. Requires `workspace_id`, `identity_id`, and `remote_path` (from discover results). Optional `remote_name` (display name), `sync_interval` (300-86400 seconds, default 3600), and `access_mode` ("read_only" default or "read_write" for bidirectional sync). Returns the new source and triggers an initial sync job.
+When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the server automatically enables Code Mode -- a lightweight alternative to the full 19-tool set. Code Mode exposes 4 tools total:
 
-**source-details** -- Get full details of an import source. Requires `source_id`. Supports `format` ("md" for markdown). Returns source record including `root_node_id` (the workspace folder node), sync schedule, file counts, and total size. The `root_node_id` points to a Folder node with the Imported flag set; all descendants inherit import behavior.
+| Tool | Purpose |
+|------|---------|
+| `auth` | Authentication (signin, signup, API keys, PKCE, 2FA) |
+| `upload` | File uploads (chunked, text, web-import) |
+| `search` | Discover API endpoints by keyword, tag, or concept |
+| `execute` | Run JavaScript against the Fast.io API |
 
-**update-source** -- Update import source settings. Requires `source_id`. Supports `sync_interval`, `access_mode`, `remote_name`, and `status` ("paused" to pause syncing, "synced" to resume).
+Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 12 app-* widget tools. Unknown clients default to the full tool set.
 
-**delete-source** -- Delete an import source and its associated data. Requires `source_id`. Destructive.
+### search Tool
 
-**disconnect** -- Disconnect an import source with a choice of what happens to imported files. Requires `source_id` and `disconnect_action`: "keep" (imported files become regular workspace files) or "delete" (imported files moved to trash). The source is removed either way.
+Query the API spec by keywords, paths, or concepts. Returns matching endpoints with method, path, parameters, and descriptions.
 
-**refresh** -- Trigger an immediate sync for an import source instead of waiting for the next scheduled interval. Requires `source_id`. Returns the new sync job.
+```
+search query="list files in workspace" tag="storage"
+search query="create share" tag="share"
+search query="authentication"
+search query="pagination" include_concepts=true
+```
 
-**list-jobs** -- List sync jobs for an import source. Requires `source_id`. Supports `limit` (1-100) and `format` ("md" for markdown). Returns job records with type, status, file counts, bytes transferred, and timing.
+Parameters:
+- `query` (string, required) -- Keywords, endpoint paths, or concepts to search for
+- `tag` (string, optional) -- Filter by domain: auth, workspace, storage, ai, share, upload, org, user, member, comment, event, metadata, etc.
+- `include_concepts` (boolean, optional) -- Include concept docs (pagination, IDs, errors). Default true.
 
-**job-details** -- Get full details of a sync job including real-time progress. Requires `source_id` and `job_id`. For running jobs, the `progress` field shows `percentage`, `current_file`, `speed_bytes_per_sec`, and `eta_seconds`.
+### execute Tool
 
-**cancel-job** -- Cancel a running sync job. Requires `source_id` and `job_id`.
+Write JavaScript code that uses the `fastio` object for authenticated API calls:
 
-**list-writebacks** -- List write-back jobs for an import source (read_write access mode only). Requires `source_id`. Supports `status` filter, `limit` (1-100), `offset`, and `format` ("md" for markdown). Returns write-back records with node ID, remote path, upload progress, and conflict status.
+- `fastio.get(path, params?)` -- GET request with optional query parameters
+- `fastio.post(path, body?, params?)` -- POST with form-encoded body (default API format)
+- `fastio.postJson(path, body?, params?)` -- POST with JSON body
+- `fastio.delete(path, params?)` -- DELETE request
+- `fastio.put(path, body?, params?)` -- PUT with form-encoded body
 
-**writeback-details** -- Get full details of a write-back job. Requires `source_id` and `writeback_id`. Returns write-back record with file size, bytes uploaded, retry count, and conflict information.
+The auth token is injected automatically. Path parameters must be filled by the caller (replace `{workspace_id}` with the actual ID). Return a value to include it in the response. `console.log()` output is captured and returned.
 
-**push-writeback** -- Force push a workspace file back to the remote provider. Requires `source_id` and `node_id` (the storage node to push). Creates a new write-back job. Only works on read_write import sources.
+```javascript
+// Example: List workspaces in an org
+return await fastio.get('/org/1234567890123456789/list/workspaces/');
+```
 
-**retry-writeback** -- Retry a failed write-back job. Requires `source_id` and `writeback_id`. Resets the job to pending and re-queues it.
+```javascript
+// Example: Create a folder and upload a note
+const folder = await fastio.post('/workspace/1234567890123456789/storage/root/createfolder/', {
+  name: 'reports'
+});
+const folderId = folder.node.opaque_id;
+const note = await fastio.post(`/workspace/1234567890123456789/storage/${folderId}/createnote/`, {
+  name: 'summary.md',
+  content: '# Summary\n\nKey findings from the analysis.'
+});
+return { folder: folder.node, note: note.node };
+```
 
-**resolve-conflict** -- Resolve a write-back conflict when both local and remote files changed. Requires `source_id`, `writeback_id`, and `conflict_resolution`: "keep_local" (push the local version to remote, overwriting) or "keep_remote" (pull the remote version, discarding local changes).
+Parameters:
+- `code` (string, required) -- JavaScript code (async function body). Use `return` to include a value in the response.
+- `timeout_ms` (number, optional) -- Timeout in ms (default 30000, max 60000)
 
-**cancel-writeback** -- Cancel a pending write-back job. Requires `source_id` and `writeback_id`. Only pending or uploading write-backs can be canceled.
