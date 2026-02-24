@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.97.0"
+  version: "1.98.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.96
-**Last Updated:** 2026-02-23
+**Version:** 1.98
+**Last Updated:** 2026-02-24
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -367,6 +367,15 @@ Files and folders are represented as storage nodes. Each node has an opaque ID (
 Key operations on storage nodes: list, create-folder, move, copy, rename, delete (moves to trash), purge (permanently deletes), restore (recovers from trash), search, add-file (link an upload), and add-link (create a share reference).
 
 Nodes have versions. Each file modification creates a new version. Version history can be listed and files can be restored to previous versions.
+
+**Conflict resolution (REPLACE by default):** When a file operation encounters an existing file with the same name in the target folder, the default behavior is to **replace** (overwrite) the existing file:
+
+- **Upload (addfile)** -- silently overwrites the existing file. The previous content is preserved as a version entry, recoverable via `storage` action `version-list` / `version-restore`.
+- **Move / Copy** -- trashes the existing conflicting file, then completes the operation. The old file is recoverable from trash.
+- **Restore from trash** -- trashes the existing conflicting file, then restores.
+- **Folder conflicts and type mismatches** (file vs folder) still fall back to rename (e.g. `folder (2)`).
+
+This means uploading a file with the same name as an existing file will **overwrite it**, not create a renamed copy like `report (2).pdf`. If you need multiple files with the same name to coexist, rename them before uploading.
 
 ### Notes
 
@@ -1071,6 +1080,8 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 3. `upload` action `finalize` with `upload_id` -- triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on assembly failure. The file is automatically added to the target workspace and folder specified in step 1 -- no separate add-file call is needed.
 
 **Note:** `storage` action `add-file` is only needed if you want to link the upload to a *different* location than the one specified during session creation.
+
+**Same-name uploads:** If a file with the same name already exists in the target folder, the upload **replaces** (overwrites) it. The previous content is preserved as a version. To keep both files, rename before uploading.
 
 ### 4. Import a File from URL
 
