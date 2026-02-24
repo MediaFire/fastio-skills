@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.94.0"
+  version: "1.97.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.94
-**Last Updated:** 2026-02-22
+**Version:** 1.96
+**Last Updated:** 2026-02-23
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -374,9 +374,11 @@ Notes are a storage node type (alongside files and folders) that store markdown 
 
 #### Creating and Updating Notes
 
-Create notes with `workspace` action `create-note` and update with `workspace` action `update-note`.
+Create notes with `workspace` action `create-note`, read with `workspace` action `read-note`, and update with `workspace` action `update-note`.
 
 **Creating:** Provide `workspace_id`, `parent_id` (folder opaque ID or `"root"`), `name` (must end in `.md`, max 100 characters), and `content` (markdown text, max 100 KB).
+
+**Reading:** Provide `workspace_id` and `node_id`. Returns the note's markdown content and metadata.
 
 **Updating:** Provide `workspace_id`, `node_id`, and at least one of `name` (must end in `.md`) or `content` (max 100 KB).
 
@@ -832,7 +834,7 @@ All profile fields are validated server-side. Requests that violate these constr
 
 - **"No control chars"** = rejects Unicode control characters (`\p{C}`)
 - **Org domain**: lowercase ASCII alphanumeric + hyphens; cannot start/end with hyphen
-- **Workspace folder_name**: Unicode letters, digits, and hyphens
+- **Workspace folder_name**: Unicode letters, digits, and hyphens. **Globally unique** -- not scoped to an org. Recommend `{org_id}-{name}` convention to avoid collisions (auto-applied by `create-workspace` when name is taken)
 - **Share custom_name**: Unicode letters and digits only (no hyphens or special chars)
 - **Share description** max is 500 (org/workspace is 1000)
 
@@ -918,9 +920,9 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
 
 ### share
 
@@ -1352,7 +1354,7 @@ Always confirm with the user before calling purge operations.
 
 ### Node Types
 
-Storage nodes can be files, folders, notes, or links. The type is indicated in the storage details response. Notes are markdown files created with `workspace` action `create-note` and updated with `workspace` action `update-note`. Links are share reference nodes created with `storage` action `add-link`.
+Storage nodes can be files, folders, notes, or links. The type is indicated in the storage details response. Notes are markdown files created with `workspace` action `create-note`, read with `workspace` action `read-note`, and updated with `workspace` action `update-note`. Links are share reference nodes created with `storage` action `add-link`.
 
 ### Error Pattern
 
@@ -1652,7 +1654,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **public-details** -- Get public details for an organization. Returns `web_url`. Does not require membership -- returns public-level fields only (name, domain, logo, accent color). The org must exist and not be closed/suspended.
 
-**create-workspace** -- Create a new workspace within the organization. Returns `web_url`. Checks workspace feature availability and creation limits based on the org billing plan. The creating user becomes the workspace owner.
+**create-workspace** -- Create a new workspace within the organization. Returns `web_url`. Checks workspace feature availability and creation limits based on the org billing plan. The creating user becomes the workspace owner. **Namespace:** Workspace `folder_name` is globally unique across the platform. If the requested name is already taken and does not contain a dash, the server automatically prefixes it with the org ID (e.g. `reports` → `3587676312889739297-reports`). Names with dashes are sent as-is. The final `folder_name` is returned in the response.
 
 **billing-plans** -- List available billing plans with pricing, features, and plan defaults. Returns plan IDs needed for subscription creation.
 
@@ -1730,11 +1732,13 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **available** -- List workspaces the current user can join but has not yet joined. Each workspace includes `web_url`.
 
-**check-name** -- Check if a workspace folder name is available for use.
+**check-name** -- Check if a workspace folder name is available for use. Workspace names are globally unique. Pass optional `check_org_id` to get an org-ID-prefixed alternative suggestion (e.g. `3587676312889739297-reports`) if the name is taken.
 
 **create-note** -- Create a new markdown note in workspace storage. Returns `web_url` (note preview link).
 
 **update-note** -- Update a note's markdown content and/or name (at least one required). Returns `web_url` (note preview link).
+
+**read-note** -- Read a note's markdown content and metadata. Returns the note content and `web_url` (note preview link).
 
 **quickshare-get** -- Get existing quickshare details for a node. Returns `web_url`.
 
