@@ -424,6 +424,10 @@ analyze, and cite your documents. Requires the workspace to have **intelligence 
 
 These two modes cannot be combined in a single chat — use scope OR attachments, not both.
 
+**Auto-promotion:** If you create a chat with `type=chat` but include `files_scope`, `folders_scope`, or `files_attach`,
+the system automatically promotes the type to `chat_with_files`. You don't need to worry about setting the type exactly
+right — the intent is unambiguous when file parameters are present.
+
 #### Intelligence Setting — When to Enable It
 
 The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested, summarized, and
@@ -474,9 +478,10 @@ create a scoped chat, recently uploaded files may not yet be indexed. Use the ac
 - `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). The depth controls how
   many levels of subfolders are expanded — only subfolder references count toward the 100 limit, not individual files
   within those folders. The RAG backend automatically searches all indexed documents inside the scoped folders.
-- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100 refs). Both nodeId and versionId are **required
-  and must be non-empty** in each pair. Get the versionId from the file's `version` field in storage list/details
-  responses. Limits RAG retrieval to specific file versions.
+- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100 refs). nodeId is required; versionId is required
+  in the pair format but will be **auto-resolved to the node's current version** if left empty (e.g., `nodeId:` with
+  nothing after the colon). Get the versionId from the file's `version` field in storage list/details responses.
+  Limits RAG retrieval to specific file versions.
 - **Default scope is the entire workspace** — if you omit both `files_scope` and `folders_scope`, the AI searches
   all indexed documents. This is the recommended approach when you want to query across everything. Only provide scope
   parameters when you need to narrow the search to specific files or folders.
@@ -490,9 +495,10 @@ because only the subfolder references (not file references) count toward the 100
 entire workspace, omit `folders_scope` entirely — the default scope is already the full workspace.
 
 **File attachment parameter:**
-- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20 files, 200MB total, both parts required and
-  non-empty). **Only file nodes are accepted — passing a folder nodeId will be rejected.** Files are read directly,
-  not searched via RAG. To include folder contents, use `folders_scope` instead.
+- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20 files, 200MB total). nodeId is required;
+  versionId will be **auto-resolved to the current version** if left empty. **Only file nodes are accepted — passing
+  a folder nodeId will be rejected.** Files are read directly, not searched via RAG. To include folder contents, use
+  `folders_scope` instead.
 
 #### Notes as Knowledge Grounding
 
@@ -1474,7 +1480,7 @@ named actions.
 | `comment`    | Comments                        | `list`, `create`, `details`, `delete`                                         |
 | `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
 | `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
-| `task`       | Task lists & tasks              | `list-lists`, `create-list`, `list-details`, `update-list`, `delete-list`, `list-tasks`, `create-task`, `task-details`, `update-task`, `delete-task`, `change-status`, `assign-task`, `bulk-status` |
+| `task`       | Task lists & tasks              | `list-lists`, `create-list`, `list-details`, `update-list`, `delete-list`, `list-tasks`, `create-task`, `task-details`, `update-task`, `delete-task`, `change-status`, `assign-task`, `bulk-status`, `reorder-tasks`, `reorder-lists` |
 | `todo`       | Todo checklists                 | `list`, `create`, `details`, `update`, `delete`, `toggle`, `bulk-toggle`      |
 | `approval`   | Approval workflows              | `list`, `create`, `details`, `resolve`                                        |
 | `worklog`    | Activity logs & interjections   | `list`, `append`, `interject`, `details`, `acknowledge`, `unacknowledged`     |
@@ -1886,6 +1892,9 @@ Organize work into lists with individual tasks. Task lists belong to a workspace
 | `POST /tasks/{list_id}/items/{task_id}/status/` | Change task status |
 | `POST /tasks/{list_id}/items/{task_id}/assign/` | Assign a task |
 | `POST /tasks/{list_id}/items/bulk-status/` | Bulk status change |
+| `POST /tasks/{list_id}/items/reorder/` | Bulk reorder tasks |
+| `POST /tasks/workspace/{workspace_id}/reorder/` | Bulk reorder task lists |
+| `POST /tasks/share/{share_id}/reorder/` | Bulk reorder task lists |
 
 ### 2. Worklogs
 

@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.98.0"
+  version: "1.105.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.98
-**Last Updated:** 2026-02-24
+**Version:** 1.104
+**Last Updated:** 2026-02-26
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -149,7 +149,7 @@ If you are operating independently (storing files, running workflows, building w
 
 **Option 2: Assisting a Human -- Use Their API Key**
 
-If a human already has a Fast.io account and wants your help managing their files, workspaces, or shares, they can create an API key for you to use. No separate agent account is needed -- you operate as the human user. The human creates a key at Settings -> Devices & Agents -> API Keys (direct link: `https://go.fast.io/settings/api-keys`). Call `auth` with action `set-api-key` and the key to authenticate -- the key is validated and stored in the session automatically. API keys are a 1:1 replacement for JWT tokens: they work as Bearer tokens with the same permissions as the account owner and do not expire unless revoked. Agents can also manage API keys programmatically with `auth` actions `api-key-create`, `api-key-list`, and `api-key-delete`.
+If a human already has a Fast.io account and wants your help managing their files, workspaces, or shares, they can create an API key for you to use. No separate agent account is needed -- you operate as the human user. The human creates a key at Settings -> Devices & Agents -> API Keys (direct link: `https://go.fast.io/settings/api-keys`). Call `auth` with action `set-api-key` and the key to authenticate -- the key is validated and stored in the session automatically. API keys work as Bearer tokens and by default have the same permissions as the account owner. Keys can optionally be scoped to specific organizations, workspaces, or shares (using the same scope system as OAuth tokens), tagged with an `agent_name` for tracking, and given an expiration date. Unscoped keys do not expire unless revoked. Agents can also manage API keys programmatically with `auth` actions `api-key-create`, `api-key-update`, `api-key-list`, `api-key-get`, and `api-key-delete`.
 
 **Option 3: Agent Account Invited to a Human's Org**
 
@@ -244,7 +244,7 @@ When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` 
 
 ### Session Expiry
 
-JWT tokens last **1 hour**. API keys (used when assisting a human) do not expire unless revoked. When a JWT session expires, tool calls return a clear error indicating that re-authentication is needed. Call `auth` action `signin` again to establish a new session. The MCP server does not auto-refresh tokens.
+JWT tokens last **1 hour**. API keys do not expire by default, but can optionally have an expiration set via `api-key-create` or `api-key-update` with the `key_expires` parameter. When a JWT session expires or a time-limited API key expires, tool calls return a clear error indicating that re-authentication is needed. Call `auth` action `signin` again to establish a new session. The MCP server does not auto-refresh tokens.
 
 **Tip:** For long-running sessions, use `auth` action `status` to check remaining token lifetime before starting a multi-step workflow. If the token is close to expiring, re-authenticate first to avoid mid-workflow interruptions.
 
@@ -440,6 +440,8 @@ AI chat lets agents ask questions about files stored in workspaces and shares. T
   - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `ready` AI state.
   - **File attachments** — files read directly by the AI. No intelligence required; files must have `ai.attach: true` in storage details (the file must be a supported type for AI analysis). Max 20 files, 200 MB total.
 
+**Auto-promotion:** If you create a chat with `type=chat` but include `files_scope`, `folders_scope`, or `files_attach`, the system automatically promotes the type to `chat_with_files`. You don't need to worry about setting the type exactly right — the intent is unambiguous when file parameters are present.
+
 Both types augment answers with web knowledge when relevant.
 
 #### File Context: Scope vs Attachments
@@ -458,12 +460,12 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 **Scope parameters** (REQUIRES intelligence — will error if intelligence is off):
 
 - `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds documents within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
-- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. Both `nodeId` AND `versionId` are required and must be non-empty — get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
+- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. nodeId is required; versionId is required in the pair format but will be **auto-resolved to the node's current version** if left empty (e.g., `nodeId:` with nothing after the colon). Get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
 - **If neither is specified, the default scope is the entire workspace (all indexed documents).** This is the recommended default — omit scope parameters unless you specifically need to narrow the search.
 
 **Attachment parameter** (no intelligence required):
 
-- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20, 200 MB total). Both `nodeId` AND `versionId` are required and must be non-empty. Files are read directly, not via RAG. **FILES ONLY: passing a folder nodeId returns a 406 error.** To include folder contents in AI context, use `folders_scope` instead (requires intelligence). **Only files with `ai.attach: true` in storage details can be attached** — check before using.
+- `files_attach` — comma-separated `nodeId:versionId` pairs (max 20, 200 MB total). nodeId is required; versionId will be **auto-resolved to the current version** if left empty. Files are read directly, not via RAG. **FILES ONLY: passing a folder nodeId returns a 406 error.** To include folder contents in AI context, use `folders_scope` instead (requires intelligence). **Only files with `ai.attach: true` in storage details can be attached** — check before using.
 
 **Do not** list folder contents and pass individual file IDs as `files_scope` when you mean to search a folder — use `folders_scope` with the folder's nodeId instead. `files_scope` is only for targeting specific known file versions.
 
@@ -543,9 +545,9 @@ Create a chat with `ai` action `chat-create` (with `context_type: "workspace"`) 
 - `query_text` (required for workspace, optional for share) — initial message, 2-12,768 characters
 - `personality` (optional) — `concise` or `detailed` (default: `detailed`)
 - `privacy` (optional) — `private` or `public` (default: `public`)
-- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence). Both parts required and non-empty. **Omit to search all indexed documents (recommended default).**
+- `files_scope` (optional) — `nodeId:versionId,...` (max 100, requires `chat_with_files` + intelligence). nodeId required; versionId auto-resolved if empty. **Omit to search all indexed documents (recommended default).**
 - `folders_scope` (optional) — `nodeId:depth,...` (depth 1-10, max 100 subfolder refs, requires `chat_with_files` + intelligence). Folder scope = search boundary, not file enumeration. **Omit to search all indexed documents (recommended default).**
-- `files_attach` (optional) — `nodeId:versionId,...` (max 20 / 200 MB, both parts required and non-empty, mutually exclusive with scope params)
+- `files_attach` (optional) — `nodeId:versionId,...` (max 20 / 200 MB, nodeId required, versionId auto-resolved if empty, mutually exclusive with scope params)
 
 #### Follow-up Messages
 
@@ -630,9 +632,11 @@ Comments use JSON request bodies (`Content-Type: application/json`), unlike most
 
 **Listing comments:** Use `comment` action `list` for per-file comments and `comment` action `list-all` for all comments across a workspace or share. Both support `sort`, `limit` (2-200), `offset`, `include_deleted`, `reference_type` filter, and `include_total`.
 
-**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 2,048 chars.
+**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 2,048 chars. Optionally include `linked_entity_type` and `linked_entity_id` to link the comment to a task or approval at creation time.
 
 **Deleting comments:** `comment` action `delete` is recursive -- deleting a parent also removes all replies. `comment` action `bulk-delete` is NOT recursive -- replies to deleted comments are preserved.
+
+**Comment Linking:** Comments can be linked to workflow entities (tasks or approvals). Each comment supports one link at a time (nullable). Use `comment` action `link` to associate an existing comment with a task or approval, `comment` action `unlink` to remove the association, and `comment` action `linked` to reverse-lookup all comments linked to a given entity. You can also link at creation time by passing `linked_entity_type` and `linked_entity_id` to the `add` action. Comment responses include `linked_entity_type` and `linked_entity_id` fields (null when unlinked).
 
 **Linking users to comments:** The preview URL opens the comments sidebar automatically. Deep link query parameters let you target a specific comment or position:
 
@@ -739,6 +743,9 @@ Tasks are organized into lists. Each workspace or share can have multiple task l
 - **Priorities:** 0 = none, 1 = low, 2 = medium, 3 = high, 4 = critical
 - **Assignees** are profile IDs (workspace or share members). Use `task` action `assign-task` to assign or unassign.
 - **Bulk operations:** `task` action `bulk-status` changes status on up to 100 tasks at once.
+- **Moving tasks:** `task` action `move-task` moves a task from one list to another within the same profile. Requires the source `list_id`, `task_id`, and `target_task_list_id`. Optionally set `sort_order` to control position in the target list (default: 0).
+- **Reordering:** `task` action `reorder-tasks` sets the display order of tasks within a list. `task` action `reorder-lists` sets the display order of task lists within a profile. Pass arrays of IDs in the desired order; the server converts them to `{id, sort_order}` objects for the API.
+- **Creator tracking:** Tasks and task lists include a `created_by` field (profile ID of the creator).
 - **Markdown output:** Pass `format: "md"` to get human-readable markdown instead of JSON.
 
 #### Worklogs
@@ -747,7 +754,8 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 
 - **Entries:** Regular log entries appended with `worklog` action `append`. Use for progress updates, decisions, reasoning, and status changes.
 - **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
-- **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement.
+- **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement. Entries include an `acknowledgable` boolean -- when `true`, the entry is an unacknowledged interjection that can be acknowledged.
+- **Response fields:** Entries include `acknowledged` (boolean), `acknowledgable` (boolean), `updated` (ISO 8601 timestamp), and `created` (ISO 8601 timestamp).
 - **Markdown output:** Pass `format: "md"` for human-readable output.
 
 #### Approvals
@@ -766,6 +774,7 @@ Simple flat checklists scoped to workspaces and shares. No nesting -- just a lis
 - **Create:** `todo` action `create` with a title.
 - **Toggle:** `todo` action `toggle` flips the done state of a single todo. `todo` action `bulk-toggle` sets done state on up to 100 todos at once.
 - **Update/Delete:** `todo` action `update` changes title. `todo` action `delete` soft-deletes a todo.
+- **Creator tracking:** Todos include a `created_by` field (profile ID of the creator).
 - **Markdown output:** Pass `format: "md"` for human-readable output.
 
 #### Notes as Agent Knowledge Layer
@@ -913,7 +922,7 @@ The 19 tools use action-based routing. Each tool covers a specific area of the F
 
 Authentication, sign-in/sign-up, two-factor authentication, API key management, and OAuth session management. This is always the starting point for any agent interaction.
 
-**Actions:** signin, signout, signup, check, session, status, set-api-key, email-check, email-verify, password-reset-request, password-reset, 2fa-verify, 2fa-status, 2fa-enable, 2fa-disable, 2fa-send, 2fa-verify-setup, pkce-login, pkce-complete, api-key-create, api-key-list, api-key-get, api-key-delete, oauth-list, oauth-details, oauth-revoke, oauth-revoke-all
+**Actions:** signin, signout, signup, check, session, status, set-api-key, email-check, email-verify, password-reset-request, password-reset, 2fa-verify, 2fa-status, 2fa-enable, 2fa-disable, 2fa-send, 2fa-verify-setup, pkce-login, pkce-complete, api-key-create, api-key-update, api-key-list, api-key-get, api-key-delete, oauth-list, oauth-details, oauth-revoke, oauth-revoke-all
 
 ### user
 
@@ -965,9 +974,9 @@ AI-powered chat with RAG, semantic search, and document analysis in workspaces a
 
 ### comment
 
-Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, and emoji reactions (one per user per comment). Comments use JSON request bodies.
+Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks or approvals, reverse lookup). Comments use JSON request bodies.
 
-**Actions:** list, list-all, add, delete, bulk-delete, details, reaction-add, reaction-remove
+**Actions:** list, list-all, add, delete, bulk-delete, details, reaction-add, reaction-remove, link, unlink, linked
 
 ### event
 
@@ -995,9 +1004,9 @@ Asset management (upload, delete, list, read) for organizations, workspaces, sha
 
 ### task
 
-Task list and task management for workspaces and shares. Create and manage task lists, then create tasks within them with statuses, priorities, assignees, and dependencies. Supports bulk status changes and markdown output. Requires workflow to be enabled on the target entity.
+Task list and task management for workspaces and shares. Create and manage task lists, then create tasks within them with statuses, priorities, assignees, and dependencies. Supports bulk status changes, reordering, and markdown output. Tasks and lists include `created_by` (creator profile ID). Requires workflow to be enabled on the target entity.
 
-**Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status
+**Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status, move-task, reorder-tasks, reorder-lists
 
 ### worklog
 
@@ -1013,7 +1022,7 @@ Formal approval requests scoped to tasks, storage nodes, or worklog entries. Cre
 
 ### todo
 
-Simple flat checklists scoped to workspaces and shares. Create, update, delete, and toggle completion state on individual todos or in bulk. No nesting. Requires workflow to be enabled on the target entity.
+Simple flat checklists scoped to workspaces and shares. Create, update, delete, toggle todos individually or in bulk. Todos include `created_by` (creator profile ID). No nesting. Requires workflow to be enabled on the target entity.
 
 **Actions:** list, create, details, update, delete, toggle, bulk-toggle
 
@@ -1367,6 +1376,19 @@ Always confirm with the user before calling purge operations.
 
 Storage nodes can be files, folders, notes, or links. The type is indicated in the storage details response. Notes are markdown files created with `workspace` action `create-note`, read with `workspace` action `read-note`, and updated with `workspace` action `update-note`. Links are share reference nodes created with `storage` action `add-link`.
 
+### Text Content and Newlines
+
+All text content (notes, comments, worklogs, file uploads, descriptions) must use Unix-style line feeds (`\n`, U+000A) for newlines. The frontend normalizes all line endings to `\n` before saving -- Windows-style `\r\n` (CRLF) and legacy Mac `\r` (CR) are converted automatically. Agents should use `\n` exclusively to avoid mismatches in content comparison and display.
+
+**Encoding rules:**
+
+- **Newlines:** Use `\n` (U+000A). Never send `\r\n` or `\r` alone.
+- **Allowed control characters:** Only `\t` (U+0009), `\n` (U+000A), and `\r` (U+000D) survive server-side sanitization. All other Unicode control characters (`\p{C}`) are stripped.
+- **Empty lines in markdown:** Use two consecutive `\n` characters (`\n\n`) for paragraph breaks. Do not use non-breaking spaces (U+00A0) or other whitespace characters as line placeholders.
+- **Trailing newlines:** Content may or may not end with a trailing `\n`. Do not assume either convention -- both are valid.
+
+This applies to: `workspace` actions `create-note` and `update-note`, `upload` action `text-file`, `comment` action `add`, `worklog` actions `append` and `interject`, and any other tool that accepts free-text or markdown content.
+
 ### Error Pattern
 
 Failed API calls throw errors with two fields: `code` (unique numeric error ID) and `text` (human-readable description). Tools surface these as error text in the MCP response. Common HTTP status codes include 401 (unauthorized), 403 (forbidden), 404 (not found), and 429 (rate limited).
@@ -1551,7 +1573,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **signin** -- Sign in to Fast.io with email and password. Returns a JWT auth token. If the account has 2FA enabled the token will have limited scope until 2fa-verify is called. The token is stored in the session automatically.
 
-**set-api-key** -- Authenticate using a Fast.io API key. API keys are a 1:1 replacement for JWT tokens -- they work as Bearer tokens with the same permissions as the account owner. The key is validated against the API and stored in the session. All subsequent tool calls are authenticated automatically. API keys do not expire unless revoked.
+**set-api-key** -- Authenticate using a Fast.io API key. API keys work as Bearer tokens and by default have the same permissions as the account owner. Scoped keys restrict access to specific entities (same scope system as OAuth tokens). The key is validated against the API and stored in the session. All subsequent tool calls are authenticated automatically. Unscoped API keys do not expire unless revoked; scoped keys may have an optional expiration.
 
 **signup** -- Create a new Fast.io agent account (agent=true), then automatically sign in. Sets account_type to "agent" and assigns the free agent plan. Email verification is required after signup -- call email-verify to send a code, then call it again with the code to verify. Most endpoints require a verified email. No authentication required for signup itself.
 
@@ -1577,11 +1599,13 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **pkce-complete** -- Complete a PKCE login flow by exchanging the authorization code for an access token. Call this after the user has approved access in the browser and copied the code from the screen. The token is stored in the session automatically. If scoped access was granted, the response includes `scopes` (JSON array of granted scope strings like `"org:123:rw"`) and `agent_name`.
 
-**api-key-create** -- Create a new persistent API key. The full key value is only returned once at creation time -- store it securely.
+**api-key-create** -- Create a new persistent API key. The full key value is only returned once at creation time -- store it securely. Optional parameters: `name` (memo/label), `scopes` (JSON array of scope strings like `["org:123:rw", "workspace:456:r"]` for restricted access -- omit for full access), `agent_name` (agent/application name, max 128 chars), `key_expires` (ISO 8601 expiration datetime -- omit for no expiration). Scoped keys use the same scope system as v2.0 JWT tokens.
 
-**api-key-list** -- List all API keys for the authenticated user. Key values are masked (only last 4 characters visible).
+**api-key-update** -- Update an existing API key's metadata. Requires `key_id`. Optional parameters: `name` (memo/label), `scopes` (JSON scope array -- send empty string to clear and restore full access), `agent_name` (send empty string to clear), `key_expires` (send empty string to clear expiration). Only specified fields are updated.
 
-**api-key-get** -- Get details of a specific API key. The key value is masked.
+**api-key-list** -- List all API keys for the authenticated user. Key values are masked (only last 4 characters visible). Responses include `scopes`, `agent_name`, and `expires` fields for each key.
+
+**api-key-get** -- Get details of a specific API key. The key value is masked. Response includes `scopes`, `agent_name`, and `expires` fields.
 
 **api-key-delete** -- Revoke (delete) an API key. This action cannot be undone.
 
@@ -1923,7 +1947,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 All AI actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
 
-**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, both `nodeId` AND `versionId` are required and must be non-empty (get `versionId` from storage list/details `version` field). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via storage details). Returns chat ID and initial message ID -- use message-read to get the AI response.
+**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, provide `nodeId:versionId` pairs — versionId is auto-resolved to the current version if left empty (get explicit `versionId` from storage list/details `version` field). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via storage details). Type is auto-promoted from `chat` to `chat_with_files` when file parameters are present. Returns chat ID and initial message ID -- use message-read to get the AI response.
 
 **chat-list** -- List AI chats.
 
@@ -1959,17 +1983,23 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 **list-all** -- List all comments across a workspace or share (not node-specific). Same listing params as list.
 
-**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 2,048 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring). Uses JSON body.
+**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 2,048 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
 
 **delete** -- Delete a comment. Recursive: deleting a parent also removes all its replies.
 
 **bulk-delete** -- Bulk soft-delete multiple comments (max 100). NOT recursive: replies to deleted comments are preserved.
 
-**details** -- Get full details of a single comment by its ID.
+**details** -- Get full details of a single comment by its ID. Response includes `linked_entity_type` and `linked_entity_id` (null when not linked).
 
 **reaction-add** -- Add or change your emoji reaction. One reaction per user per comment; new replaces previous.
 
 **reaction-remove** -- Remove your emoji reaction from a comment.
+
+**link** -- Link an existing comment to a workflow entity. Params: comment_id, linked_entity_type (`task` or `approval`), linked_entity_id. One link per comment; linking replaces any existing link. Returns the updated comment with linked fields populated.
+
+**unlink** -- Remove the workflow link from a comment. Params: comment_id. Returns the updated comment with linked fields set to null.
+
+**linked** -- Reverse lookup: find all comments linked to a given workflow entity. Params: linked_entity_type (`task` or `approval`), linked_entity_id. Returns a list of comments linked to the specified entity.
 
 ### event
 
@@ -2059,6 +2089,12 @@ Task list and task management for workspaces and shares. All task actions requir
 
 **bulk-status** -- Change status on multiple tasks at once. Requires `list_id`, `task_ids` (array of task IDs, max 100), and `status`.
 
+**move-task** -- Move a task from one list to another within the same profile. Requires `list_id` (source list), `task_id`, and `target_task_list_id` (destination list). Optional `sort_order` (position in target list, default 0). Source and target lists must belong to the same profile. Returns the updated task with `old_task_list_id` and `new_task_list_id`.
+
+**reorder-tasks** -- Reorder tasks within a list. Requires `list_id` and `task_ids` (array of task IDs in the desired display order). The server converts this to `{order: [{id, sort_order}, ...]}` for the API.
+
+**reorder-lists** -- Reorder task lists within a workspace or share. Requires `profile_type`, `profile_id`, and `list_ids` (array of task list IDs in the desired display order). The server converts this to `{order: [{id, sort_order}, ...]}` for the API.
+
 ### worklog
 
 Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. All worklog actions require workflow to be enabled on the target entity.
@@ -2071,9 +2107,9 @@ Activity log for tracking agent work. After uploads, task changes, share creatio
 
 **details** -- Get full details of a specific worklog entry. Requires `entry_id`. Supports `format`.
 
-**acknowledge** -- Acknowledge an interjection entry, marking it as seen. Requires `entry_id`.
+**acknowledge** -- Acknowledge an interjection entry, marking it as seen. Requires `entry_id`. Only entries with `acknowledgable: true` can be acknowledged.
 
-**unacknowledged** -- List unacknowledged interjections. Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
+**unacknowledged** -- List unacknowledged interjections (entries where `acknowledgable` is `true`). Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
 
 ### approval
 
