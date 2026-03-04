@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.109.0"
+  version: "1.111.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.109
+**Version:** 1.111
 **Last Updated:** 2026-03-04
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -81,7 +81,7 @@ The server exposes static MCP resources, widget resources, and file download res
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
-| `widget://*` | Widget HTML | Interactive HTML5 widgets (5 total) -- use the `apps` tool to discover and launch | `text/html` |
+| `widget://*` | Widget HTML | Interactive HTML5 widgets (6 total) -- use the `apps` tool to discover and launch | `text/html` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
@@ -104,6 +104,7 @@ The server registers MCP prompts that appear in the client's "Add From" / "+" me
 | `App: Choose Workspace or Org` | Launch the Workspace Picker to browse orgs, select workspaces, and manage shares |
 | `App: Pick a File` | Launch the File Picker with built-in workspace navigator for browsing, searching, and selecting files |
 | `App: Open Workflow` | Launch the Workflow Manager (auto-selects workspace if only one, otherwise opens Workspace Picker first) |
+| `App: Upload Files` | Launch the Uploader to upload files with drag-and-drop, progress tracking, and text file creation |
 | `App: Available Apps` | List all available MCP App widgets with descriptions and launch instructions |
 
 ### HTTP File Pass-Through
@@ -1562,6 +1563,25 @@ Fast.io MCP Server includes interactive HTML5 widgets that render rich UIs direc
 | File Viewer | `widget://file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
 | Workflow Manager | `widget://workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
 | Comments Panel | `widget://comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
+| Uploader | `widget://uploader` | Upload files to a workspace or share with drag-and-drop, chunked binary uploads, single-step text file creation, and web URL imports with real-time progress tracking |
+
+### Uploader Widget
+
+The Uploader widget provides a 4-step file upload flow:
+
+1. **Choose destination** -- select an organization, then a workspace or share, then optionally navigate to a subfolder
+2. **Select files** -- drag-and-drop files onto the widget or use the file picker button to browse local files
+3. **Upload with progress** -- files upload automatically with real-time progress bars. Binary files use chunked uploads (create-session, stage-blob, chunk, finalize). Text files use single-step text-file upload. Web URLs use web-import
+4. **Reference in chat** -- after upload completes, click "Reference in Chat" to attach the uploaded files to the agent conversation for further discussion or AI analysis
+
+The widget uses the `upload` tool (actions: create-session, chunk, finalize, stage-blob, text-file, web-import, status, cancel, limits, extensions) and the `storage` tool (action: list) via the MCP bridge.
+
+**Launch via prompt:** Use the `App: Upload Files` prompt in desktop MCP clients.
+
+**Launch via tool:**
+```
+apps action launch app_id uploader context_type workspace context_id <workspace_id>
+```
 
 ### Using the Apps Tool
 
