@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.105.0"
+  version: "1.109.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.104
-**Last Updated:** 2026-02-26
+**Version:** 1.109
+**Last Updated:** 2026-03-04
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -624,6 +624,7 @@ Humans and agents can leave feedback directly on files, anchored to specific con
 - **Video comments** -- anchored to timestamps with spatial region selection
 - **Audio comments** -- anchored to timestamps or time ranges
 - **PDF comments** -- anchored to specific pages with optional text snippet selection
+- **Text-anchored comments** -- anchored to selected text in markdown/notes using `exact`, `prefix`, `suffix`, `start_offset`, and `end_offset` fields (use `type: "document"` or `type: "text"`)
 - **Threaded replies** -- single-level threading only; replies to replies are auto-flattened to the parent
 - **Emoji reactions** -- one reaction per user per comment; adding a new reaction replaces the previous one
 - **Mention tags** -- reference users and files inline using bracket syntax: `@[profile:id]`, `@[user:opaqueId:Display Name]`, `@[file:fileId:filename.ext]`. Get IDs from member lists, user details, or storage listings. The display name segment is optional for profile tags but recommended for user and file tags
@@ -653,6 +654,35 @@ Share: `https://go.fast.io/shared/{custom_name}/{title-slug}/preview/{file_opaqu
 Parameters can be combined -- e.g. `?comment={id}&t=45.5` to deep link to a video comment at a specific timestamp. In shares, the comments sidebar only opens if the share has comments enabled.
 
 **Agent use case:** You generate a design mockup. The human comments "Change the header color" on a specific region of the image. You read the comment, see exactly what region they are referring to via the `reference.region` coordinates, and regenerate.
+
+**Text-anchored comments (markdown/notes):** To anchor a comment to specific text in a markdown or notes file, use the `reference` parameter with `type: "document"` (or `"text"`, which is an alias) and the text selection fields:
+
+- `exact` (string, max 500 chars) -- the selected text verbatim
+- `prefix` (string, max 100 chars) -- ~30-50 characters of context before the selection for disambiguation
+- `suffix` (string, max 100 chars) -- ~30-50 characters of context after the selection for disambiguation
+- `start_offset` (integer) -- character offset from document start (hint for resolving ambiguous matches)
+- `end_offset` (integer) -- character offset for end of selection (hint for resolving ambiguous matches)
+
+At minimum, provide `exact`. The `prefix`/`suffix` fields help locate the selection when the same text appears multiple times. The `start_offset`/`end_offset` fields are optional hints that may not survive document edits.
+
+Example -- text-anchored comment on a markdown file:
+```json
+{
+  "action": "add",
+  "profile_type": "workspace",
+  "profile_id": "1234567890123456789",
+  "node_id": "abc123-def456-ghi789",
+  "text": "This section needs a citation",
+  "reference": {
+    "type": "document",
+    "exact": "Studies show a 40% improvement",
+    "prefix": "In the results section, ",
+    "suffix": " compared to the baseline.",
+    "start_offset": 1250,
+    "end_offset": 1280
+  }
+}
+```
 
 ### URL Import
 
@@ -839,7 +869,7 @@ All profile fields are validated server-side. Requests that violate these constr
 
 | Entity | Field | API Key | Min | Max | Pattern | Required | Nullable |
 |--------|-------|---------|-----|-----|---------|----------|----------|
-| Org | domain | `domain` | 2 | 80 | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` | Yes (create) | No |
+| Org | domain | `domain` | 2 | 63 | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` | Yes (create) | No |
 | Org | name | `name` | 3 | 100 | No control chars | Yes | No |
 | Org | description | `description` | 10 | 1000 | No control chars | No | Yes |
 | Workspace | folder_name | `folder_name` | 4 | 80 | `^[\p{L}\p{N}-]+$` (letters, digits, hyphens) | Yes (create) | No |
@@ -974,7 +1004,7 @@ AI-powered chat with RAG, semantic search, and document analysis in workspaces a
 
 ### comment
 
-Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks or approvals, reverse lookup). Comments use JSON request bodies.
+Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection, text selections in markdown/notes), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks or approvals, reverse lookup). Comments use JSON request bodies.
 
 **Actions:** list, list-all, add, delete, bulk-delete, details, reaction-add, reaction-remove, link, unlink, linked
 
@@ -1235,7 +1265,11 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 
 Three approaches for uploading binary data as chunks, each suited to different situations.
 
+> **Prefer `web-import` for URL-accessible files.** If the binary file is accessible via any URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import` instead of chunked upload. It's a single tool call — no chunking, no base64, no session management. Only use chunked upload when you have local binary data with no URL available.
+
 > **Chunk size limit for MCP agents.** MCP tool parameters pass through the AI model's output, which limits how much data you can include in a single tool call. **Keep each chunk's base64 `data` under 32 KB** (~24 KB of binary). For example, a 145 KB PDF needs at least 6 chunks, and even a 17 KB file should be split into 1-2 chunks rather than assumed to fit in one call. The `create-session` response includes a `recommended_mcp_chunk_bytes` hint (default 24576) — use it to calculate the number of chunks: `ceil(filesize / recommended_mcp_chunk_bytes)`. Always split files into multiple chunks when using `data` or `stage-blob` through MCP tool calls.
+
+> **Common pitfall: do NOT pre-process binary data into intermediate formats.** Pass base64 data directly in the `data` parameter of `chunk` or `stage-blob` tool calls. Do NOT read binary files into Python/JSON variables, pickle them, or save to temp files hoping to reference them later — the MCP tool can only receive data through its own parameters. If you have local binary files, base64-encode them in ≤32 KB segments and pass each segment directly as the `data` parameter in sequential `stage-blob` → `chunk` calls. Create upload sessions immediately before uploading — sessions expire, so do not debug between creating a session and uploading chunks.
 
 **1. `data` parameter (base64) — simplest for MCP agents**
 
@@ -1681,7 +1715,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **list-shares** -- List shares accessible to the current user. Each share includes `web_url`. Returns all shares including parent org and workspace info. Use parent_org in the response to identify shares belonging to a specific organization.
 
-**create** -- Create a new organization on the "agent" billing plan. The authenticated user becomes the owner. A storage instance and agent-plan subscription (free, 50 GB, 5,000 credits/month) are created automatically. Returns the new org and trial status.
+**create** -- Create a new organization on the "agent" billing plan. Requires `domain` (2-63 chars, lowercase alphanumeric + hyphens) and `name` (3-100 chars, no control characters). The authenticated user becomes the owner. A storage instance and agent-plan subscription (free, 50 GB, 5,000 credits/month) are created automatically. Returns the new org and trial status.
 
 **update** -- Update organization details. Returns `web_url`. Only provided fields are changed. Supports identity, branding, social links, permissions, and billing email. Requires admin or owner role.
 
@@ -1983,7 +2017,7 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 **list-all** -- List all comments across a workspace or share (not node-specific). Same listing params as list.
 
-**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 2,048 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
+**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 2,048 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring; exact, prefix, suffix, start_offset, end_offset for text anchoring on markdown/notes -- use type `"document"` or `"text"`), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
 
 **delete** -- Delete a comment. Recursive: deleting a parent also removes all its replies.
 
