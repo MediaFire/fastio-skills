@@ -15,7 +15,7 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.113.0"
+  version: "1.115.0"
 homepage: "https://fast.io"
 ---
 
@@ -2220,7 +2220,7 @@ When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the
 | `auth` | Authentication (signin, signup, API keys, PKCE, 2FA) |
 | `upload` | File uploads (chunked, text, web-import) |
 | `search` | Discover API endpoints by keyword, tag, or concept |
-| `execute` | Run JavaScript against the Fast.io API |
+| `execute` | Make authenticated API calls to Fast.io |
 
 Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 12 app-* widget tools. Unknown clients default to the full tool set.
 
@@ -2242,35 +2242,33 @@ Parameters:
 
 ### execute Tool
 
-Write JavaScript code that uses the `fastio` object for authenticated API calls:
+Make authenticated API calls to the Fast.io REST API. Use `search` first to discover endpoints.
 
-- `fastio.get(path, params?)` -- GET request with optional query parameters
-- `fastio.post(path, body?, params?)` -- POST with form-encoded body (default API format)
-- `fastio.postJson(path, body?, params?)` -- POST with JSON body
-- `fastio.delete(path, params?)` -- DELETE request
-- `fastio.put(path, body?, params?)` -- PUT with form-encoded body
+Methods:
+- `get` -- GET request with optional query parameters
+- `post` -- POST with form-encoded body (default API format)
+- `postJson` -- POST with JSON body
+- `delete` -- DELETE request
+- `put` -- PUT with form-encoded body
 
-The auth token is injected automatically. Path parameters must be filled by the caller (replace `{workspace_id}` with the actual ID). Return a value to include it in the response. `console.log()` output is captured and returned.
+The auth token is injected automatically. Path parameters must be filled by the caller (replace `{workspace_id}` with the actual ID). For multi-step operations, make multiple sequential execute calls.
 
-```javascript
-// Example: List workspaces in an org
-return await fastio.get('/org/1234567890123456789/list/workspaces/');
+```
+execute method="get" path="/org/1234567890123456789/list/workspaces/"
 ```
 
-```javascript
-// Example: Create a folder and upload a note
-const folder = await fastio.post('/workspace/1234567890123456789/storage/root/createfolder/', {
-  name: 'reports'
-});
-const folderId = folder.node.opaque_id;
-const note = await fastio.post(`/workspace/1234567890123456789/storage/${folderId}/createnote/`, {
-  name: 'summary.md',
-  content: '# Summary\n\nKey findings from the analysis.'
-});
-return { folder: folder.node, note: note.node };
+```
+execute method="post" path="/workspace/1234567890123456789/storage/root/createfolder/" body={"name": "reports"}
+```
+
+```
+execute method="postJson" path="/workspace/1234567890123456789/storage/root/createnote/" body={"name": "summary.md", "content": "# Summary"}
 ```
 
 Parameters:
-- `code` (string, required) -- JavaScript code (async function body). Use `return` to include a value in the response.
+- `method` (enum, required) -- HTTP method: "get", "post", "postJson", "delete", "put"
+- `path` (string, required) -- API endpoint path (e.g., '/orgs/list/', '/workspace/{workspace_id}')
+- `body` (object, optional) -- Request body (form-encoded for post/put, JSON for postJson)
+- `params` (object, optional) -- Query parameters appended to the URL
 - `timeout_ms` (number, optional) -- Timeout in ms (default 30000, max 60000)
 
