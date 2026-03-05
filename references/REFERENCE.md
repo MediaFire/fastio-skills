@@ -337,12 +337,17 @@ summarized, and indexed for RAG. This enables:
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-Intelligence is enabled by default when creating workspaces via the API for agent accounts. If your team only needs a
-shared workspace for coordination, you can disable it to conserve credits. If you want to query your content — enable it.
+Intelligence is enabled by default when creating workspaces via the API for agent accounts. **Agents should explicitly
+set intelligence to `false` unless the user needs RAG queries across many documents or AI-powered semantic search.**
+The ingestion cost (10 credits/page) is significant and non-refundable — a 100-page document costs 1,000 credits to
+ingest. If your team only needs a shared workspace for coordination, disable it to conserve credits.
 
-**Agent use case:** Create a workspace per project or client. Enable intelligence if agents or humans need to query the
-content. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized,
-searchable, and versioned — and the whole team can see it.
+**Agent use case:** Create a workspace per project or client. Enable intelligence only if agents or humans need to query the
+content via RAG or semantic search. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders.
+Everything is organized, searchable, and versioned — and the whole team can see it.
+
+> **Cost-saving tips:** Disable intelligence on storage-only workspaces to avoid ingestion costs. Use attach-only AI chat
+> (no intelligence needed) for one-off file analysis — up to 20 files can be attached directly without indexing.
 
 ### 2. Shares — Structured Agent-Human Exchange
 
@@ -431,18 +436,20 @@ right — the intent is unambiguous when file parameters are present.
 #### Intelligence Setting — When to Enable It
 
 The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested, summarized, and
-indexed for RAG.
+indexed for RAG. **For most workflows, intelligence should be OFF.** Ingestion costs 10 credits/page and is non-refundable — a 100-page
+document costs 1,000 credits. This can be the largest credit consumer for agent accounts.
 
-**Enable intelligence when:**
-- You have many files and need to search across them to answer questions
+**Enable intelligence only when:**
+- You have many files and need RAG queries across them to answer questions
 - You want scoped RAG queries against folders or the entire workspace
-- You need auto-summarization and metadata extraction
-- You're building a persistent knowledge base
+- You need AI-powered semantic search across large document sets
+- You're building a persistent knowledge base that will be queried repeatedly
 
-**Disable intelligence when:**
-- You're using the workspace purely for team coordination and file exchange
-- You only need to analyze specific files (use file attachments instead)
-- You want to conserve credits (ingestion costs 10 credits/page)
+**Disable intelligence (recommended default) when:**
+- You're using the workspace for file storage, sharing, or team coordination
+- You only need to analyze specific files (use file attachments instead — no intelligence needed)
+- You're uploading deliverables, reports, or outputs that don't need to be queried
+- You want to conserve credits — disabling avoids all ingestion costs
 
 Even with intelligence disabled, you can still use `chat_with_files` with **file attachments** — any file that has a
 ready preview can be attached directly to a chat for one-off analysis.
@@ -1391,7 +1398,7 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 ### Build a Knowledge Base
 
-1. Create a workspace **with intelligence enabled**
+1. Create a workspace **with intelligence enabled** (this is one of the workflows that justifies the ingestion cost)
 2. Upload all reference documents
 3. AI auto-indexes and summarizes everything on upload
 4. Use AI chat scoped to folders or the full workspace to query across all documents
@@ -1417,7 +1424,7 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 ### Extract Structured Metadata From Documents
 
-1. Create a workspace **with intelligence enabled**
+1. Create a workspace **with intelligence enabled** (metadata extraction requires ingestion — budget for ingestion costs)
 2. Create a metadata template with the fields you need (e.g., invoice_number, amount, vendor, due_date)
 3. Assign the template to the workspace (`POST .../metadata/template/assign/`)
 4. Upload files — metadata is automatically extracted during ingestion against the template schema
@@ -1571,7 +1578,7 @@ automated execution.
 - AI chat: 1 credit per 100 tokens
 - File uploads: storage credits (100 credits/GB)
 - Downloads: bandwidth credits (212 credits/GB)
-- Document ingestion: 10 credits/page (when intelligence is enabled)
+- Document ingestion: 10 credits/page (when intelligence is enabled) — this can be the largest credit consumer. A 100-page document costs 1,000 credits to ingest.
 
 ### Code Mode — Streamlined Tools for Headless Agents
 

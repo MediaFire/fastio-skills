@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.111.0"
+  version: "1.113.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.111
-**Last Updated:** 2026-03-04
+**Version:** 1.112
+**Last Updated:** 2026-03-05
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -304,22 +304,24 @@ Workspaces are identified by a 19-digit numeric profile ID.
 
 #### Intelligence: On or Off
 
-Workspaces have an **intelligence** toggle that controls whether AI features are active:
+Workspaces have an **intelligence** toggle that controls whether AI features are active.
 
-**Intelligence OFF** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total), but files are not persistently indexed. This is fine for simple storage and sharing where you do not need to query your content.
+> **⚠️ COST WARNING:** Intelligence incurs significant ingestion costs (10 credits per page for every uploaded document). For a workspace with hundreds or thousands of pages, this adds up quickly. **Do NOT enable intelligence unless the user specifically needs RAG queries across many documents or AI-powered semantic search.** Most workflows (file storage, sharing, collaboration, one-off file analysis) work perfectly without it.
 
-**Intelligence ON** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed for RAG. This enables:
+**Intelligence OFF (recommended default)** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total) and ask questions about them -- no ingestion cost. This is the right choice for most use cases: file storage, sharing, collaboration, project coordination, and analyzing a small number of specific files.
 
-- **RAG (retrieval-augmented generation)** -- scope AI chat to entire folders or the full workspace and ask questions across your indexed documents and code. The AI retrieves relevant passages and answers with citations.
-- **Semantic search** -- find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
-- **Auto-summarization** -- short and long summaries generated for every indexed document and code file, searchable and visible in the UI.
-- **Metadata extraction** -- AI pulls key metadata from documents automatically.
+**Intelligence ON (only when needed)** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed. **Only enable this when the user needs one of these two capabilities:**
+
+1. **RAG queries across many documents** -- scope AI chat to entire folders or the full workspace and ask questions across all indexed content. The AI retrieves relevant passages and answers with citations. This is useful when you have a large volume of documents and need to search across all of them.
+2. **AI-powered semantic search** -- find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
+
+Intelligence also enables auto-summarization and automatic metadata extraction, but these alone do not justify the ingestion cost.
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-Intelligence defaults to ON for workspaces created via the API by agent accounts. If the workspace is only used for file storage and sharing, disable it to conserve credits. If you need to query your content, leave it enabled.
+**Default behavior:** Intelligence defaults to ON for workspaces created via the API by agent accounts. **You should explicitly set `intelligence` to `"false"` when creating workspaces unless the user has asked for RAG or AI search capabilities.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs are incurred immediately and are non-refundable.
 
-**Agent use case:** Create a workspace per project or client. Enable intelligence if you need to query the content later. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
+**Agent use case:** Create a workspace per project or client. Keep intelligence OFF for storage and collaboration. Only enable it when users need to query across a large document set. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
 
 For full details on AI chat types, file context modes, AI state, and how intelligence affects them, see the **AI Chat** section below.
 
@@ -502,9 +504,9 @@ File nodes in storage list/details responses include an `ai` object with three f
 
 This flag is independent of the workspace intelligence setting — a file can have `ai.attach: true` even when intelligence is off.
 
-**When to enable intelligence:** You need scoped RAG queries, cross-file search, auto-summarization, or a persistent knowledge base.
+**When to enable intelligence:** You need RAG queries across many documents (scoped to folders or the full workspace) or AI-powered semantic search. Do NOT enable just for auto-summarization or metadata extraction alone -- the ingestion cost (10 credits/page) is significant.
 
-**When to disable intelligence:** The workspace is for storage/sharing only, or you only need to analyze specific files via attachments. Saves credits (ingestion costs 10 credits/page).
+**When to disable intelligence (recommended default):** The workspace is for storage, sharing, collaboration, or you only need to analyze specific files via attachments. This covers most use cases. Saves significant credits. Intelligence can always be enabled later if needed.
 
 Even with intelligence off, `chat_with_files` with file attachments still works for files with `ai.attach: true`.
 
@@ -598,7 +600,7 @@ Most endpoints also accept custom names as identifiers:
 
 ### QuickShares
 
-QuickShares are temporary public download links for individual files in workspaces (not available for shares). They can be accessed without authentication. Expires in seconds from creation (default 10,800 = 3 hours, max 86,400 = 24 hours). Max file size: 1 GB. Each quickshare has an opaque identifier used to retrieve metadata and download the file.
+QuickShares are temporary public download links for individual files in workspaces (not available for shares). They can be accessed without authentication. Expires in seconds from creation (default 10,800 = 3 hours, max 604,800 = 7 days) or as an ISO 8601 datetime via `expires_at`. Max file size: 1 GB. Each quickshare has an opaque identifier used to retrieve metadata and download the file.
 
 ### File Preview
 
@@ -1163,7 +1165,7 @@ Create a Receive share so humans can upload files directly to you -- no email at
 
 Create an intelligent workspace that auto-indexes all content for RAG queries.
 
-1. `org` action `create-workspace` with `org_id` and `name`. Intelligence is enabled by default.
+1. `org` action `create-workspace` with `org_id`, `name`, and `intelligence: "true"` (this workflow specifically requires intelligence for RAG).
 2. Upload reference documents (see workflow 3 or 4). AI auto-indexes and summarizes everything on upload.
 3. `ai` action `chat-create` with `context_type: "workspace"`, `context_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and `folders_scope` (comma-separated `nodeId:depth` pairs) to query across folders or the entire workspace.
 4. `ai` action `message-read` with `context_type: "workspace"`, `context_id`, `chat_id`, and `message_id` -- polls until the AI response is complete. Returns `response_text` and `citations` pointing to specific files, pages, and snippets.
@@ -1899,7 +1901,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **check-name** -- Check if a share custom name (URL name) is available.
 
-**quickshare-create** -- Create a temporary QuickShare link for a file in a workspace.
+**quickshare-create** -- Create a temporary QuickShare link for a file in a workspace. Optional `expires` (seconds, default 10,800, max 604,800 = 7 days) or `expires_at` (ISO 8601 datetime).
 
 **enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a share. Must be called before using workflow tools on the share.
 
