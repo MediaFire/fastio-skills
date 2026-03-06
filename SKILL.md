@@ -15,7 +15,7 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.118.0"
+  version: "1.120.0"
 homepage: "https://fast.io"
 ---
 
@@ -227,6 +227,22 @@ When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` 
 2. If the response includes `two_factor_required: true`, the returned token has limited scope.
 3. Call `auth` action `2fa-verify` with the 2FA `code` (TOTP, SMS, or WhatsApp).
 4. The server replaces the limited-scope token with a full-scope token automatically.
+
+### Inline 2FA for Sensitive Operations
+
+Some API endpoints require per-request 2FA verification when the account has 2FA enabled. These operations require a valid 2FA `token` parameter (6-digit TOTP or SMS/call/WhatsApp code) in addition to normal authentication:
+
+- **`api-key-create`** — creating a new API key
+- **`api-key-delete`** — revoking an API key
+
+If the account does not have 2FA enabled, these operations work normally without a token. If 2FA is enabled and the token is missing or invalid, the request fails.
+
+**Workflow:**
+1. Check 2FA status: `auth` action `2fa-status` — if `state` is `"enabled"`, inline 2FA is required.
+2. Prompt the user for a TOTP code from their authenticator app, or send a code via `auth` action `2fa-send`.
+3. Pass the code as the `token` parameter to `api-key-create` or `api-key-delete`.
+
+**Tip:** API key authentication (`auth` action `set-api-key`) bypasses inline 2FA checks entirely. If the agent is already authenticated via API key, no token is needed for these operations.
 
 ### Browser Login (PKCE) Flow
 
@@ -1688,7 +1704,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **pkce-complete** -- Complete a PKCE login flow by exchanging the authorization code for an access token. Call this after the user has approved access in the browser and copied the code from the screen. The token is stored in the session automatically. If scoped access was granted, the response includes `scopes` (JSON array of granted scope strings like `"org:123:rw"`) and `agent_name`.
 
-**api-key-create** -- Create a new persistent API key. The full key value is only returned once at creation time -- store it securely. Optional parameters: `name` (memo/label), `scopes` (JSON array of scope strings like `["org:123:rw", "workspace:456:r"]` for restricted access -- omit for full access), `agent_name` (agent/application name, max 128 chars), `key_expires` (ISO 8601 expiration datetime -- omit for no expiration). Scoped keys use the same scope system as v2.0 JWT tokens.
+**api-key-create** -- Create a new persistent API key. The full key value is only returned once at creation time -- store it securely. Optional parameters: `name` (memo/label), `scopes` (JSON array of scope strings like `["org:123:rw", "workspace:456:r"]` for restricted access -- omit for full access), `agent_name` (agent/application name, max 128 chars), `key_expires` (ISO 8601 expiration datetime -- omit for no expiration), `token` (2FA code -- required when account has 2FA enabled, not needed with API key auth). Scoped keys use the same scope system as v2.0 JWT tokens.
 
 **api-key-update** -- Update an existing API key's metadata. Requires `key_id`. Optional parameters: `name` (memo/label), `scopes` (JSON scope array -- send empty string to clear and restore full access), `agent_name` (send empty string to clear), `key_expires` (send empty string to clear expiration). Only specified fields are updated.
 
@@ -1696,7 +1712,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **api-key-get** -- Get details of a specific API key. The key value is masked. Response includes `scopes`, `agent_name`, and `expires` fields.
 
-**api-key-delete** -- Revoke (delete) an API key. This action cannot be undone.
+**api-key-delete** -- Revoke (delete) an API key. This action cannot be undone. Optional parameter: `token` (2FA code -- required when account has 2FA enabled, not needed with API key auth).
 
 **2fa-status** -- Get the current two-factor authentication configuration status (enabled, unverified, or disabled).
 
