@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.117.0"
+  version: "1.118.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.117
+**Version:** 1.118
 **Last Updated:** 2026-03-06
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -1972,7 +1972,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **add-link** -- Add a share reference link node to storage.
 
-**transfer** -- Copy a node to another workspace or share storage instance.
+**transfer** -- Copy or move a node to another workspace or share storage instance. Default mode is 'copy' (keeps source). Use transfer_mode='move' to copy then trash the source (cannot move root). When mode=move, response includes source_trashed (boolean) indicating whether the source was successfully trashed.
 
 **version-list** -- List version history for a file. Returns `web_url` for the file (workspace only).
 
