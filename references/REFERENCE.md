@@ -788,7 +788,7 @@ Large files use chunked uploads. The flow has five steps:
    | `storing` | Being added to storage | Keep polling |
    | **`stored`** | **Done** — file is in storage | Read `new_file_id`, clean up |
    | `assembly_failed` | Assembly error (terminal) | Check `status_message` |
-   | `store_failed` | Storage error (retryable) | Keep polling, server retries |
+   | `store_failed` | Storage import failed (terminal) | Check `status_message`, handle error |
 
    Stop polling when status is `stored`, `assembly_failed`, or `store_failed`.
 
@@ -1594,7 +1594,7 @@ tools — the full interactive experience with action-based routing across every
 | `auth`     | Authentication — same as Named Mode (`signin`, `signup`, `set-api-key`, `pkce-login`, etc.) |
 | `upload`   | File uploads — same as Named Mode (`create-session`, `chunk`, `finalize`, `text-file`, etc.)|
 | `search`   | Keyword/tag search over 285 API endpoints                                                   |
-| `execute`  | Run agent-provided JavaScript against the Fast.io API in a sandboxed environment            |
+| `execute`  | Make authenticated API calls to Fast.io (structured method/path/body/params)                |
 
 #### `search` Tool
 
@@ -1612,29 +1612,26 @@ concept docs (pagination, error codes, etc.).
 
 #### `execute` Tool
 
-Runs agent-provided JavaScript in a sandboxed `AsyncFunction` with a `fastio` proxy object that handles auth
-injection, envelope parsing, and error extraction. The sandbox has whitelisted globals only (`JSON`, `Math`, `Date`,
-etc.), blocks prototype chain escapes, and enforces a 60-second timeout.
+Makes authenticated API calls to the Fast.io API using structured parameters. The tool automatically injects the
+session token, unwraps the API response envelope, and extracts errors — agents receive clean response data without
+boilerplate. Non-JSON responses (text, binary) are handled gracefully.
 
 **Parameters:**
 
-| Parameter    | Type   | Required | Description                                              |
-|--------------|--------|----------|----------------------------------------------------------|
-| `code`       | string | Yes      | JavaScript code to execute in the sandbox                |
-| `timeout_ms` | number | No       | Execution timeout in milliseconds (1,000–60,000)         |
+| Parameter    | Type   | Required | Description                                                        |
+|--------------|--------|----------|--------------------------------------------------------------------|
+| `method`     | enum   | Yes      | HTTP method: `get`, `post`, `postJson`, `delete`, `put`            |
+| `path`       | string | Yes      | API endpoint path (e.g., `/current/org/{id}/list/workspaces/`)     |
+| `body`       | object | No       | Request body (for `post`, `postJson`, `put`)                       |
+| `params`     | object | No       | Query string parameters                                            |
+| `timeout_ms` | number | No       | Request timeout in milliseconds                                    |
 
-**`fastio` proxy methods:**
+**Special paths:**
 
-| Method              | Description                           |
-|---------------------|---------------------------------------|
-| `fastio.get(path)`  | `GET` request to the Fast.io API      |
-| `fastio.post(path, body)` | `POST` with form-encoded body   |
-| `fastio.postJson(path, body)` | `POST` with JSON body        |
-| `fastio.put(path, body)` | `PUT` request                    |
-| `fastio.delete(path)` | `DELETE` request                   |
-
-The proxy automatically injects the authenticated session token, unwraps the API response envelope, and extracts errors
-— agents receive clean response data without boilerplate.
+| Path                           | Purpose                                           |
+|--------------------------------|---------------------------------------------------|
+| `/readnote/`                   | Read note content in code mode                    |
+| `download://{file_id}`         | MCP resource path for reading file content        |
 
 #### Code Mode Workflow Pattern
 
@@ -1642,21 +1639,20 @@ Code Mode agents follow a **search → review → execute → iterate** loop:
 
 1. **Search** — use the `search` tool to discover relevant API endpoints by keyword or tag
 2. **Review** — examine the returned endpoint details (method, path, parameters, summary)
-3. **Execute** — call the endpoint programmatically via the `execute` tool using the `fastio` proxy
+3. **Execute** — call the endpoint with structured parameters (`method`, `path`, `body`, `params`)
 4. **Iterate** — refine based on results, search for additional endpoints as needed
 
 This pattern replaces the need for 19+ individually named tools. Agents discover endpoints dynamically via search and
-call them programmatically via execute, without needing pre-registered tool definitions for each operation.
+call them with structured parameters via execute, without needing pre-registered tool definitions for each operation.
 
 **Example — list workspaces in an org:**
 
-```javascript
+```
 // Search: search tool with query "list workspaces"
 // → returns: GET /current/org/{id}/list/workspaces/
 
 // Execute:
-const result = await fastio.get('/current/org/{org_id}/list/workspaces/');
-return result;
+execute method="get" path="/current/org/{org_id}/list/workspaces/"
 ```
 
 ### Response Hints — Guided Agent Workflows
