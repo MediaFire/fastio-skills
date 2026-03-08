@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.25.0 | **Last updated:** 2026-02-21
+> **Version:** 1.26.0 | **Last updated:** 2026-03-06
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -632,6 +632,77 @@ built-in AI chat — use it when you want to analyze files with a different mode
 Instead of downloading and parsing all 50, create a `chat_with_files` scoped to the finance folder and ask. The AI
 searches the indexed content, retrieves relevant passages, and answers with citations. Pass the cited answer — with
 source references — back to the user.
+
+#### Semantic Search — Fast Retrieval Without LLM
+
+Semantic search lets you find relevant document chunks by meaning without creating a chat or waiting for an LLM response.
+It returns ranked text snippets with relevance scores — no LLM round-trip, no token cost beyond the search itself.
+
+**When to use search vs chat:**
+
+| | Semantic Search | AI Chat |
+|---|---|---|
+| **What it does** | Returns raw document chunks ranked by relevance | Creates an LLM-generated answer with citations |
+| **Speed** | Fast — vector lookup only | Slower — retrieval + LLM generation |
+| **Cost** | Low — no LLM token cost | Higher — LLM tokens consumed per message |
+| **Best for** | Retrieval, lookup, finding specific content | Synthesis, analysis, summarizing across documents |
+| **Returns** | Text snippets + scores + file references | Natural language answer + citations |
+
+**Endpoints:**
+
+```
+GET /current/workspace/{workspace_id}/ai/search/
+GET /current/share/{share_id}/ai/search/
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query_text` | string | Yes | — | Search query, 2–1,000 characters |
+| `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100) |
+| `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10) |
+| `limit` | integer | No | 100 | Results per page, 1–500 |
+| `offset` | integer | No | 0 | Pagination offset |
+
+Requires `intelligence=true` on the workspace or share. Only files with `ai_state: ready` are included.
+
+**Response example:**
+
+```json
+{
+  "result": true,
+  "results": [
+    {
+      "content": "The quarterly revenue showed a 15% increase...",
+      "score": 0.95,
+      "node": {
+        "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4",
+        "type": "file",
+        "name": "quarterly-report.pdf",
+        "mimetype": "application/pdf",
+        "ai": { "state": "ready", "attach": true, "summary": true }
+      }
+    }
+  ],
+  "pagination": { "total": 25, "limit": 100, "offset": 0, "has_more": false }
+}
+```
+
+Each result contains:
+- `content` — the matched text snippet from the indexed document
+- `score` — relevance score (0.0–1.0, higher is more relevant)
+- `node` — full file resource (or `null` if the file was deleted)
+
+**Agent memory pattern:** Upload context documents (meeting notes, research, reference material) to an intelligent
+workspace. Later, use `ai/search` to retrieve relevant chunks without burning LLM credits. This is significantly
+cheaper than creating a chat for every lookup and is ideal for agents that need to recall information across sessions —
+treat the intelligent workspace as a persistent memory store and search as the retrieval mechanism.
+
+**Agent use case — multi-step research:** An agent researching a topic uploads 200 papers to a workspace with
+intelligence enabled. For each research question, it calls `ai/search` to find the most relevant passages, reads the
+top results, and only escalates to AI chat when it needs the LLM to synthesize across multiple sources. This approach
+uses a fraction of the credits compared to chatting for every question.
 
 ### 5. File Preview — No Download Required
 
@@ -1401,9 +1472,9 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 1. Create a workspace **with intelligence enabled** (this is one of the workflows that justifies the ingestion cost)
 2. Upload all reference documents
 3. AI auto-indexes and summarizes everything on upload
-4. Use AI chat scoped to folders or the full workspace to query across all documents
-5. Use `ai` action `search` to find files by meaning, not just filename — returns ranked document chunks with relevance scores
-6. Answers include citations to specific pages and files
+4. Use **semantic search** (`ai/search`) for fast, low-cost retrieval — find relevant document chunks by meaning without an LLM round-trip. Best for lookup, recall, and memory workflows
+5. Use **AI chat** (`chat_with_files`) when you need the LLM to synthesize, analyze, or summarize across documents — returns a natural language answer with citations
+6. Combine both: search first to find relevant content cheaply, then chat only when synthesis is needed
 
 ### Set Up an Agentic Team Workspace
 
@@ -1712,7 +1783,7 @@ use `auth` action `email-verify`; "workspace not found" → check workspace ID w
 **`ai_capabilities` — AI mode availability:**
 
 Included in `workspace` action `details` responses. Shows the available AI modes for the workspace:
-- **Intelligence ON:** `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed search), plus `search` action for semantic search (vector-based document chunk retrieval with relevance scores)
+- **Intelligence ON:** `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed search), plus `search` action for semantic search (vector-based document chunk retrieval with relevance scores — no LLM round-trip, returns ranked snippets). Use search for fast retrieval/lookup; use chat for synthesis/analysis.
 - **Intelligence OFF:** `files_attach` only (max 20 files, 200 MB total). Semantic search is not available.
 
 **`_ai_state_legend` — File AI processing state:**
