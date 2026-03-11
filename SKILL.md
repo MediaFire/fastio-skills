@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.120.0"
+  version: "1.121.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.118
+**Version:** 1.121
 **Last Updated:** 2026-03-06
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -771,7 +771,7 @@ The primary way agents deliver value: build something, then give it to a human. 
 
 ### Workflow (Tasks, Worklogs, Approvals, Todos)
 
-Workspaces and shares support an optional workflow layer that adds structured task management, activity logging, approval gates, and simple checklists. Workflow features are controlled by a toggle -- they must be explicitly enabled before use.
+Workspaces and shares support an optional workflow layer that adds structured task management, activity logging, approval gates, and simple checklists. Workflow features are controlled by a toggle -- they must be explicitly enabled before use. On shares, workflow access requires admin or named member role -- guests and view-only users cannot access workflow features.
 
 #### Enabling Workflow
 

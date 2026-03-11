@@ -1939,6 +1939,10 @@ workspaces and shares where files live.
 REST endpoints directly. Enable workflow first via `workspace` action `enable-workflow` or `share` action
 `enable-workflow`.
 
+**Share permissions:** Workflow features on shares require Member-level access or higher. Guests and public guests
+cannot access workflow features (tasks, todos, approvals, worklogs) on shares. Toggle endpoints (enable/disable)
+remain Admin-only.
+
 ### 1. Task Lists & Tasks
 
 Organize work into lists with individual tasks. Task lists belong to a workspace or share and contain ordered tasks.
@@ -1951,10 +1955,10 @@ Organize work into lists with individual tasks. Task lists belong to a workspace
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /tasks/workspace/{workspace_id}/` | List task lists in a workspace |
-| `GET /tasks/share/{share_id}/` | List task lists in a share |
-| `POST /tasks/workspace/{workspace_id}/create/` | Create a task list in a workspace |
-| `POST /tasks/share/{share_id}/create/` | Create a task list in a share |
+| `GET /workspace/{workspace_id}/tasks/` | List task lists in a workspace |
+| `GET /share/{share_id}/tasks/` | List task lists in a share |
+| `POST /workspace/{workspace_id}/tasks/create/` | Create a task list in a workspace |
+| `POST /share/{share_id}/tasks/create/` | Create a task list in a share |
 | `GET /tasks/{list_id}/details/` | Get task list details |
 | `POST /tasks/{list_id}/update/` | Update a task list |
 | `POST /tasks/{list_id}/delete/` | Delete a task list |
@@ -1967,8 +1971,8 @@ Organize work into lists with individual tasks. Task lists belong to a workspace
 | `POST /tasks/{list_id}/items/{task_id}/assign/` | Assign a task |
 | `POST /tasks/{list_id}/items/bulk-status/` | Bulk status change |
 | `POST /tasks/{list_id}/items/reorder/` | Bulk reorder tasks |
-| `POST /tasks/workspace/{workspace_id}/reorder/` | Bulk reorder task lists |
-| `POST /tasks/share/{share_id}/reorder/` | Bulk reorder task lists |
+| `POST /workspace/{workspace_id}/tasks/reorder/` | Bulk reorder task lists |
+| `POST /share/{share_id}/tasks/reorder/` | Bulk reorder task lists |
 
 ### 2. Worklogs
 
@@ -2011,8 +2015,8 @@ with a comment.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /approvals/workspace/{workspace_id}/` | List approvals in a workspace |
-| `GET /approvals/share/{share_id}/` | List approvals in a share |
+| `GET /workspace/{workspace_id}/approvals/` | List approvals in a workspace |
+| `GET /share/{share_id}/approvals/` | List approvals in a share |
 | `POST /approvals/{entity_type}/{entity_id}/create/` | Create an approval request |
 | `GET /approvals/{approval_id}/details/` | Get approval details |
 | `POST /approvals/{approval_id}/resolve/` | Resolve (approve or reject) |
@@ -2027,16 +2031,16 @@ not done. Support assignees and bulk toggle operations.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /todos/workspace/{workspace_id}/` | List todos in a workspace |
-| `GET /todos/share/{share_id}/` | List todos in a share |
-| `POST /todos/workspace/{workspace_id}/create/` | Create a todo in a workspace |
-| `POST /todos/share/{share_id}/create/` | Create a todo in a share |
+| `GET /workspace/{workspace_id}/todos/` | List todos in a workspace |
+| `GET /share/{share_id}/todos/` | List todos in a share |
+| `POST /workspace/{workspace_id}/todos/create/` | Create a todo in a workspace |
+| `POST /share/{share_id}/todos/create/` | Create a todo in a share |
 | `GET /todos/{todo_id}/details/` | Get todo details |
 | `POST /todos/{todo_id}/details/update/` | Update a todo |
 | `POST /todos/{todo_id}/details/delete/` | Delete a todo |
 | `POST /todos/{todo_id}/details/toggle/` | Toggle done/not done |
-| `POST /todos/workspace/{workspace_id}/bulk-toggle/` | Bulk toggle in a workspace |
-| `POST /todos/share/{share_id}/bulk-toggle/` | Bulk toggle in a share |
+| `POST /workspace/{workspace_id}/todos/bulk-toggle/` | Bulk toggle in a workspace |
+| `POST /share/{share_id}/todos/bulk-toggle/` | Bulk toggle in a share |
 
 ### Enabling Workflow
 
