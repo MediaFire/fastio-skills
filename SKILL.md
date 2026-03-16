@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.121.0"
+  version: "1.123.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.121
-**Last Updated:** 2026-03-06
+**Version:** 1.123
+**Last Updated:** 2026-03-16
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -36,7 +36,7 @@ The definitive guide for AI agents using the Fast.io MCP server. Covers why and 
 
 **Workspaces for Agentic Teams. Collaborate, share, and query with AI -- all through one API, free.**
 
-Fast.io provides workspaces for agentic teams -- where agents collaborate with other agents and with humans. Upload outputs, create branded data rooms, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
+Fast.io provides workspaces for agentic teams -- where agents collaborate with other agents and with humans. Upload outputs, create branded shares, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
 
 ### The Problem Fast.io Solves
 
@@ -351,6 +351,10 @@ Shares are purpose-built spaces for exchanging files with people outside your wo
 | **Receive** | Recipients can upload files | Collect documents, datasets, user submissions |
 | **Exchange** | Both upload and download | Collaborative workflows, review cycles |
 
+#### Portals
+
+A **Portal** is a Send share created from a workspace folder (`storage_mode=workspace_folder`). Portals are always Send-only -- recipients can view and download files but cannot upload. The portal displays the live contents of the linked workspace folder, so any changes to the folder are immediately reflected. Portals are ideal for publishing a folder's contents externally (e.g., a client deliverables folder) without duplicating files. To create a portal: use `share` action `create` with `share_type: "send"`, `storage_mode: "workspace_folder"`, and `folder_node_id` (or `create_folder: true`).
+
 #### Share Features
 
 - **Password protection** -- require a password for link access
@@ -369,11 +373,13 @@ Shares are purpose-built spaces for exchanging files with people outside your wo
 
 When creating a share with `share` action `create`, the `storage_mode` parameter determines how files are stored:
 
-- **`room`** (independent storage, default) -- The share has its own isolated storage. Files are added directly to the share and are independent of any workspace. This creates a self-contained data room -- changes to workspace files do not affect the room, and vice versa. Use for final deliverables, compliance packages, archived reports, or any scenario where you want an immutable snapshot.
+- **`independent`** (independent storage, default) -- The share has its own isolated storage. Files are added directly to the share and are independent of any workspace. This creates a self-contained share -- changes to workspace files do not affect the share, and vice versa. Use for final deliverables, compliance packages, archived reports, or any scenario where you want an immutable snapshot.
 
-- **`shared_folder`** (workspace-backed) -- The share is backed by a specific folder in a workspace. The share displays the live contents of that folder -- any files added, updated, or removed in the workspace folder are immediately reflected in the share. No file duplication, so no extra storage cost. To create a shared folder, pass `storage_mode=shared_folder` and `folder_node_id={folder_opaque_id}` when creating the share. **Note:** Expiration dates are not allowed on shared folder shares since the content is live.
+- **`workspace_folder`** (workspace-backed) -- The share is backed by a specific folder in a workspace. The share displays the live contents of that folder -- any files added, updated, or removed in the workspace folder are immediately reflected in the share. No file duplication, so no extra storage cost. To create a workspace folder share, pass `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. **Note:** Expiration dates are not allowed on workspace folder shares since the content is live.
 
-Both modes look the same to share recipients -- a branded data room with file preview, download controls, and all share features. The difference is whether the content is a snapshot (room) or a live view (shared folder).
+Both modes look the same to share recipients -- a branded share with file preview, download controls, and all share features. The difference is whether the content is a snapshot (independent) or a live view (workspace folder).
+
+**Response fields:** API responses include both `storage_mode` (`independent` or `workspace_folder`) and `share_category` (`portal` or `shared_folder`). Use `storage_mode` when creating shares; `share_category` is a read-only classification in responses.
 
 Shares are identified by a 19-digit numeric profile ID.
 
@@ -1184,7 +1190,7 @@ Use this when you have a file URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Drop
 
 ### 5. Deliver Files to a Client
 
-Create a branded, professional data room for outbound file delivery. This replaces raw download links, email attachments, and S3 presigned URLs.
+Create a branded, professional share for outbound file delivery. This replaces raw download links, email attachments, and S3 presigned URLs.
 
 1. Upload files to the workspace (see workflow 3 or 4).
 2. `share` action `create` with `workspace_id`, `name`, and `type: "send"` -- creates a Send share. Returns a `share_id`.

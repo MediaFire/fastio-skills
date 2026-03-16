@@ -7,7 +7,7 @@
 **Workspaces for Agentic Teams. Collaborate, share, and query with AI — all through one API, free.**
 
 Fast.io provides workspaces for agentic teams — where agents collaborate with other agents and with humans. Upload
-outputs, create branded data rooms, ask questions about documents using built-in AI, and hand everything off to a human
+outputs, create branded portals, ask questions about documents using built-in AI, and hand everything off to a human
 when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
 
 **MCP-enabled agents** should connect via the Model Context Protocol for the simplest integration — no raw HTTP calls
@@ -379,18 +379,18 @@ every exchange pattern:
 When creating a share, you choose a `storage_mode` that determines how the share's files are managed:
 
 - **`room`** (independent storage, default) — the share has its own isolated storage. Files are added directly to the
-  share and are independent of any workspace. This creates a self-contained data room — changes to workspace files don't
-  affect the room, and vice versa. Perfect for final deliverables, compliance packages, archived reports, or any
+  share and are independent of any workspace. This creates a self-contained portal — changes to workspace files don't
+  affect the portal, and vice versa. Perfect for final deliverables, compliance packages, archived reports, or any
   scenario where you want an immutable snapshot.
 
-- **`shared_folder`** (workspace-backed) — the share is backed by a specific folder in a workspace. The share displays
+- **`workspace_folder`** (workspace-backed) — the share is backed by a specific folder in a workspace. The share displays
   the live contents of that folder — any files added, updated, or removed in the workspace folder are immediately
   reflected in the share. No file duplication, so no extra storage cost. To create a shared folder, pass
-  `storage_mode=shared_folder` and `folder_node_id={folder_opaque_id}` when creating the share. Note: expiration dates
+  `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. Note: expiration dates
   are not allowed on shared folder shares since the content is live.
 
-Both modes look the same to share recipients — a branded data room with file preview, download controls, and all share
-features. The difference is whether the content is a snapshot (room) or a live view (shared folder).
+Both modes look the same to share recipients — a branded portal with file preview, download controls, and all share
+features. The difference is whether the content is a snapshot (portal) or a live view (shared folder).
 
 **Agent use case:** Generate a quarterly report, create a Send share with your client's branding, set a 30-day
 expiration, and share the link. The client sees a branded page with instant file preview — not a raw download link.
@@ -1511,9 +1511,9 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 4. Ask questions — AI reads the attachments and responds with citations
 5. No persistent indexing, no credit cost for ingestion
 
-### Choose Between Room and Shared Folder
+### Choose Between Portal and Shared Folder
 
-**Use a Room (independent storage) when:**
+**Use a Portal (independent storage) when:**
 
 - Delivering final, immutable outputs (reports, compliance packages)
 - You want a snapshot that won't change if workspace files are updated
