@@ -392,6 +392,9 @@ When creating a share, you choose a `storage_mode` that determines how the share
 Both modes look the same to share recipients — a branded portal with file preview, download controls, and all share
 features. The difference is whether the content is a snapshot (portal) or a live view (shared folder).
 
+> **Note:** API responses include both `storage_mode` and a response-only `share_category` field.
+> `independent` maps to `share_category: "portal"`; `workspace_folder` maps to `share_category: "shared_folder"`.
+
 **Agent use case:** Generate a quarterly report, create a Send share with your client's branding, set a 30-day
 expiration, and share the link. The client sees a branded page with instant file preview — not a raw download link.
 
