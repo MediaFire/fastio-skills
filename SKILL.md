@@ -15,7 +15,7 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.123.0"
+  version: "1.124.0"
 homepage: "https://fast.io"
 ---
 
@@ -335,7 +335,7 @@ Intelligence also enables auto-summarization and automatic metadata extraction, 
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-**Default behavior:** Intelligence defaults to ON for workspaces created via the API by agent accounts. **You should explicitly set `intelligence` to `"false"` when creating workspaces unless the user has asked for RAG or AI search capabilities.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs are incurred immediately and are non-refundable.
+**Default behavior:** The MCP server defaults intelligence to OFF when creating workspaces and shares. To enable intelligence, you must explicitly pass `intelligence: "true"`. **Do NOT enable intelligence unless the user specifically requests RAG queries across many documents or AI-powered semantic search.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs (10 credits/page) are incurred immediately and are non-refundable.
 
 **Agent use case:** Create a workspace per project or client. Keep intelligence OFF for storage and collaboration. Only enable it when users need to query across a large document set. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
 
