@@ -653,20 +653,25 @@ It returns ranked text snippets with relevance scores — no LLM round-trip, no 
 
 **Endpoints:**
 
+Semantic search is now available via the unified storage search endpoint. The `/ai/search/` endpoints are deprecated.
+
 ```
-GET /current/workspace/{workspace_id}/ai/search/
-GET /current/share/{share_id}/ai/search/
+GET /current/workspace/{workspace_id}/storage/search/?search={query}
+GET /current/share/{share_id}/storage/search/?search={query}
 ```
+
+When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, and `search_metadata` fields.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query_text` | string | Yes | — | Search query, 2–1,000 characters |
+| `search` | string | Yes | — | Search query, 2–1,000 characters |
 | `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100) |
 | `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10) |
 | `limit` | integer | No | 100 | Results per page, 1–500 |
 | `offset` | integer | No | 0 | Pagination offset |
+| `details` | string | No | false | When `"true"`, each result includes a `node` field with the full node resource (previews, AI state, versions, metadata, size). Default limit drops to 10 (enrichment is expensive). An explicit `limit` overrides this default. |
 
 Requires `intelligence=true` on the workspace or share. Only files with `ai_state: ready` are included.
 
@@ -694,16 +699,52 @@ Requires `intelligence=true` on the workspace or share. Only files with `ai_stat
 
 Each result contains:
 - `content` — the matched text snippet from the indexed document
-- `score` — relevance score (0.0–1.0, higher is more relevant)
+- `score` — relevance score (0.0-1.0, higher is more relevant)
 - `node` — full file resource (or `null` if the file was deleted)
 
+With intelligence enabled, the `/storage/search` response also includes:
+- `content_snippet` — the actual matching text from semantic search. NULL for keyword-only matches.
+- `mimetype` — file MIME type (e.g., `application/pdf`, `audio/mpeg`). Present for semantic matches.
+- `media_segment` — `{start_seconds, end_seconds}` identifying the timestamp range in audio/video where the match was found. Only present for audio/video file matches, enabling deep-linking to the exact moment.
+- `relevance_score` — semantic relevance score (0.0-1.0)
+- `match_source` — source of the match: `keyword`, `semantic`, or `both`
+
+**With `details=true`** — the unified `/storage/search` endpoint enriches each file entry with a `node` field containing the full node resource:
+
+```json
+{
+  "result": true,
+  "response": {
+    "files": {
+      "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4": {
+        "name": "report.pdf",
+        "parent_id": "...",
+        "type": "file",
+        "relevance_score": 0.92,
+        "content_snippet": "Revenue increased 15%...",
+        "match_source": "both",
+        "mimetype": "application/pdf",
+        "node": {
+          "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4",
+          "name": "report.pdf",
+          "type": "file",
+          "size": 123456,
+          "previews": { "...": "..." },
+          "ai": { "state": "ready" }
+        }
+      }
+    }
+  }
+}
+```
+
 **Agent memory pattern:** Upload context documents (meeting notes, research, reference material) to an intelligent
-workspace. Later, use `ai/search` to retrieve relevant chunks without burning LLM credits. This is significantly
+workspace. Later, use `storage/search` to retrieve relevant chunks without burning LLM credits. This is significantly
 cheaper than creating a chat for every lookup and is ideal for agents that need to recall information across sessions —
 treat the intelligent workspace as a persistent memory store and search as the retrieval mechanism.
 
 **Agent use case — multi-step research:** An agent researching a topic uploads 200 papers to a workspace with
-intelligence enabled. For each research question, it calls `ai/search` to find the most relevant passages, reads the
+intelligence enabled. For each research question, it calls `storage/search` to find the most relevant passages, reads the
 top results, and only escalates to AI chat when it needs the LLM to synthesize across multiple sources. This approach
 uses a fraction of the credits compared to chatting for every question.
 
@@ -1475,7 +1516,7 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 1. Create a workspace **with intelligence enabled** (this is one of the workflows that justifies the ingestion cost)
 2. Upload all reference documents
 3. AI auto-indexes and summarizes everything on upload
-4. Use **semantic search** (`ai/search`) for fast, low-cost retrieval — find relevant document chunks by meaning without an LLM round-trip. Best for lookup, recall, and memory workflows
+4. Use **semantic search** (`storage/search`) for fast, low-cost retrieval — find relevant document chunks by meaning without an LLM round-trip. Best for lookup, recall, and memory workflows
 5. Use **AI chat** (`chat_with_files`) when you need the LLM to synthesize, analyze, or summarize across documents — returns a natural language answer with citations
 6. Combine both: search first to find relevant content cheaply, then chat only when synthesis is needed
 
@@ -1551,10 +1592,10 @@ named actions.
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
 | `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus 17 `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
-| `storage`    | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
+| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
-| `ai`         | AI chat and semantic search (scope defaults to entire workspace — omit scope params to search all indexed documents). Folder scope expands subfolder tree only — documents within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list`, `search` |
+| `ai`         | AI chat (scope defaults to entire workspace — omit scope params to search all indexed documents). Folder scope expands subfolder tree only — documents within scoped folders are searched automatically by RAG, not enumerated individually. | `chat-create`, `message-send`, `message-read`, `chat-list` |
 | `member`     | Members                         | `add`, `update`, `remove`, `details`                                          |
 | `invitation` | Invitations                     | `list`, `send`, `revoke`, `accept-all`                                        |
 | `asset`      | Branding assets                 | `types`, `list`, `upload`, `delete`                                           |

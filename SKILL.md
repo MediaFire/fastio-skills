@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.124.0"
+  version: "1.126.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.123
-**Last Updated:** 2026-03-16
+**Version:** 1.126
+**Last Updated:** 2026-03-24
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -52,7 +52,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 | Collecting files from humans is harder | Receive shares let humans upload directly to your workspace -- no email attachments |
 | Understanding document contents | Built-in AI reads, summarizes, and answers questions about your files |
 | Building a RAG pipeline from scratch | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable |
-| Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename |
+| Finding the right file in a large collection | Storage search finds documents by meaning (with intelligence) or keywords (without) |
 | Handing a project off to a human | One-click ownership transfer -- human gets the org, agent keeps admin access |
 | Tracking what happened | Full audit trail with AI-powered activity summaries |
 | Cost | Free. 50 GB storage, 5,000 monthly credits, no credit card |
@@ -314,7 +314,7 @@ Workspaces are file storage containers within organizations. Each workspace has:
 - **Archive/unarchive** lifecycle management.
 - **50 GB included storage** on the free agent plan, with files up to 1 GB per upload.
 - **File versioning** -- every edit creates a new version, old versions are recoverable.
-- **Full-text and semantic search** -- find files by name or content, and documents by meaning.
+- **Keyword and semantic search** -- find files by name or content (keyword search), or by meaning when intelligence is enabled (semantic search). Both via `storage` action `search`.
 
 Workspaces are identified by a 19-digit numeric profile ID.
 
@@ -322,20 +322,20 @@ Workspaces are identified by a 19-digit numeric profile ID.
 
 Workspaces have an **intelligence** toggle that controls whether AI features are active.
 
-> **⚠️ COST WARNING:** Intelligence incurs significant ingestion costs (10 credits per page for every uploaded document). For a workspace with hundreds or thousands of pages, this adds up quickly. **Do NOT enable intelligence unless the user specifically needs RAG queries across many documents or AI-powered semantic search.** Most workflows (file storage, sharing, collaboration, one-off file analysis) work perfectly without it.
+> **⚠️ COST WARNING:** Intelligence incurs significant ingestion costs (10 credits per page for every uploaded document). For a workspace with hundreds or thousands of pages, this adds up quickly. **Do NOT enable intelligence unless the user specifically needs RAG queries across many documents or semantic storage search.** Most workflows (file storage, sharing, collaboration, one-off file analysis) work perfectly without it.
 
 **Intelligence OFF (recommended default)** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total) and ask questions about them -- no ingestion cost. This is the right choice for most use cases: file storage, sharing, collaboration, project coordination, and analyzing a small number of specific files.
 
 **Intelligence ON (only when needed)** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed. **Only enable this when the user needs one of these two capabilities:**
 
 1. **RAG queries across many documents** -- scope AI chat to entire folders or the full workspace and ask questions across all indexed content. The AI retrieves relevant passages and answers with citations. This is useful when you have a large volume of documents and need to search across all of them.
-2. **AI-powered semantic search** -- find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
+2. **Semantic storage search** -- `storage` action `search` finds files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
 
 Intelligence also enables auto-summarization and automatic metadata extraction, but these alone do not justify the ingestion cost.
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-**Default behavior:** The MCP server defaults intelligence to OFF when creating workspaces and shares. To enable intelligence, you must explicitly pass `intelligence: "true"`. **Do NOT enable intelligence unless the user specifically requests RAG queries across many documents or AI-powered semantic search.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs (10 credits/page) are incurred immediately and are non-refundable.
+**Default behavior:** The MCP server defaults intelligence to OFF when creating workspaces and shares. To enable intelligence, you must explicitly pass `intelligence: "true"`. **Do NOT enable intelligence unless the user specifically requests RAG queries across many documents or semantic storage search.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs (10 credits/page) are incurred immediately and are non-refundable.
 
 **Agent use case:** Create a workspace per project or client. Keep intelligence OFF for storage and collaboration. Only enable it when users need to query across a large document set. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
 
@@ -526,7 +526,7 @@ File nodes in storage list/details responses include an `ai` object with three f
 
 This flag is independent of the workspace intelligence setting — a file can have `ai.attach: true` even when intelligence is off.
 
-**When to enable intelligence:** You need RAG queries across many documents (scoped to folders or the full workspace) or AI-powered semantic search. Do NOT enable just for auto-summarization or metadata extraction alone -- the ingestion cost (10 credits/page) is significant.
+**When to enable intelligence:** You need RAG queries across many documents (scoped to folders or the full workspace) or semantic storage search (finding files by meaning via `storage` action `search`). Do NOT enable just for auto-summarization or metadata extraction alone -- the ingestion cost (10 credits/page) is significant.
 
 **When to disable intelligence (recommended default):** The workspace is for storage, sharing, collaboration, or you only need to analyze specific files via attachments. This covers most use cases. Saves significant credits. Intelligence can always be enabled later if needed.
 
@@ -1023,9 +1023,9 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 ### ai
 
-AI-powered chat with RAG, semantic search, and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, search indexed documents and code by meaning with relevance scores, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
+AI-powered chat with RAG and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
 
-**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, search, share-generate, transactions, autotitle
+**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
 
 ### comment
 
@@ -1224,7 +1224,7 @@ Create an intelligent workspace that auto-indexes all content for RAG queries.
 2. Upload reference documents (see workflow 3 or 4). AI auto-indexes and summarizes everything on upload.
 3. `ai` action `chat-create` with `context_type: "workspace"`, `context_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and `folders_scope` (comma-separated `nodeId:depth` pairs) to query across folders or the entire workspace.
 4. `ai` action `message-read` with `context_type: "workspace"`, `context_id`, `chat_id`, and `message_id` -- polls until the AI response is complete. Returns `response_text` and `citations` pointing to specific files, pages, and snippets.
-5. `storage` action `search` with `context_type: "workspace"`, `context_id`, and a query string for semantic search -- find files by meaning, not just filename.
+5. `storage` action `search` with `context_type: "workspace"`, `context_id`, and a query string -- with intelligence enabled, this performs semantic search (finds files by meaning, not just filename).
 6. Answers include citations to specific pages and files. Pass these back to the user with source references.
 
 ### 8. Ask AI About Files
@@ -1972,7 +1972,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
 
-**search** -- Search for files by keyword or semantic query. Each result includes `web_url` (workspace only).
+**search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs -- scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 -- scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result -- previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 -- keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource -- previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool -- false if gRPC failed, graceful degradation), `scoped` (bool -- true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` -- keyword-only behavior. Each result includes `web_url` (workspace only).
 
 **trash-list** -- List items currently in the trash. Each item includes `web_url` (workspace only).
 
@@ -2077,8 +2077,6 @@ All AI actions require `context_type` parameter (`workspace` or `share`) and `co
 **message-details** -- Get details for a specific message in an AI chat including response text and citations.
 
 **message-read** -- Read an AI message response. Polls the message details endpoint until the AI response is complete, then returns the full text.
-
-**search** -- Semantic search across indexed documents and code. Returns ranked document chunks with relevance scores -- faster and lighter than AI chat (stateless GET, no LLM inference). Requires Intelligence ON. Params: `query_text` (2-1,000 chars), optional `files_scope`, `folders_scope` (same format as chat scoping), `limit` (1-500, default 100), `offset`. Results include content snippets, scores, and source file details with `web_url` (workspace only). Use search to find relevant documents, then chat to ask questions about them.
 
 **share-generate** -- Generate AI Share markdown with temporary download URLs for files that can be pasted into external AI chatbots.
 
