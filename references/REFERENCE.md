@@ -387,7 +387,8 @@ When creating a share, you choose a `storage_mode` that determines how the share
   the live contents of that folder — any files added, updated, or removed in the workspace folder are immediately
   reflected in the share. No file duplication, so no extra storage cost. To create a shared folder, pass
   `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. Note: expiration dates
-  are not allowed on shared folder shares since the content is live.
+  are not allowed on shared folder shares since the content is live. **Intelligence is not available** on shared folder
+  shares — files are indexed through the parent workspace instead.
 
 Both modes look the same to share recipients — a branded portal with file preview, download controls, and all share
 features. The difference is whether the content is a snapshot (portal) or a live view (shared folder).
@@ -1263,14 +1264,14 @@ The system has three layers:
 1. **Templates** — define a metadata schema: named fields with types (`string`, `int`, `float`, `bool`, `json`, `url`,
    `datetime`), constraints (`min`, `max`, `fixed_list`), and descriptions. Templates belong to a workspace and are
    grouped by category (`legal`, `financial`, `business`, `medical`, `technical`, `engineering`, `insurance`,
-   `educational`, `multimedia`, `hr`).
+   `educational`, `multimedia`, `hr`). Plan limits: Free=1, Pro=1, Business=10 templates per workspace.
 
-2. **Template Assignments** — bind a single template to a workspace. All files in the workspace inherit that template
-   automatically. One template per workspace — assigning a new template replaces the previous one. This keeps resolution
-   simple and efficient (a single lookup instead of a tree-walk).
+2. **Template-Node Mappings** — many-to-many relationships between templates and files. Files are linked to templates
+   either manually (add/remove endpoints) or automatically via AI-based matching. A template can be applied to multiple
+   files, and a file can have metadata from multiple templates.
 
 3. **Node Metadata** — the actual key-value pairs stored on individual files. Each file's metadata is split into
-   **template metadata** (conforming to the resolved template's field definitions) and **custom metadata** (user-defined
+   **template metadata** (conforming to mapped template field definitions) and **custom metadata** (user-defined
    fields not tied to any template).
 
 #### Template Management
@@ -1285,14 +1286,16 @@ The system has three layers:
 | `POST /current/workspace/{id}/metadata/templates/{template_id}/settings/` | Enable/disable, set priority (1-5) |
 | `POST /current/workspace/{id}/metadata/templates/{template_id}/update/` | Update definition (append `/create/` to copy) |
 
-#### Template Assignment & Resolution
+#### Template-Node Mapping
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /current/workspace/{id}/metadata/template/assign/` | Assign template to the workspace (one per workspace) |
-| `DELETE /current/workspace/{id}/metadata/template/unassign/` | Remove the workspace template assignment |
-| `GET /current/workspace/{id}/metadata/template/resolve/{node_id}/` | Resolve the workspace template (`node_id` accepted for compat, ignored) |
-| `GET /current/workspace/{id}/metadata/template/assignments/` | List the workspace template assignment |
+| `GET /current/workspace/{id}/metadata/eligible/` | List files eligible for metadata extraction (have summary + preview) |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/add/` | Manually add files to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/remove/` | Remove files from a template |
+| `GET /current/workspace/{id}/metadata/templates/{template_id}/nodes/` | List files mapped to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/auto-match/` | AI-based file matching to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/extract-all/` | Batch-extract metadata for all mapped files (async, returns job_id) |
 
 #### Node Metadata Operations
 
@@ -1301,8 +1304,7 @@ The system has three layers:
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | Get all metadata (`template_metadata` + `custom_metadata`) |
 | `POST /current/workspace/{id}/storage/{node_id}/metadata/update/{template_id}/` | Set/update key-value pairs |
 | `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Delete metadata keys |
-| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | AI-extract metadata from file content (documents, images, code) |
-| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract-all/` | Batch-extract metadata for all files in a folder (async, returns job_id) |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | AI-extract metadata from file content (requires `template_id`) |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/list/{template_id}/` | List files with metadata for a template |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/templates/` | List templates in use across files |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/versions/` | Metadata version history |
@@ -1321,24 +1323,25 @@ Saved views persist filter/sort configurations for browsing metadata across file
 
 Metadata extraction works in three modes:
 
-1. **Automatic (during ingestion)** — when intelligence is enabled and a template is assigned to the workspace, every
+1. **Automatic (during ingestion)** — when intelligence is enabled and files are mapped to a template, every
    file uploaded is automatically extracted against the template schema during the ingestion pipeline. No API call
    needed — metadata appears on the file after ingestion completes. This includes documents, spreadsheets, images
    (PNG, JPEG, WebP up to 30 MB), and code files.
 
-2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) resolves the workspace template, reads
-   the file content, and uses AI to populate the template fields. You can optionally pass `template_id` to override the
-   workspace template. Extraction is synchronous — the response includes the extracted metadata immediately.
+2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) reads the file content and uses AI to
+   populate the template fields. The `template_id` parameter specifies which template to extract against. Extraction is
+   synchronous — the response includes the extracted metadata immediately.
 
-3. **Batch (per folder)** — the extract-all endpoint (`POST .../metadata/extract-all/`) enqueues an async job that
-   processes every file in a folder against the workspace template. Returns a `job_id` for tracking. Rate-limited to
-   2 requests/minute, 10/hour. Use this when you assign a template to a workspace that already contains files.
+3. **Batch (per template)** — the template-level extract-all endpoint
+   (`POST .../metadata/templates/{template_id}/extract-all/`) enqueues an async job that processes every file mapped to
+   the template. Returns a `job_id` for tracking. Rate-limited to 2 requests/minute, 10/hour. Use this after adding
+   files to a template to backfill metadata.
 
 A daily background process also detects stale metadata — files whose extraction predates the template's last update —
 and automatically re-extracts them, ensuring metadata stays current when templates evolve.
 
-For example, uploading an invoice to a workspace with a "financial" template automatically fills in fields like
-`invoice_number`, `amount`, `vendor_name`, and `due_date` — no extraction call required if intelligence is enabled.
+For example, uploading an invoice to a workspace and mapping it to a "financial" template automatically fills in fields
+like `invoice_number`, `amount`, `vendor_name`, and `due_date` — no extraction call required if intelligence is enabled.
 
 #### Field Definition Structure
 
@@ -1357,14 +1360,15 @@ When creating templates, each field in the `fields` JSON array supports:
 
 #### Agent Use Cases
 
-- **Automatic classification:** Assign a template to the workspace, enable intelligence, upload files. Every file gets
-  structured metadata extracted automatically during ingestion — no manual extraction calls needed.
-- **Data pipeline:** Create a workspace with an invoice template assigned. Upload invoices — metadata (amounts, vendors,
-  dates) is extracted automatically. Query by field values using the list endpoint.
-- **Compliance tracking:** Create a template with required fields (review_date, reviewer, status). Assign to the
-  workspace. The metadata view shows which files are missing required fields at a glance.
-- **Bulk backfill:** Assign a template to a workspace that already has files, then use `extract-all` on each folder to
-  batch-extract metadata for existing content. The daily staleness walker re-extracts when templates are updated.
+- **Automatic classification:** Create a template, use auto-match to map eligible files, enable intelligence. Every
+  mapped file gets structured metadata extracted automatically — no manual extraction calls needed.
+- **Data pipeline:** Create a workspace with an invoice template. Upload invoices and add them to the template (or use
+  auto-match). Metadata (amounts, vendors, dates) is extracted automatically. Query by field values using the list
+  endpoint.
+- **Compliance tracking:** Create a template with required fields (review_date, reviewer, status). Map files to the
+  template. The metadata view shows which files are missing required fields at a glance.
+- **Bulk backfill:** Create a template, add files to it, then use template-level `extract-all` to batch-extract
+  metadata for all mapped files. The daily staleness walker re-extracts when templates are updated.
 - **Custom + template fields:** Files support both template metadata (structured, schema-enforced) and custom metadata
   (user-defined, ad-hoc). Use template fields for consistent extraction and custom fields for one-off annotations.
 
@@ -1471,6 +1475,17 @@ When credits run out, the org enters a reduced-capability state — file storage
 credit-consuming operations (AI chat, file ingestion, bandwidth-heavy downloads) are limited until the 30-day reset.
 The org is never deleted.
 
+**Detecting credit exhaustion:** API calls return HTTP 402 with one of these error codes:
+
+| Error Code | Constant | Meaning |
+|------------|----------|---------|
+| 1688 | `APP_SUBSCRIPTION_REQUIRED` | Org has no active subscription or free-tier credits are exhausted |
+| 1696 | `APP_CREDIT_LIMIT_EXCEEDED` | Free-tier credit limit exceeded (error message includes credits used and credit limit) |
+
+You can also check proactively: the `subscriber` field in org details (`GET /current/org/{org_id}/details/`) returns
+`false` when the org is out of credits. Admins can check detailed usage via
+`GET /current/org/{org_id}/billing/usage/limits/credits/`.
+
 **When you hit the credit limit:** The recommended path is to transfer the org to a human user who can upgrade to a
 paid plan with unlimited credits. See "Ownership Transfer" above. If the agent account is using a human account type
 (not recommended), direct the user to upgrade at `https://go.fast.io/onboarding` or via the billing API.
@@ -1541,11 +1556,12 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 1. Create a workspace **with intelligence enabled** (metadata extraction requires ingestion — budget for ingestion costs)
 2. Create a metadata template with the fields you need (e.g., invoice_number, amount, vendor, due_date)
-3. Assign the template to the workspace (`POST .../metadata/template/assign/`)
-4. Upload files — metadata is automatically extracted during ingestion against the template schema
-5. For existing files, use `POST .../metadata/extract-all/` on each folder to batch-extract
-6. Query files by metadata fields using the list endpoint, or view in the spreadsheet-like metadata view
-7. Custom fields can be added to any file independently of the template
+3. Upload files to the workspace
+4. Add files to the template manually (`POST .../metadata/templates/{id}/nodes/add/`) or use AI auto-match (`POST .../metadata/templates/{id}/auto-match/`)
+5. Mapped files have metadata automatically extracted during ingestion against the template schema
+6. For existing files, use `POST .../metadata/templates/{id}/extract-all/` to batch-extract metadata for all mapped files
+7. Query files by metadata fields using the list endpoint, or view in the spreadsheet-like metadata view
+8. Custom fields can be added to any file independently of the template
 
 ### One-Off Document Analysis (No Intelligence Needed)
 

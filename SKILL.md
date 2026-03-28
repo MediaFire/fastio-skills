@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.126.0"
+  version: "1.127.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.126
-**Last Updated:** 2026-03-24
+**Version:** 1.127
+**Last Updated:** 2026-03-28
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -375,7 +375,7 @@ When creating a share with `share` action `create`, the `storage_mode` parameter
 
 - **`independent`** (independent storage, default) -- The share has its own isolated storage. Files are added directly to the share and are independent of any workspace. This creates a self-contained share -- changes to workspace files do not affect the share, and vice versa. Use for final deliverables, compliance packages, archived reports, or any scenario where you want an immutable snapshot.
 
-- **`workspace_folder`** (workspace-backed) -- The share is backed by a specific folder in a workspace. The share displays the live contents of that folder -- any files added, updated, or removed in the workspace folder are immediately reflected in the share. No file duplication, so no extra storage cost. To create a workspace folder share, pass `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. **Note:** Expiration dates are not allowed on workspace folder shares since the content is live.
+- **`workspace_folder`** (workspace-backed) -- The share is backed by a specific folder in a workspace. The share displays the live contents of that folder -- any files added, updated, or removed in the workspace folder are immediately reflected in the share. No file duplication, so no extra storage cost. To create a workspace folder share, pass `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. **Note:** Expiration dates are not allowed on workspace folder shares since the content is live. **Note:** Intelligence is not supported on workspace folder shares -- `intelligence` is always set to `false` regardless of the value passed. To use AI features on these files, use the parent workspace's AI endpoints instead.
 
 Both modes look the same to share recipients -- a branded share with file preview, download controls, and all share features. The difference is whether the content is a snapshot (independent) or a live view (workspace folder).
 
@@ -872,7 +872,7 @@ Several tools use permission parameters with specific allowed values. Use these 
 | `invite` | `owners`, `guests` | `owners` |
 | `notify` | `never`, `notify_on_file_received`, `notify_on_file_sent_or_received` | `never` |
 | `display_type` | `list`, `grid` | `grid` |
-| `intelligence` | `true`, `false` | `false` |
+| `intelligence` | `true`, `false` | `false` (always `false` for `workspace_folder` shares) |
 | `comments_enabled` | `true`, `false` | `true` |
 | `download_enabled` | `true`, `false` | `true` |
 | `guest_chat_enabled` | `true`, `false` | `false` |
@@ -884,6 +884,7 @@ Several tools use permission parameters with specific allowed values. Use these 
 - Receive and Exchange shares cannot use `Anyone with the link` access -- this option is only available for Send shares.
 - Password protection (`password` parameter) is only allowed when `access_options` is `Anyone with the link`.
 - Expiration (`expires` parameter in MySQL format `YYYY-MM-DD HH:MM:SS`) is not allowed on `workspace_folder` shares.
+- Intelligence is not supported on `workspace_folder` shares. Creating a workspace folder share always sets `intelligence=false` regardless of the value passed. Updating a workspace folder share with `intelligence=true` returns an error. AI chat with file/folder scope and semantic search are not available on workspace folder shares — use the parent workspace's AI endpoints instead. Basic chat and `files_attach` (direct file attachment) still work.
 - Field length and format constraints for `custom_name`, `title`, and `description` are documented in the **Profile Field Constraints** table below.
 - Color parameters (`accent_color`, `background_color1`, `background_color2`) accept JSON strings.
 - `create_folder` creates a new workspace folder for the share when used with `storage_mode='workspace_folder'`.
