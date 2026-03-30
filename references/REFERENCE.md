@@ -364,7 +364,7 @@ every exchange pattern:
 
 - **Password protection** — require a password for link access
 - **Expiration dates** — shares auto-expire after a set period
-- **Download controls** — enable or disable file downloads
+- **Download security** — three levels: `off` (no restrictions, default), `medium` (file previews are available but direct downloads are restricted for guests), or `high` (downloads completely disabled for guests). Set via `download_security` when creating or updating a share
 - **Access levels** — `'Only members of the Share or Workspace'`, `'Members of the Share, Workspace or Org'`, `'Anyone with a registered account'`, or `'Anyone with the link'`
 - **Custom branding** — background images, gradient colors, accent colors, logos
 - **Post-download messaging** — show custom messages and links after download
@@ -1278,7 +1278,6 @@ The system has three layers:
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /current/metadata/templates/categories/` | List available template categories |
 | `POST /current/workspace/{id}/metadata/templates/` | Create a template (name, description, category, fields JSON) |
 | `DELETE /current/workspace/{id}/metadata/templates/` | Delete a template |
 | `GET /current/workspace/{id}/metadata/templates/list/` | List templates (sub-paths: `all`, `custom`, `system`, `enabled`, `disabled`) |

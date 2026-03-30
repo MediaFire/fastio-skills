@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.127.0"
+  version: "1.128.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.127
-**Last Updated:** 2026-03-28
+**Version:** 1.128
+**Last Updated:** 2026-03-30
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -359,7 +359,7 @@ A **Portal** is a Send share created from a workspace folder (`storage_mode=work
 
 - **Password protection** -- require a password for link access
 - **Expiration dates** -- shares auto-expire after a set period
-- **Download controls** -- enable or disable file downloads
+- **Download controls** -- three security levels: `off` (no restrictions, default), `medium` (guests can preview files inline but cannot download), `high` (all guest downloads blocked). Set via `download_security` on create/update. Legacy `download_enabled` boolean still supported.
 - **Access levels** -- Members Only, Org Members, Registered Users, or Public (anyone with the link)
 - **Custom branding** -- background images, gradient colors, accent colors, logos
 - **Post-download messaging** -- show custom messages and links after download
@@ -874,7 +874,8 @@ Several tools use permission parameters with specific allowed values. Use these 
 | `display_type` | `list`, `grid` | `grid` |
 | `intelligence` | `true`, `false` | `false` (always `false` for `workspace_folder` shares) |
 | `comments_enabled` | `true`, `false` | `true` |
-| `download_enabled` | `true`, `false` | `true` |
+| `download_security` | `off`, `medium`, `high` | `off` |
+| `download_enabled` | `true`, `false` | `true` (legacy -- prefer `download_security`) |
 | `guest_chat_enabled` | `true`, `false` | `false` |
 | `workspace_style` | `true`, `false` | `true` |
 | `background_image` | `0`-`128` | `0` |
@@ -1199,7 +1200,7 @@ Create a branded, professional share for outbound file delivery. This replaces r
    - `password` -- require a password for access
    - `expiry_date` -- auto-expire the share after a set period
    - `access_level` -- Members Only, Org Members, Registered Users, or Public
-   - `allow_downloads` -- enable or disable file downloads
+   - `download_security` -- control guest downloads: `off` (unrestricted), `medium` (preview-only), `high` (blocked)
    - Branding options: `background_color`, `accent_color`, `gradient_color`
    - `post_download_message` and `post_download_url` -- show a message after download
 4. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` -- adds the recipient. An invitation is sent if they do not have a Fast.io account.
