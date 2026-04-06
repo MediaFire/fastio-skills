@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.133.0"
+  version: "1.136.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.132
+**Version:** 1.136
 **Last Updated:** 2026-04-06
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -1179,11 +1179,14 @@ Small files that fit in one MCP tool call can be uploaded as a single chunk:
 3. `upload` action `finalize` with `upload_id`.
 
 **Option C: `POST /blob` sidecar endpoint for larger binary files**
-For files > ~64 KB, use the HTTP blob endpoint to bypass MCP transport limits. The `POST /blob` endpoint accepts raw binary via HTTP (no base64, no size splitting within MCP). Stage blobs of **≥ 1 MB each** (except the last), then reference them in chunk calls:
-1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`.
-2. For each chunk: `POST /blob` with raw binary (≥ 1 MB, ≤ 100 MB). Returns `blob_id`.
-3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
-4. `upload` action `finalize` with `upload_id`.
+For files > ~64 KB, use the HTTP blob endpoint to bypass MCP transport limits. The `create-session` response automatically includes a `blob_upload` object with the endpoint URL, your session ID, and a ready-to-use `curl` command — no separate `blob-info` call needed.
+1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command` with the exact curl command to run.
+2. Run the curl command from `blob_upload.curl_command`, replacing `@<file>` with your file path. Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+3. `upload` action `chunk` with `upload_id`, `chunk_number: 1`, and `blob_ref: "<blob_id>"`.
+4. Repeat steps 2-3 for additional chunks (if splitting a large file).
+5. `upload` action `finalize` with `upload_id`.
+
+**IMPORTANT:** The `blob_upload.session_id` is the MCP session ID for this connection. You **must** use this exact session ID in the `Mcp-Session-Id` header when POSTing to `/blob`. Using a different session ID (e.g., from a separately-established MCP connection) will stage the blob in a different location, and the `chunk` action will not find it.
 
 **Option D: External upload tooling**
 For reliable binary uploads of any size, use an external HTTP client (Python requests, curl, etc.) to call the Fast.io REST API upload endpoints directly, bypassing MCP transport constraints entirely. Use MCP for control-plane tasks (session creation, finalization, status) and the external client for the data plane (chunk uploads).
@@ -1373,13 +1376,18 @@ Use `upload` action `stage-blob` with `data` (base64) to pre-stage binary data a
 1. `upload` action `stage-blob` with `data` (base64-encoded binary, ≤32 KB). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
 2. `upload` action `chunk` with `blob_ref: "<blob_id>"`. The server retrieves the staged bytes and uploads them.
 
-**3. `POST /blob` endpoint — HTTP blob staging for non-MCP clients**
+**3. `POST /blob` endpoint — recommended for larger binary files**
 
-A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. This avoids base64 encoding entirely — useful for clients that can make direct HTTP requests alongside MCP tool calls. No chunk size splitting needed with this approach.
+A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. **This bypasses MCP transport limits entirely** — no base64 encoding, no parameter size constraints. Send chunks of **≥ 1 MB** (except the last chunk) to satisfy the API's minimum chunk size requirement.
+
+**Getting the endpoint URL and session ID:** Call `upload` action `blob-info` — it returns the full `POST /blob` URL, your `Mcp-Session-Id`, required headers, and a ready-to-use `curl` command. No need to guess the endpoint or look up the session ID yourself.
 
 **Flow:**
-1. `POST /blob` with headers `Mcp-Session-Id: <session_id>` and `Content-Type: application/octet-stream`. Send raw binary bytes as the request body. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
-2. `upload` action `chunk` with `blob_ref: "<blob_id>"`.
+1. `upload` action `blob-info` — get the blob endpoint URL, session ID, and curl example.
+2. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`.
+3. Use `curl` (or any HTTP client) to `POST /blob` with raw binary and the headers from step 1. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
+4. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
+5. Repeat steps 3-4 for each chunk, then `upload` action `finalize`.
 
 **Blob constraints (apply to both staging methods):**
 - Blobs expire after **5 minutes**. Stage and consume them promptly.
@@ -2085,6 +2093,8 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 **limits** -- Get upload size and chunk limits for the user's plan.
 
 **extensions** -- Get restricted and allowed file extensions for uploads.
+
+**blob-info** -- Get the `POST /blob` sidecar endpoint URL, your MCP session ID, required headers, and a ready-to-use `curl` command for shell-based binary uploads. No parameters required. Use this before uploading binary files >64 KB — it gives you everything needed to bypass MCP transport limits via `curl`.
 
 ### download
 
