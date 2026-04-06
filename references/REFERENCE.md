@@ -1070,7 +1070,7 @@ Search and filter events with `GET /current/events/search/`:
 - **Pagination** — offset-based with `limit` (1-250) and `offset`
 
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
-`GET /current/event/{event_id}/ack/`.
+`POST /current/event/{event_id}/ack/`.
 
 #### Event Categories
 
