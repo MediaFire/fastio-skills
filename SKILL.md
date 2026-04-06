@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.128.0"
+  version: "1.132.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.128
-**Last Updated:** 2026-03-30
+**Version:** 1.132
+**Last Updated:** 2026-04-04
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -285,6 +285,23 @@ Organizations are top-level containers that collect workspaces. An organization 
 Organizations are identified by a 19-digit numeric profile ID or a domain string.
 
 **IMPORTANT:** When creating orgs, agents MUST use `org` action `create` which automatically assigns `billing_plan: "agent"`. This ensures the org gets the free agent plan (50 GB, 5,000 credits/month). Do not use any other billing plan for agent-created organizations.
+
+#### Custom Domains
+
+Organizations on Pro or Business plans can configure a custom domain (e.g. `files.acme.com`) that serves the org's content. One custom domain per org.
+
+**Setup flow:**
+1. `org` action `custom-domain-create` with `org_id` and `hostname` (a valid FQDN, e.g. `files.acme.com`). Returns `hostname`, `status: "pending"`, and `cname_target`.
+2. The customer adds a DNS CNAME record: `files.acme.com CNAME custom.fast.io` (production) or `custom.fastdev1.com` (dev).
+3. On the first request through the CNAME, a TLS certificate is automatically provisioned via Let's Encrypt (2-5 seconds). The domain status changes from `pending` to `active`.
+
+**Checking status:** `org` action `custom-domain-get` with `org_id`. Returns the domain info or `{ hostname: null }` if no custom domain is configured.
+
+**Validating DNS:** `org` action `custom-domain-validate` with `org_id`. Performs a live DNS lookup and returns whether the CNAME is correct. If valid and status is pending, the domain is automatically activated.
+
+**Removing:** `org` action `custom-domain-delete` with `org_id`. The existing TLS certificate expires naturally (up to 90 days); there is no immediate effect on traffic. No plan gate -- orgs that downgrade can still remove their domain.
+
+**Plan requirement:** Custom domains require a Pro or Business plan for creation. The agent plan does not include this feature. If the org is on a plan that does not support custom domains, creation returns a subscription upgrade error.
 
 #### Org Discovery (IMPORTANT)
 
@@ -801,6 +818,8 @@ Tasks are organized into lists. Each workspace or share can have multiple task l
 - **Moving tasks:** `task` action `move-task` moves a task from one list to another within the same profile. Requires the source `list_id`, `task_id`, and `target_task_list_id`. Optionally set `sort_order` to control position in the target list (default: 0).
 - **Reordering:** `task` action `reorder-tasks` sets the display order of tasks within a list. `task` action `reorder-lists` sets the display order of task lists within a profile. Pass arrays of IDs in the desired order; the server converts them to `{id, sort_order}` objects for the API.
 - **Creator tracking:** Tasks and task lists include a `created_by` field (profile ID of the creator).
+- **Filtered lists:** `task` action `filtered-list` returns tasks filtered by category -- "assigned" (assigned to me), "created" (created by me), or "status" (by status, requires `status` param). Scoped to a workspace or share.
+- **Summary:** `task` action `summary` returns lightweight counts -- total tasks, breakdown by status, assigned-to-me, and created-by-me.
 - **Markdown output:** Pass `format: "md"` to get human-readable markdown instead of JSON.
 
 #### Worklogs
@@ -811,14 +830,23 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 - **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
 - **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement. Entries include an `acknowledgable` boolean -- when `true`, the entry is an unacknowledged interjection that can be acknowledged.
 - **Response fields:** Entries include `acknowledged` (boolean), `acknowledgable` (boolean), `updated` (ISO 8601 timestamp), and `created` (ISO 8601 timestamp).
+- **Profile-level listing:** `worklog` action `profile-list` lists all worklog entries at the workspace or share level (different from `list` which is entity-scoped).
+- **Filtered lists:** `worklog` action `filtered-list` returns worklogs filtered by category -- "authored" (worklogs authored by me) or "interjections" (interjections targeted at me). Optional `type` sub-filter ("info" or "interjection").
+- **Summary:** `worklog` action `summary` returns lightweight counts -- total entries, breakdown by entry type, authored-by-me, and pending interjections.
 - **Markdown output:** Pass `format: "md"` for human-readable output.
 
 #### Approvals
 
-Formal approval requests scoped to tasks, storage nodes, or worklog entries. Use when a decision requires explicit sign-off.
+Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. Use when a decision requires explicit sign-off.
 
-- **Create:** `approval` action `create` with `profile_id`, `description` (1-5000 chars), `entity_type` ("task", "node", or "worklog_entry"), and optionally `approver_id` (a single profile ID, must be an entity member).
-- **Resolve:** `approval` action `resolve` with `resolve_action: "approve"` or `"reject"` and an optional comment. Only designated approvers can resolve.
+- **Create:** `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, `description` (1-65535 chars), and optionally `approver_id` (a single profile ID, must be an entity member).
+- **Resolve:** `approval` action `resolve` with `profile_type`, `profile_id`, `approval_id`, and `resolve_action: "approve"` or `"reject"` plus an optional comment. Only designated approvers can resolve.
+- **Bulk operations:** `approval` action `bulk-create` creates approval requests for every file and note in a share (max 50 nodes). `approval` action `bulk-approve` resolves all pending approvals in a share (skips stale approvals where version_match=false). `approval` action `bulk-reject` rejects all pending approvals in a share.
+- **Version tracking:** Approvals track `version_id` and `version_match`. If a node is modified after an approval is created, `version_match` becomes false (stale). Bulk operations skip stale approvals to prevent resolving outdated content.
+- **Filtered lists:** `approval` action `filtered-list` returns approvals filtered by category -- "pending", "created", "assigned", or "resolved". Scope to a workspace or share with `profile_type`/`profile_id`, or omit both for a cross-profile user-level view.
+- **Summary:** `approval` action `summary` returns lightweight counts -- created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts.
+- **Update:** `approval` action `update` with `profile_type`, `profile_id`, and `approval_id` modifies a pending approval -- change description, approver, deadline, node reference, or metadata. Only pending approvals can be updated.
+- **Delete:** `approval` action `delete` with `profile_type`, `profile_id`, and `approval_id` permanently removes an approval (any status). `approval` action `bulk-delete` permanently removes all approvals in a share (up to 500).
 - **Statuses:** `pending`, `approved`, `rejected`
 - **Markdown output:** Pass `format: "md"` for human-readable output.
 
@@ -830,6 +858,8 @@ Simple flat checklists scoped to workspaces and shares. No nesting -- just a lis
 - **Toggle:** `todo` action `toggle` flips the done state of a single todo. `todo` action `bulk-toggle` sets done state on up to 100 todos at once.
 - **Update/Delete:** `todo` action `update` changes title. `todo` action `delete` soft-deletes a todo.
 - **Creator tracking:** Todos include a `created_by` field (profile ID of the creator).
+- **Filtered lists:** `todo` action `filtered-list` returns todos filtered by category -- "assigned" (assigned to me), "created" (created by me), "done" (completed), or "pending" (incomplete).
+- **Summary:** `todo` action `summary` returns lightweight counts -- total, done, pending, assigned-to-me, and created-by-me.
 - **Markdown output:** Pass `format: "md"` for human-readable output.
 
 #### Notes as Agent Knowledge Layer
@@ -989,9 +1019,9 @@ Retrieve and update the current user profile, search for other users, manage inv
 
 ### org
 
-Organization CRUD, member management, billing and subscription operations, workspace creation, invitation workflows, asset management (upload, delete), organization discovery, and ownership transfer.
+Organization CRUD, member management, billing and subscription operations, workspace creation, invitation workflows, asset management (upload, delete), organization discovery, ownership transfer, and custom domain management.
 
-**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list
+**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete
 
 ### workspace
 
@@ -1063,25 +1093,25 @@ Asset management (upload, delete, list, read) for organizations, workspaces, sha
 
 Task list and task management for workspaces and shares. Create and manage task lists, then create tasks within them with statuses, priorities, assignees, and dependencies. Supports bulk status changes, reordering, and markdown output. Tasks and lists include `created_by` (creator profile ID). Requires workflow to be enabled on the target entity.
 
-**Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status, move-task, reorder-tasks, reorder-lists
+**Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status, move-task, reorder-tasks, reorder-lists, filtered-list, summary
 
 ### worklog
 
 Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. Also create urgent interjections that require acknowledgement. Entries are append-only and permanent. Requires workflow to be enabled on the target entity.
 
-**Actions:** append, list, interject, details, acknowledge, unacknowledged
+**Actions:** append, list, interject, details, acknowledge, unacknowledged, profile-list, filtered-list, summary
 
 ### approval
 
-Formal approval requests scoped to tasks, storage nodes, or worklog entries. Create approval requests with designated approvers, then resolve them with approve or reject decisions. Requires workflow to be enabled on the target entity.
+Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. Create approval requests with designated approvers, then resolve them with approve or reject decisions. Requires workflow to be enabled on the target entity.
 
-**Actions:** list, create, details, resolve
+**Actions:** list, create, details, resolve, bulk-create, bulk-approve, bulk-reject, filtered-list, summary, update, delete, bulk-delete
 
 ### todo
 
 Simple flat checklists scoped to workspaces and shares. Create, update, delete, toggle todos individually or in bulk. Todos include `created_by` (creator profile ID). No nesting. Requires workflow to be enabled on the target entity.
 
-**Actions:** list, create, details, update, delete, toggle, bulk-toggle
+**Actions:** list, create, details, update, delete, toggle, bulk-toggle, filtered-list, summary
 
 ### apps
 
@@ -1287,11 +1317,11 @@ The complete agentic workflow pattern: plan work, execute with logging, and gate
 3. `task` action `create-list` -- create task lists for each work phase (e.g., "Research", "Implementation", "Review").
 4. `task` action `create-task` -- add tasks linked to context. Include descriptive titles and reference note node_ids in descriptions.
 5. `task` action `change-status` with `status: "in_progress"` -- mark a task as started.
-6. `worklog` action `append` with `entity_type` ("task", "task_list", "node", or "profile"), `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"), and `content` -- log progress, decisions, and reasoning as you work. Build a chronological narrative.
+6. `worklog` action `append` with `entity_type` ("task", "task_list", or "profile"), `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"), and `content` -- log progress, decisions, and reasoning as you work. Build a chronological narrative.
 7. If a priority correction is needed: `worklog` action `interject` -- creates an urgent entry that requires acknowledgement from other participants.
 8. `worklog` action `unacknowledged` -- check for unacknowledged interjections before proceeding.
 9. `worklog` action `acknowledge` -- mark interjections as seen.
-10. When a decision needs sign-off: `approval` action `create` with `profile_id`, `description`, `entity_type` ("task", "node", or "worklog_entry"), and optionally `approver_id` -- request formal approval.
+10. When a decision needs sign-off: `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", or "worklog_entry"), `entity_id`, `description`, and optionally `approver_id` -- request formal approval.
 11. `approval` action `resolve` with `resolve_action: "approve"` or `"reject"` and optional `comment` -- approvers resolve the request.
 12. `task` action `change-status` with `status: "complete"` -- mark completed tasks.
 13. `todo` action `create` -- track simple checklist items alongside the main task flow.
@@ -1858,6 +1888,14 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **discover-external** -- List external organizations (`member: false`). Each org includes `web_url`. Orgs the user can access only through workspace membership, not as a direct org member. Common when a human invites an agent to a workspace without inviting them to the org. See **Internal vs External Orgs** in the Organizations section.
 
+**custom-domain-get** -- Get the org's current custom domain. Returns `hostname`, `status` (`pending` or `active`), and `cname_target` -- or `{ hostname: null }` if no custom domain is configured. Any org member can read.
+
+**custom-domain-create** -- Add a custom domain to the org. Requires `hostname` (a valid FQDN, e.g. `files.acme.com`). Returns the created domain with `status: "pending"` and `cname_target`. The customer must add a DNS CNAME record pointing `hostname` to `cname_target`. Requires admin or owner role and a Pro or Business plan.
+
+**custom-domain-delete** -- Remove the org's custom domain. The existing TLS certificate expires naturally (up to 90 days). Requires admin or owner role. No plan gate -- orgs that downgrade can still remove their domain.
+
+**custom-domain-validate** -- Perform live DNS validation on the org's custom domain. Returns `hostname`, `dns_valid` (boolean), `status`, `cname_target`, and `cname_found`. If DNS is correct and domain is pending, it is automatically activated. Any org member can call this.
+
 ### workspace
 
 **list** -- List all workspaces the user has access to across all organizations. Each workspace includes `web_url`.
@@ -2206,39 +2244,65 @@ Task list and task management for workspaces and shares. All task actions requir
 
 **reorder-lists** -- Reorder task lists within a workspace or share. Requires `profile_type`, `profile_id`, and `list_ids` (array of task list IDs in the desired display order). The server converts this to `{order: [{id, sort_order}, ...]}` for the API.
 
+**filtered-list** -- List tasks filtered by category. Requires `profile_type`, `profile_id`, and `filter` ("assigned", "created", or "status"). When filter is "status", the `status` param is also required. Supports `limit`, `offset`, and `format`.
+
+**summary** -- Lightweight task counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total tasks, breakdown by status, assigned-to-me, and created-by-me counts. Supports `format`.
+
 ### worklog
 
 Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. All worklog actions require workflow to be enabled on the target entity.
 
-**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Use after making changes to record what was done and why. Entries are immutable after creation.
+**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", or "profile"), `entity_id`, and `content` (1-10000 chars). Use after making changes to record what was done and why. Entries are immutable after creation.
 
-**list** -- List worklog entries. Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"). Supports `type` filter ("entry" or "interjection"), `sort_dir` ("asc" or "desc", default "desc"), `limit` (1-200), `offset`, and `format` ("md" for markdown).
+**list** -- List worklog entries. Requires `entity_type` ("task", "task_list", or "profile") and `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"). Supports `type` filter ("info" or "interjection"), `sort_dir` ("asc" or "desc", default "desc"), `limit` (1-200), `offset`, and `format` ("md" for markdown).
 
-**interject** -- Create an urgent interjection entry that requires acknowledgement. Requires `entity_type` ("task", "task_list", "node", or "profile"), `entity_id`, and `content` (1-10000 chars). Interjections are priority corrections -- always treated as urgent.
+**interject** -- Create an urgent interjection entry that requires acknowledgement. Requires `entity_type` ("task", "task_list", or "profile"), `entity_id`, and `content` (1-10000 chars). Interjections are priority corrections -- always treated as urgent.
 
 **details** -- Get full details of a specific worklog entry. Requires `entry_id`. Supports `format`.
 
 **acknowledge** -- Acknowledge an interjection entry, marking it as seen. Requires `entry_id`. Only entries with `acknowledgable: true` can be acknowledged.
 
-**unacknowledged** -- List unacknowledged interjections (entries where `acknowledgable` is `true`). Requires `entity_type` ("task", "task_list", "node", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
+**unacknowledged** -- List unacknowledged interjections (entries where `acknowledgable` is `true`). Requires `entity_type` ("task", "task_list", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
+
+**profile-list** -- List all worklog entries at the profile level. Requires `profile_type` and `profile_id`. Supports `limit`, `offset`, and `format`. Different from `list` which is entity-scoped.
+
+**filtered-list** -- List worklogs filtered by category. Requires `profile_type`, `profile_id`, and `filter` ("authored" or "interjections"). Optional `type` ("info" or "interjection") as entry-type sub-filter. Supports `limit`, `offset`, and `format`.
+
+**summary** -- Lightweight worklog counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total entries, breakdown by entry type, authored-by-me, and pending interjections counts. Supports `format`.
 
 ### approval
 
-Formal approval requests scoped to tasks, storage nodes, or worklog entries. All approval actions require workflow to be enabled on the target entity.
+Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. All approval actions require workflow to be enabled on the target entity.
 
-**list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 100), `offset`, and `format`.
+**list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 50), `offset`, and `format`.
 
-**create** -- Create a new approval request. Requires `entity_type` ("task", "node", or "worklog_entry"), `entity_id`, `profile_id`, and `description` (1-5000 chars). Optional `approver_id` (profile ID of designated approver), `deadline` (ISO 8601), `node_id` (artifact reference).
+**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver), `deadline` (ISO 8601), `node_id` (artifact reference).
 
-**details** -- Get full details of an approval request including approver list and resolution. Requires `approval_id` (opaque alphanumeric). Supports `format`.
+**details** -- Get full details of an approval request including approver list and resolution. Requires `profile_type`, `profile_id`, and `approval_id` (opaque alphanumeric). Supports `format`.
 
-**resolve** -- Resolve an approval request. Requires `approval_id` and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
+**resolve** -- Resolve an approval request. Requires `profile_type`, `profile_id`, `approval_id`, and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
+
+**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id`, `deadline` (ISO 8601). Share-only, members/admins only.
+
+**bulk-approve** -- Bulk-approve all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can approve their assigned approvals.
+
+**bulk-reject** -- Bulk-reject all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can reject their assigned approvals.
+
+**filtered-list** -- List approvals filtered by category. Requires `filter` ("pending", "created", "assigned", or "resolved"). Optional `profile_type` and `profile_id` for workspace/share scope; omit both for cross-profile user-level view (`/user/approvals/list/{filter}`). Note: the `assigned` filter is only available with `profile_type`/`profile_id`; it is not supported for cross-profile user-level queries. Supports `status` sub-filter, `limit`, `offset`, and `format`.
+
+**summary** -- Lightweight approval counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts. Supports `format`.
+
+**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id`, `deadline` (ISO 8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
+
+**delete** -- Permanently delete an approval (any status). Requires `profile_type`, `profile_id`, and `approval_id`. Irreversible. Members and admins only; guests blocked.
+
+**bulk-delete** -- Permanently delete all approvals in a share (up to 500). Requires `profile_id`. Deletes both pending and resolved approvals. Members and admins only; guests blocked.
 
 ### todo
 
 Simple flat checklists scoped to workspaces and shares. No nesting. All todo actions require workflow to be enabled on the target entity.
 
-**list** -- List todos for a workspace or share. Requires `profile_type` and `profile_id`. Supports `filter_done` (boolean), `sort_by` (created, updated, title), `sort_dir`, `limit` (1-200, default 50), `offset`, and `format`.
+**list** -- List todos for a workspace or share. Requires `profile_type` and `profile_id`. Supports `filter_done` (boolean), `sort_by` (created, updated, title), `sort_dir`, `limit` (1-200, default 100), `offset`, and `format`.
 
 **create** -- Create a new todo item. Requires `profile_type`, `profile_id`, and `title` (1-500 chars). Optional `assignee_id`.
 
@@ -2251,6 +2315,10 @@ Simple flat checklists scoped to workspaces and shares. No nesting. All todo act
 **toggle** -- Toggle the done state of a todo. Requires `todo_id`. Flips between done and not done.
 
 **bulk-toggle** -- Set done state on multiple todos at once. Requires `profile_type`, `profile_id`, `todo_ids` (array of todo IDs, max 100), and `done` (boolean: true to mark done, false to mark not done).
+
+**filtered-list** -- List todos filtered by category. Requires `profile_type`, `profile_id`, and `filter` ("assigned", "created", "done", or "pending"). Supports `limit`, `offset`, and `format`.
+
+**summary** -- Lightweight todo counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total, done, pending, assigned-to-me, and created-by-me counts. Supports `format`.
 
 ### apps
 

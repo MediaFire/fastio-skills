@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.26.0 | **Last updated:** 2026-03-06
+> **Version:** 1.27.0 | **Last updated:** 2026-04-04
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -1619,7 +1619,7 @@ named actions.
 | `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
 | `task`       | Task lists & tasks              | `list-lists`, `create-list`, `list-details`, `update-list`, `delete-list`, `list-tasks`, `create-task`, `task-details`, `update-task`, `delete-task`, `change-status`, `assign-task`, `bulk-status`, `reorder-tasks`, `reorder-lists` |
 | `todo`       | Todo checklists                 | `list`, `create`, `details`, `update`, `delete`, `toggle`, `bulk-toggle`      |
-| `approval`   | Approval workflows              | `list`, `create`, `details`, `resolve`                                        |
+| `approval`   | Approval workflows              | `list`, `create`, `details`, `resolve`, `update`, `delete`, `bulk-create`, `bulk-approve`, `bulk-reject`, `bulk-delete`, `user-list` |
 | `worklog`    | Activity logs & interjections   | `list`, `append`, `interject`, `details`, `acknowledge`, `unacknowledged`     |
 | `apps`       | Apps discovery                  | `list`                                                                        |
 
@@ -1813,7 +1813,7 @@ the following actions:
 - `upload`: stage-blob (5-minute expiry)
 - `org`: transfer-token-create
 - `task`: delete-list (cascade to child tasks), delete-task (soft-delete)
-- `approval`: resolve (irreversible approve/reject)
+- `approval`: resolve (irreversible approve/reject), delete (permanent removal)
 
 **`_recovery` — Error recovery hints:**
 
@@ -1998,9 +1998,10 @@ workspaces and shares where files live.
 REST endpoints directly. Enable workflow first via `workspace` action `enable-workflow` or `share` action
 `enable-workflow`.
 
-**Share permissions:** Workflow features on shares require Member-level access or higher. Guests and public guests
-cannot access workflow features (tasks, todos, approvals, worklogs) on shares. Toggle endpoints (enable/disable)
-remain Admin-only.
+**Share permissions:** On shares, only **approvals** are accessible to guests. Guests see only approvals assigned to
+them (where approver_id matches their user ID) and can resolve those approvals. **Tasks, todos, and worklogs require
+member or admin access** -- guests are blocked. Public guests remain blocked from everything. Toggle endpoints
+(enable/disable) remain Admin-only.
 
 ### 1. Task Lists & Tasks
 
@@ -2032,6 +2033,10 @@ Organize work into lists with individual tasks. Task lists belong to a workspace
 | `POST /tasks/{list_id}/items/reorder/` | Bulk reorder tasks |
 | `POST /workspace/{workspace_id}/tasks/reorder/` | Bulk reorder task lists |
 | `POST /share/{share_id}/tasks/reorder/` | Bulk reorder task lists |
+| `GET /workspace/{workspace_id}/tasks/list/{filter}/` | Filtered task list (personal view): assigned, created, status |
+| `GET /share/{share_id}/tasks/list/{filter}/` | Filtered task list (group view, members/admins only) |
+| `GET /workspace/{workspace_id}/tasks/summary/` | Task count summary for workspace |
+| `GET /share/{share_id}/tasks/summary/` | Task count summary for share (members/admins only) |
 
 ### 2. Worklogs
 
@@ -2047,6 +2052,12 @@ record of progress, decisions, and issues — visible to all members with access
 | `GET /worklogs/{entity_type}/{entity_id}/` | List worklog entries |
 | `POST /worklogs/{entity_type}/{entity_id}/append/` | Append a worklog entry |
 | `GET /worklogs/{entry_id}/details/` | Get entry details |
+| `GET /workspace/{workspace_id}/worklogs/` | List all worklog entries in a workspace |
+| `GET /share/{share_id}/worklogs/` | List all worklog entries in a share (members/admins only) |
+| `GET /workspace/{workspace_id}/worklogs/list/{filter}/` | Filtered worklog list: authored, interjections |
+| `GET /share/{share_id}/worklogs/list/{filter}/` | Filtered worklog list (group view, members/admins only) |
+| `GET /workspace/{workspace_id}/worklogs/summary/` | Worklog entry summary for workspace |
+| `GET /share/{share_id}/worklogs/summary/` | Worklog entry summary for share (members/admins only) |
 
 ### 3. Interjections
 
@@ -2067,10 +2078,19 @@ and adjusts course.
 ### 4. Approvals
 
 Request/response approval workflow. Create an approval request with a designated approver, who can approve or reject
-with a comment.
+with a comment. Approvals can be attached to tasks, nodes, worklog entries, or entire share profiles. Node-type
+approvals automatically capture the file's `version_id` at creation time. The `version_match` field (boolean or null)
+indicates whether the approval is still current: `true` means the file version matches, `false` means the file has
+been updated since the approval was created (stale), and `null` means the entity is not a node or the approval
+predates version tracking. Stale approvals cannot be resolved -- the resolve endpoint returns an error, and bulk
+operations skip them. Owners should create new approvals for updated file versions.
 
+- **Entity types:** `task`, `node`, `worklog_entry`, `share`
 - **Statuses:** `pending` → `approved` or `rejected`
 - **Scoped to workspace or share** — list all approvals for a given profile
+- **Bulk operations** — create, approve, reject, or delete approvals for all files in a share at once
+- **Update** — modify pending approvals (description, approver, deadline, node, properties)
+- **Delete** — remove individual approvals or bulk delete all approvals in a share
 
 | Endpoint | Description |
 |----------|-------------|
@@ -2079,9 +2099,25 @@ with a comment.
 | `POST /approvals/{entity_type}/{entity_id}/create/` | Create an approval request |
 | `GET /approvals/{approval_id}/details/` | Get approval details |
 | `POST /approvals/{approval_id}/resolve/` | Resolve (approve or reject) |
+| `POST /approvals/{approval_id}/update/` | Update a pending approval |
+| `POST /approvals/{approval_id}/delete/` | Delete an approval |
+| `POST /approvals/bulk/{action}/` | Bulk create, approve, reject, or delete approvals in a share |
+| `GET /user/approvals/list/{filter}/` | List approvals for the authenticated user (pending/created/resolved) |
+| `GET /workspace/{workspace_id}/approvals/list/{filter}/` | Filtered approval list (personal view): pending, created, assigned, resolved |
+| `GET /share/{share_id}/approvals/list/{filter}/` | Filtered approval list (group view for owners, scoped to assigned for guests) |
+| `GET /workspace/{workspace_id}/approvals/list/summary/` | Approval count summary for workspace |
+| `GET /share/{share_id}/approvals/list/summary/` | Approval count summary for share (owners see all + assigned_to_me, guests see assigned_to_me only) |
 
 **Agent use case:** An agent completes a deliverable and needs human sign-off before publishing. It creates an
 approval request. The human reviews, approves or rejects with a comment, and the agent proceeds accordingly.
+
+**Bulk use case:** An agent uploads multiple files to a share and needs approval on all of them. It calls
+`POST /approvals/bulk/create/` with the share's `profile_id` to create node approvals for every file and note in
+the share at once (max 50 nodes). A reviewer can then bulk-approve or bulk-reject all pending approvals in the share.
+
+**User approvals dashboard:** An agent can list all approvals relevant to the authenticated user across all profiles
+using `GET /user/approvals/list/{filter}/`. Use `pending` to find approvals awaiting the user's review, `created`
+to track approvals the user requested, or `resolved` to see past decisions.
 
 ### 5. Todos
 
@@ -2100,6 +2136,10 @@ not done. Support assignees and bulk toggle operations.
 | `POST /todos/{todo_id}/details/toggle/` | Toggle done/not done |
 | `POST /workspace/{workspace_id}/todos/bulk-toggle/` | Bulk toggle in a workspace |
 | `POST /share/{share_id}/todos/bulk-toggle/` | Bulk toggle in a share |
+| `GET /workspace/{workspace_id}/todos/list/{filter}/` | Filtered todo list: assigned, created, done, pending |
+| `GET /share/{share_id}/todos/list/{filter}/` | Filtered todo list (group view, members/admins only) |
+| `GET /workspace/{workspace_id}/todos/summary/` | Todo count summary for workspace |
+| `GET /share/{share_id}/todos/summary/` | Todo count summary for share (members/admins only) |
 
 ### Enabling Workflow
 
