@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.27.0 | **Last updated:** 2026-04-04
+> **Version:** 1.28.0 | **Last updated:** 2026-04-06
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -10,15 +10,29 @@ Fast.io provides workspaces for agentic teams — where agents collaborate with 
 outputs, create branded portals, ask questions about documents using built-in AI, and hand everything off to a human
 when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
 
+There are three ways to integrate with Fast.io:
+
+| Integration | Best For | Get Started |
+|-------------|----------|-------------|
+| **CLI** | Terminal workflows, scripting, CI/CD pipelines, human operators | `npm install -g @vividengine/fastio-cli` |
+| **MCP Server** | AI agents (Claude Desktop, Claude Code, Cursor, etc.) | Connect to `https://mcp.fast.io/mcp` |
+| **REST API** | Custom applications, languages without MCP support | See API endpoints throughout this guide |
+
+**CLI** — The `fastio` command-line tool provides full platform access from the terminal. Install with
+`npm install -g @vividengine/fastio-cli` and authenticate with `fastio auth login`. The CLI also includes a built-in
+MCP server mode (`fastio mcp`) for local AI agent integration. See the "CLI Tool" section below for full details.
+
 **MCP-enabled agents** should connect via the Model Context Protocol for the simplest integration — no raw HTTP calls
 needed.
 
-**Connection endpoints:**
+**MCP connection endpoints:**
 - **Streamable HTTP (recommended):** `https://mcp.fast.io/mcp`
 - **Legacy SSE:** `https://mcp.fast.io/sse`
 
-The MCP server exposes **19 consolidated tools** using action-based routing — each tool covers a domain (e.g., `auth`,
-`storage`, `upload`) and uses an `action` parameter to select the operation. See the "MCP Tool Architecture" section
+The MCP server exposes consolidated tools using action-based routing — each tool covers a domain (e.g., `auth`,
+`storage`, `upload`) and uses an `action` parameter to select the operation. In Named Mode (Claude Desktop, etc.),
+there are **20 tools** (19 core + 1 apps discovery) plus 11 app-specific widget tools. In Code Mode (Claude Code,
+Cursor, etc.), there are **4 tools** (auth, upload, search, execute). See the "MCP Tool Architecture" section
 below for the full tool list.
 
 MCP-connected agents receive comprehensive workflow guidance through SERVER_INSTRUCTIONS at connection time, and can
@@ -168,6 +182,8 @@ This is the recommended approach when:
 | Working within a human's org with your own identity | Create an agent account, have the human invite you |
 | Building something to hand off to a human | Create an agent account, build it, then transfer the org |
 | Human wants to authorize an agent without sharing credentials | Use PKCE browser login (Option 4) |
+| Terminal workflows, scripting, or CI/CD pipelines | Install the CLI: `npm install -g @vividengine/fastio-cli` |
+| Local AI agent needing Fast.io access | Use the CLI's built-in MCP server: `fastio mcp` |
 
 ### Authentication & Token Lifecycle
 
@@ -204,6 +220,12 @@ access to all orgs, workspaces, and shares the user has access to.
 
 Pass the desired `scope_type` when initiating the PKCE authorization flow (`POST /current/oauth/authorize/`). If
 omitted, the token defaults to full access (equivalent to `all_orgs`).
+
+**Scope format note:** The `scope` parameter in the authorization request accepts the named strings listed above
+(e.g., `scope=org`). However, API responses return scopes in a different format -- as arrays of
+`entity_type:entity_id:access_mode` strings (e.g., `["org:12345:rw", "org:67890:r"]`). The token endpoint
+(`POST /current/oauth/token/`) returns `scopes` as a JSON-encoded string that must be parsed. Use
+`GET /current/auth/scopes/` to introspect the current token's scopes in a structured format.
 
 ### Organizations — Collectors of Workspaces
 
@@ -308,7 +330,7 @@ Workspaces are where agentic teams do their work. Each workspace has its own sto
 activity feed — a shared environment where agents collaborate with other agents and with humans.
 
 - **50 GB included storage** on the free agent plan
-- **Files up to 1 GB** per upload
+- **File size limits are plan-dependent** (1 GB for free/agent plans, up to 40 GB for paid plans) — query `/upload/limits/` for exact values
 - **File versioning** — every edit creates a new version, old versions are recoverable
 - **Folder hierarchy** — organize files however you want
 - **Full-text and semantic search** — find files by name or content, and documents by meaning
@@ -671,7 +693,7 @@ When workspace intelligence is enabled, results automatically include semantic m
 | `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100) |
 | `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10) |
 | `limit` | integer | No | 100 | Results per page, 1–500 |
-| `offset` | integer | No | 0 | Pagination offset |
+| `offset` | integer | No | 1696 (Credits Exhausted) | Pagination offset |
 | `details` | string | No | false | When `"true"`, each result includes a `node` field with the full node resource (previews, AI state, versions, metadata, size). Default limit drops to 10 (enrichment is expensive). An explicit `limit` overrides this default. |
 
 Requires `intelligence=true` on the workspace or share. Only files with `ai_state: ready` are included.
@@ -881,7 +903,8 @@ Large files use chunked uploads. The flow has five steps:
 1. **Create a session** — `POST /current/upload/` with `org`, `name`, `size`, `action=create`, `instance_id`, and
    optionally `folder_id`. Returns a session `id`.
 
-2. **Upload chunks** — Split the file into **5 MB chunks** (last chunk may be smaller). For each chunk, send
+2. **Upload chunks** — Split the file into chunks (chunk size is plan-dependent — query `/upload/limits/` for the exact
+   value; last chunk may be smaller). For each chunk, send
    `POST /current/upload/{session_id}/chunk/` as `multipart/form-data` with the `chunk` field (binary data), `order`
    (1-based — first chunk is `order=1`), and `size`. You can upload up to **3 chunks in parallel** per session.
 
@@ -900,7 +923,7 @@ Large files use chunked uploads. The flow has five steps:
    | `ready` | Awaiting chunks | Upload chunks |
    | `uploading` | Receiving chunks | Continue uploading |
    | `assembling` | Combining chunks | Keep polling |
-   | `complete` | Assembled, awaiting storage | Keep polling |
+   | `complete` | Assembled, awaiting storage import. Not accessible for download/preview — can only be imported to storage locations. Can be imported to multiple locations. | Keep polling |
    | `storing` | Being added to storage | Keep polling |
    | **`stored`** | **Done** — file is in storage | Read `new_file_id`, clean up |
    | `assembly_failed` | Assembly error (terminal) | Check `status_message` |
@@ -969,7 +992,7 @@ Useful for clients that can make direct HTTP requests alongside MCP tool calls.
 - Maximum blob size: **100 MB**
 
 **Agent use case:** You're generating a 200 MB report. Create an upload session targeting the client's workspace, split
-the file into 5 MB chunks, upload 3 at a time, trigger assembly, and poll until `stored`. The file appears in the
+the file into chunks (size from `/upload/limits/`), upload 3 at a time, trigger assembly, and poll until `stored`. The file appears in the
 workspace with previews generated automatically. Use the activity polling endpoint (section 13) to know when AI indexing
 completes if intelligence is enabled.
 
@@ -1070,7 +1093,7 @@ Search and filter events with `GET /current/events/search/`:
 - **Pagination** — offset-based with `limit` (1-250) and `offset`
 
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
-`POST /current/event/{event_id}/ack/`.
+`GET /current/event/{event_id}/ack/`.
 
 #### Event Categories
 
@@ -1392,7 +1415,7 @@ The `transform_name` in transform endpoints is `image`. Supported query paramete
 | `width`, `height` | pixels | Resize dimensions |
 | `cropwidth`, `cropheight` | pixels | Crop region size |
 | `cropx`, `cropy` | pixels | Crop region origin |
-| `rotate` | `0`, `90`, `180`, `270` | Rotation angle |
+| `rotate` | `1696 (Credits Exhausted)`, `90`, `180`, `270` | Rotation angle |
 | `size` | `IconSmall`, `IconMedium`, `Preview` | Predefined size presets |
 
 Transformation states: `rendered`, `rendering`, `unrendered`, `unable to render`
@@ -1416,7 +1439,7 @@ When intelligence is enabled, each file progresses through AI processing states 
 
 #### Quick Share Constraints
 
-- Single file only, max 1 GB
+- Single file only, max file size is plan-dependent (query `/upload/limits/` for exact value)
 - Default expiration: 3 hours, maximum: 24 hours
 - Auto-deleted on expiration, public access (no auth)
 - Can update expiration but not beyond the original 24-hour window
@@ -1447,7 +1470,7 @@ demonstrate value, with room to grow when the org transfers to a human on a paid
 |---------------------------|-----------------------------------------------------|
 | **Price**                 | $0 — no credit card, no trial period, no expiration |
 | **Storage**               | 50 GB                                               |
-| **Max file size**         | 1 GB                                                |
+| **Max file size**         | Plan-dependent (1 GB free, up to 40 GB paid) — query `/upload/limits/` |
 | **Monthly credits**       | 5,000 (resets every 30 days)                        |
 | **Workspaces**            | 5                                                   |
 | **Shares**                | 50                                                  |
@@ -1476,10 +1499,10 @@ The org is never deleted.
 
 **Detecting credit exhaustion:** API calls return HTTP 402 with one of these error codes:
 
-| Error Code | Constant | Meaning |
-|------------|----------|---------|
-| 1688 | `APP_SUBSCRIPTION_REQUIRED` | Org has no active subscription or free-tier credits are exhausted |
-| 1696 | `APP_CREDIT_LIMIT_EXCEEDED` | Free-tier credit limit exceeded (error message includes credits used and credit limit) |
+| Error Code | Description | Meaning |
+|------------|-------------|---------|
+| 1688 | Subscription Required | Org has no active subscription or free-tier credits are exhausted |
+| 1696 | Credit Limit Exceeded | Free-tier credit limit exceeded (error message includes credits used and credit limit) |
 
 You can also check proactively: the `subscriber` field in org details (`GET /current/org/{org_id}/details/`) returns
 `false` when the org is out of credits. Admins can check detailed usage via
@@ -1497,7 +1520,7 @@ Once an agent transfers an org to a human, they get the free plan (credit-based,
 |-----------------|--------------|--------------|-----------|-----------|
 | Monthly credits | 5,000        | 5,000        | Unlimited | Unlimited |
 | Storage         | 50 GB        | 50 GB        | 1 TB      | 5 TB      |
-| Max file size   | 1 GB         | 1 GB         | 25 GB     | 50 GB     |
+| Max file size   | 1 GB         | 1 GB         | 25 GB     | 40 GB     |
 | Workspaces      | 5            | 5            | 10        | 1,000     |
 | Shares          | 50           | 50           | 1,000     | 50,000    |
 
@@ -1595,11 +1618,193 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 
 ---
 
+## CLI Tool
+
+The `fastio` CLI provides full platform access from the terminal — authentication, file management, AI chat, workflow
+primitives, and more. It's built in Rust for cross-platform performance and supports macOS, Linux, and Windows.
+
+### Installation
+
+```bash
+# NPM (recommended)
+npm install -g @vividengine/fastio-cli
+
+# Or run without installing
+npx @vividengine/fastio-cli --help
+
+# Shell script
+curl -fsSL https://raw.githubusercontent.com/MediaFire/fastio_cli/main/install.sh | sh
+
+# From source (Rust 1.85+)
+cargo install --path .
+```
+
+Pre-compiled binaries are also available on the [GitHub releases page](https://github.com/MediaFire/fastio_cli/releases).
+
+### Authentication
+
+The CLI checks credentials in this priority order:
+
+1. `--token` flag (one-off bearer token)
+2. `FASTIO_TOKEN` environment variable
+3. `FASTIO_API_KEY` environment variable
+4. Stored profile credentials (default or named)
+
+**Browser login (recommended):**
+
+```bash
+fastio auth login          # Opens browser for secure PKCE OAuth flow
+fastio auth status         # Verify authentication
+fastio auth logout         # Sign out
+```
+
+**Email/password:**
+
+```bash
+fastio auth login --email user@example.com --password ****
+```
+
+**API key:**
+
+```bash
+fastio auth api-key create --name "CI pipeline"
+export FASTIO_API_KEY=your-key-here
+```
+
+**2FA:**
+
+```bash
+fastio auth 2fa status
+fastio auth 2fa setup --channel totp
+fastio auth 2fa verify <code>
+```
+
+### Quick Start
+
+```bash
+fastio auth login
+fastio org list
+fastio workspace create --org <org_id> "My Workspace"
+fastio upload file --workspace <workspace_id> ./document.pdf
+fastio download file --workspace <workspace_id> <node_id> --output ./downloads/
+fastio ai chat --workspace <workspace_id> "What files do I have?"
+```
+
+### Command Reference
+
+| Domain | Command | Operations |
+|--------|---------|------------|
+| **Auth & User** | `auth` | Login, logout, 2FA, API keys, OAuth sessions |
+| | `user` | Profile, search, assets, invitations |
+| | `configure` | CLI profiles and settings |
+| **Orgs & Workspaces** | `org` | Create/read/update/delete, billing, members, transfer tokens |
+| | `workspace` | Create/read/update/delete, metadata templates, notes, quickshares |
+| | `member` | Workspace/share member management |
+| | `invitation` | Accept, decline, delete invitations |
+| **Files & Storage** | `files` | List, create folders, move, copy, rename, delete, trash, versions, search, lock |
+| | `upload` | Chunked uploads with progress, text uploads, URL imports |
+| | `download` | Streaming downloads with progress, folder ZIP, batch, quickshare |
+| | `lock` | Acquire, check, release file locks |
+| **Shares** | `share` | Create/read/update/delete, file management, members, quickshares, password protection |
+| | `comment` | Comments, replies, reactions, linking |
+| | `event` | Activity events, search, polling |
+| | `preview` | File preview URLs and transforms |
+| | `asset` | Org/workspace/user asset management |
+| **AI & Workflow** | `ai` | Chat, search, history, message management, summarize |
+| | `task` | Tasks, task lists, assignment, status changes |
+| | `worklog` | Worklog entries, interjections, acknowledgments |
+| | `approval` | Request, approve, reject approvals |
+| | `todo` | Todo items with toggle operations |
+| **Platform** | `apps` | App listing, details, launching |
+| | `import` | Cloud import providers, identities, sources, jobs |
+| | `mcp` | Built-in MCP server for AI agents |
+| | `completions` | Shell completion generation |
+
+### Output Formatting
+
+```bash
+fastio org list                              # Table (default)
+fastio org list --format json                # JSON output
+fastio org list --format csv                 # CSV output
+fastio org list --fields name,id,description # Filter output fields
+```
+
+### Profile Management
+
+The CLI supports multiple named profiles for switching between accounts:
+
+```bash
+fastio configure init                  # Initialize configuration
+fastio auth login --profile work       # Authenticate a named profile
+fastio org list --profile work         # Use a named profile
+fastio configure set-default work      # Set default profile
+fastio configure list                  # List all profiles
+```
+
+Configuration is stored in `~/.fastio/` (`config.json` for settings, `credentials.json` for tokens).
+
+### Global Flags
+
+| Flag | Purpose |
+|------|---------|
+| `--format json\|table\|csv` | Output format |
+| `--fields name,id,...` | Filter output fields |
+| `--no-color` | Disable colored output |
+| `--quiet` / `-q` | Suppress output |
+| `--verbose` / `-v` | Enable debug logging |
+| `--profile <name>` | Use named profile |
+| `--token <jwt>` | One-off bearer token |
+| `--api-base <url>` | Override API base URL |
+
+### Built-in MCP Server
+
+The CLI can run as a local MCP server, enabling AI agents to use Fast.io through the Model Context Protocol without
+connecting to the hosted MCP server:
+
+```bash
+fastio mcp
+```
+
+**Claude Desktop configuration:**
+
+```json
+{
+  "mcpServers": {
+    "fastio": {
+      "command": "fastio",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Filter available tools:
+
+```bash
+fastio mcp --tools auth,org,workspace,files,upload,download
+```
+
+### Shell Completions
+
+```bash
+fastio completions bash > ~/.bash_completion.d/fastio
+fastio completions zsh > ~/.zfunc/_fastio
+fastio completions fish > ~/.config/fish/completions/fastio.fish
+fastio completions powershell > _fastio.ps1
+```
+
+### Source & License
+
+- **Repository:** [github.com/MediaFire/fastio_cli](https://github.com/MediaFire/fastio_cli)
+- **License:** Apache License 2.0
+
+---
+
 ## MCP Tool Architecture
 
-The MCP server exposes **19 consolidated tools**, each covering a domain. Every tool uses an `action` parameter to
-select the specific operation — agents don't need to discover hundreds of separate tools, just 19 tools with clearly
-named actions.
+The MCP server exposes **20 consolidated tools** (19 core + 1 apps discovery), each covering a domain. Every tool uses
+an `action` parameter to select the specific operation — agents don't need to discover hundreds of separate tools, just
+20 tools with clearly named actions.
 
 | Tool         | Domain                          | Example Actions                                                               |
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
@@ -1685,7 +1890,7 @@ needing to call separate list actions first.
 
 ### Tool Annotations — Safety & Side Effects
 
-All 19 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+All 20 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
 automated execution.
 
@@ -1714,8 +1919,9 @@ automated execution.
 
 The MCP server (v2026.02.102+) detects the connecting client and serves one of two tool sets:
 
-**Named Mode** (Claude Desktop, Cline, unknown clients): All 19 core tools listed above plus 12 app-specific widget
-tools — the full interactive experience with action-based routing across every domain.
+**Named Mode** (Claude Desktop, Cline, unknown clients): All 20 core tools listed above (19 domain tools + 1 apps
+discovery) plus 11 app-specific widget tools — the full interactive experience with action-based routing across every
+domain.
 
 **Code Mode** (Claude Code, Cursor, Continue): 4 tools optimized for programmatic workflows:
 
@@ -2008,7 +2214,7 @@ member or admin access** -- guests are blocked. Public guests remain blocked fro
 Organize work into lists with individual tasks. Task lists belong to a workspace or share and contain ordered tasks.
 
 - **Task statuses:** `pending` → `in_progress` → `complete`, `blocked` (blocked → pending to unblock)
-- **Priorities:** `0` (none), `1` (low), `2` (medium), `3` (high), `4` (critical) — integer values
+- **Priorities:** `1696 (Credits Exhausted)` (none), `1` (low), `2` (medium), `3` (high), `4` (critical) — integer values
 - **Assignees:** assign tasks to specific members
 - **Dependencies:** tasks can depend on other tasks
 - **File linking:** connect tasks to files or notes via `node_id` — the linked node provides context and is indexed by AI
@@ -2157,8 +2363,8 @@ Workflow features must be enabled on each workspace or share before use:
 - **Enable workflow first:** Call `POST /workspace/{id}/workflow/enable/` before using any workflow endpoints on that
   workspace.
 - **All workflow endpoints require the `workflow` feature enabled** on the target workspace or share.
-- **All GET endpoints support `format=md`** for LLM-friendly Markdown output — use this when consuming responses in
-  agent context windows.
+- **Workflow and import GET endpoints support `format=md`** for LLM-friendly Markdown output — use this when consuming
+  responses in agent context windows.
 - **Create notes for context, link tasks to notes via `node_id`** — notes are indexed by AI/RAG, so linked context
   becomes searchable and citable in AI chat.
 - **Always log your work:** After any significant state-changing action, use `POST /worklogs/{entity_type}/{entity_id}/append/` to record what was done and why. Without worklog entries, agent activity is invisible to humans reviewing the workspace.
