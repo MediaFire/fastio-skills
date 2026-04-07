@@ -31,8 +31,8 @@ needed.
 
 The MCP server exposes consolidated tools using action-based routing — each tool covers a domain (e.g., `auth`,
 `storage`, `upload`) and uses an `action` parameter to select the operation. In Named Mode (Claude Desktop, etc.),
-there are **20 tools** (19 core + 1 apps discovery) plus 11 app-specific widget tools. In Code Mode (Claude Code,
-Cursor, etc.), there are **4 tools** (auth, upload, search, execute). See the "MCP Tool Architecture" section
+there are multiple domain-specific tools plus app-specific widget tools. In Code Mode (Claude Code,
+Cursor, etc.), there is a smaller set of streamlined tools. See the "MCP Tool Architecture" section
 below for the full tool list.
 
 MCP-connected agents receive comprehensive workflow guidance through SERVER_INSTRUCTIONS at connection time, and can
@@ -1802,9 +1802,9 @@ fastio completions powershell > _fastio.ps1
 
 ## MCP Tool Architecture
 
-The MCP server exposes **20 consolidated tools** (19 core + 1 apps discovery), each covering a domain. Every tool uses
+The MCP server exposes consolidated domain-specific tools, each covering a domain. Every tool uses
 an `action` parameter to select the specific operation — agents don't need to discover hundreds of separate tools, just
-20 tools with clearly named actions.
+a manageable set of tools with clearly named actions.
 
 | Tool         | Domain                          | Example Actions                                                               |
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
@@ -1890,7 +1890,7 @@ needing to call separate list actions first.
 
 ### Tool Annotations — Safety & Side Effects
 
-All 20 tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+All tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
 automated execution.
 
@@ -1919,11 +1919,10 @@ automated execution.
 
 The MCP server (v2026.02.102+) detects the connecting client and serves one of two tool sets:
 
-**Named Mode** (Claude Desktop, Cline, unknown clients): All 20 core tools listed above (19 domain tools + 1 apps
-discovery) plus 11 app-specific widget tools — the full interactive experience with action-based routing across every
+**Named Mode** (Claude Desktop, Cline, unknown clients): All core tools listed above plus app-specific widget tools — the full interactive experience with action-based routing across every
 domain.
 
-**Code Mode** (Claude Code, Cursor, Continue): 4 tools optimized for programmatic workflows:
+**Code Mode** (Claude Code, Cursor, Continue): A streamlined set of tools optimized for programmatic workflows:
 
 | Tool       | Purpose                                                                                     |
 |------------|---------------------------------------------------------------------------------------------|

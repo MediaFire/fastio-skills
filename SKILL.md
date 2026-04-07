@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.136.0"
+  version: "1.138.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.136
-**Last Updated:** 2026-04-06
+**Version:** 1.138
+**Last Updated:** 2026-04-07
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -1043,9 +1043,9 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 ### upload
 
-File upload operations. Single-step text file upload, chunked upload lifecycle (create session, stage binary blobs, upload chunks as plain text / base64 / blob reference, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management.
+File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management. All files upload through the chunked flow with `POST /blob` sidecar for binary data.
 
-**Actions:** create-session, chunk, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, stage-blob, text-file, web-import, web-list, web-cancel, web-status, limits, extensions
+**Actions:** create-session, chunk, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
 ### download
 
@@ -1163,24 +1163,13 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 ### 3. Upload a File to a Workspace
 
-**Text files (recommended):** Use `upload` action `text-file` with `profile_type: "workspace"`, `profile_id`, `parent_node_id`, `filename`, and `content` (plain text). This single action uploads the file and returns `new_file_id` on success. Internally it uses the Fast.io single-request upload pattern (one multipart POST with the file data), so there is no separate chunking, finalization, or polling step. Use this for code, markdown, CSV, JSON, config files, and any other text content.
-
-**Binary files (choose the right approach):**
-
-> **Understanding upload constraints.** The Fast.io API requires each chunk to be **≥ 1 MB** (except the last chunk of a session, which may be smaller). MCP tool calls have a practical transport limit of **~64 KB of raw binary** per call (~96 KB base64). This means multi-chunk binary uploads through MCP tool calls alone will fail for files larger than ~64 KB — each MCP-sized chunk is far below the 1 MB API minimum. Use `upload` action `limits` to check your plan's exact chunk size and file size limits.
+**All files use the `POST /blob` sidecar.** This is the only supported upload data path — it bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size.
 
 **Option A: `web-import` (preferred for URL-accessible files)**
-If the file has a URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import`. Single call, no chunking, no base64. See Workflow 4 below.
+If the file has a URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import`. Single call, no chunking. See Workflow 4 below.
 
-**Option B: Single-chunk upload for small binary files (≤ ~64 KB)**
-Small files that fit in one MCP tool call can be uploaded as a single chunk:
-1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize` in bytes.
-2. `upload` action `chunk` with `upload_id`, `chunk_number: 1`, and `data` (base64-encoded file, ≤96 KB base64 / ~64 KB binary). Since this is the only chunk, the API's "1 small chunk allowed" rule permits it.
-3. `upload` action `finalize` with `upload_id`.
-
-**Option C: `POST /blob` sidecar endpoint for larger binary files**
-For files > ~64 KB, use the HTTP blob endpoint to bypass MCP transport limits. The `create-session` response automatically includes a `blob_upload` object with the endpoint URL, your session ID, and a ready-to-use `curl` command — no separate `blob-info` call needed.
-1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command` with the exact curl command to run.
+**Option B: `POST /blob` sidecar (all other files — text or binary)**
+1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command` with a ready-to-use curl command.
 2. Run the curl command from `blob_upload.curl_command`, replacing `@<file>` with your file path. Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
 3. `upload` action `chunk` with `upload_id`, `chunk_number: 1`, and `blob_ref: "<blob_id>"`.
 4. Repeat steps 2-3 for additional chunks (if splitting a large file).
@@ -1188,13 +1177,9 @@ For files > ~64 KB, use the HTTP blob endpoint to bypass MCP transport limits. T
 
 **IMPORTANT:** The `blob_upload.session_id` is the MCP session ID for this connection. You **must** use this exact session ID in the `Mcp-Session-Id` header when POSTing to `/blob`. Using a different session ID (e.g., from a separately-established MCP connection) will stage the blob in a different location, and the `chunk` action will not find it.
 
-**Option D: External upload tooling**
-For reliable binary uploads of any size, use an external HTTP client (Python requests, curl, etc.) to call the Fast.io REST API upload endpoints directly, bypassing MCP transport constraints entirely. Use MCP for control-plane tasks (session creation, finalization, status) and the external client for the data plane (chunk uploads).
-
-Three options for passing chunk data (provide exactly one):
-- **`content`** — for text (strings, code, JSON, etc.). Do NOT use `data` for text.
-- **`data`** — base64-encoded binary. Limited by MCP transport to **~96 KB base64 (~64 KB binary) per call**. Only practical for single-chunk small files.
-- **`blob_ref`** — blob ID from `upload` action `stage-blob` or `POST /blob`. The `POST /blob` approach is recommended for larger files since it bypasses MCP transport limits.
+Two options for passing chunk data (provide exactly one):
+- **`blob_ref`** — blob ID from `POST /blob`. The standard upload path for all files — no base64, no MCP transport limits.
+- **`content`** — for small text strings only (code snippets, short JSON). For larger text files, use `POST /blob` + `blob_ref`.
 
 `upload` action `finalize` with `upload_id` triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on failure. Terminal failure states: `assembly_failed` (chunks could not be assembled) and `store_failed` (assembled file could not be stored — check `status_message` for details). The file is automatically added to the target workspace and folder specified during session creation -- no separate add-file call is needed.
 
@@ -1354,42 +1339,25 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 
 `download` actions `zip-url` (workspace and share) return the URL along with the required `Authorization` header value.
 
-### Binary Uploads
+### Uploads
 
-Three approaches for uploading binary data as chunks, each suited to different situations.
+All file uploads go through the `POST /blob` sidecar endpoint. This is the only supported upload data path — it bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size up to 100 MB.
 
-> **Prefer `web-import` for URL-accessible files.** If the binary file is accessible via any URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import` instead of chunked upload. It's a single tool call — no chunking, no base64, no session management. Only use chunked upload when you have local binary data with no URL available.
+> **Prefer `web-import` for URL-accessible files.** If the file is accessible via any URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import` instead of chunked upload. It's a single tool call — no chunking, no session management.
 
-> **Chunk size limit for MCP agents.** MCP tool parameters pass through the AI model's output, which limits how much data you can include in a single tool call. **Keep each chunk's base64 `data` under 32 KB** (~24 KB of binary). For example, a 145 KB PDF needs at least 6 chunks, and even a 17 KB file should be split into 1-2 chunks rather than assumed to fit in one call. The `create-session` response includes a `recommended_mcp_chunk_bytes` hint (default 24576) — use it to calculate the number of chunks: `ceil(filesize / recommended_mcp_chunk_bytes)`. Always split files into multiple chunks when using `data` or `stage-blob` through MCP tool calls.
+#### `POST /blob` endpoint — the standard upload path
 
-> **Common pitfall: do NOT pre-process binary data into intermediate formats.** Pass base64 data directly in the `data` parameter of `chunk` or `stage-blob` tool calls. Do NOT read binary files into Python/JSON variables, pickle them, or save to temp files hoping to reference them later — the MCP tool can only receive data through its own parameters. If you have local binary files, base64-encode them in ≤32 KB segments and pass each segment directly as the `data` parameter in sequential `stage-blob` → `chunk` calls. Create upload sessions immediately before uploading — sessions expire, so do not debug between creating a session and uploading chunks.
+A sidecar HTTP endpoint that accepts raw data outside the JSON-RPC pipe. **This bypasses MCP transport limits entirely** — no base64 encoding, no parameter size constraints. Works for text and binary files of any size.
 
-**1. `data` parameter (base64) — simplest for MCP agents**
-
-Pass base64-encoded binary directly in the `data` parameter of `upload` action `chunk`. No extra steps required. Works with any MCP client. Adds ~33% size overhead from base64 encoding. **Split files into chunks of ≤24 KB binary (≤32 KB base64)** to stay within MCP client parameter limits.
-
-**2. `stage-blob` action — MCP tool-based blob staging**
-
-Use `upload` action `stage-blob` with `data` (base64) to pre-stage binary data as a blob. Returns a `blob_id` that you pass as `blob_ref` in the chunk call. Useful when you want to decouple staging from uploading, or when preparing multiple chunks in advance. The same **32 KB base64 limit per call** applies — stage one chunk-sized piece at a time.
+**Getting the endpoint URL and session ID:** The `create-session` response automatically includes a `blob_upload` object with the endpoint URL, your session ID, and a ready-to-use `curl` command — no separate `blob-info` call needed. You can also call `upload` action `blob-info` independently.
 
 **Flow:**
-1. `upload` action `stage-blob` with `data` (base64-encoded binary, ≤32 KB). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
-2. `upload` action `chunk` with `blob_ref: "<blob_id>"`. The server retrieves the staged bytes and uploads them.
+1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command`.
+2. Use `curl` (or any HTTP client) to `POST /blob` with the file data and the headers from the `blob_upload` object. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
+3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
+4. Repeat steps 2-3 for additional chunks (if splitting a large file), then `upload` action `finalize`.
 
-**3. `POST /blob` endpoint — recommended for larger binary files**
-
-A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe. **This bypasses MCP transport limits entirely** — no base64 encoding, no parameter size constraints. Send chunks of **≥ 1 MB** (except the last chunk) to satisfy the API's minimum chunk size requirement.
-
-**Getting the endpoint URL and session ID:** Call `upload` action `blob-info` — it returns the full `POST /blob` URL, your `Mcp-Session-Id`, required headers, and a ready-to-use `curl` command. No need to guess the endpoint or look up the session ID yourself.
-
-**Flow:**
-1. `upload` action `blob-info` — get the blob endpoint URL, session ID, and curl example.
-2. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`.
-3. Use `curl` (or any HTTP client) to `POST /blob` with raw binary and the headers from step 1. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
-4. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
-5. Repeat steps 3-4 for each chunk, then `upload` action `finalize`.
-
-**Blob constraints (apply to both staging methods):**
+**Blob constraints:**
 - Blobs expire after **5 minutes**. Stage and consume them promptly.
 - Each blob is consumed (deleted) on first use — it cannot be reused.
 - Maximum blob size: **100 MB**.
@@ -1519,7 +1487,7 @@ All text content (notes, comments, worklogs, file uploads, descriptions) must us
 - **Empty lines in markdown:** Use two consecutive `\n` characters (`\n\n`) for paragraph breaks. Do not use non-breaking spaces (U+00A0) or other whitespace characters as line placeholders.
 - **Trailing newlines:** Content may or may not end with a trailing `\n`. Do not assume either convention -- both are valid.
 
-This applies to: `workspace` actions `create-note` and `update-note`, `upload` action `text-file`, `comment` action `add`, `worklog` actions `append` and `interject`, and any other tool that accepts free-text or markdown content.
+This applies to: `workspace` actions `create-note` and `update-note`, `upload` action `chunk` (with `content` parameter), `comment` action `add`, `worklog` actions `append` and `interject`, and any other tool that accepts free-text or markdown content.
 
 ### Error Pattern
 
@@ -1533,7 +1501,7 @@ The auth token, user ID, email, and token expiry are persisted in the server ses
 
 MCP tools manage data via the API, but humans access Fast.io through a web browser. **Always use the `web_url` field from tool responses** -- it is a ready-to-use, clickable URL for the resource. Include it in your responses whenever you create or reference a workspace, share, file, note, or transfer. The human cannot see API responses directly -- the URL you provide is how they get to their content. Fall back to the URL patterns below only when `web_url` is absent (e.g., share-context storage operations):
 
-> **Automatic `web_url` field.** All entity-returning tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **NEVER construct URLs manually — always use the `web_url` field from tool responses.** It appears on: org list/details/create/update/public-details/discover-*, org list-workspaces/list-shares, workspace list/details/update/available/list-shares, share list/details/create/update/public-details/available, storage list/details/search/trash-list/copy/move/rename/restore/add-file/create-folder/version-list/version-restore/preview-url/preview-transform, quickshare create/get/list, upload text-file/finalize, download file-url/quickshare-details, AI chat-create/chat-details/chat-list, transfer-token create/list, and notes create/update. Fall back to the URL patterns below only when `web_url` is absent (e.g., share context storage operations).
+> **Automatic `web_url` field.** All entity-returning tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **NEVER construct URLs manually — always use the `web_url` field from tool responses.** It appears on: org list/details/create/update/public-details/discover-*, org list-workspaces/list-shares, workspace list/details/update/available/list-shares, share list/details/create/update/public-details/available, storage list/details/search/trash-list/copy/move/rename/restore/add-file/create-folder/version-list/version-restore/preview-url/preview-transform, quickshare create/get/list, upload finalize, download file-url/quickshare-details, AI chat-create/chat-details/chat-list, transfer-token create/list, and notes create/update. Fall back to the URL patterns below only when `web_url` is absent (e.g., share context storage operations).
 
 Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.io/`. The base domain `go.fast.io` handles public routes that do not require org context.
 
@@ -1601,14 +1569,14 @@ Workflow-critical tool responses include a `_next` field -- a short array of sug
   "workspace_id": "...",
   "web_url": "https://acme.fast.io/workspace/q4-reports/storage/root",
   "_next": [
-    "Upload files: upload action text-file or web-import",
+    "Upload files: upload action create-session + blob or web-import",
     "Create a share: share action create",
     "Query with AI: ai action chat-create"
   ]
 }
 ```
 
-**`_warnings`** appear on destructive, irreversible, or potentially problematic actions. Always read warnings before proceeding -- they flag permanent consequences or important caveats. Actions with `_warnings`: storage purge, storage bulk copy/move/delete/restore (partial failures), workspace details (intelligence=false), workspace update (intelligence=false), workspace archive/delete, org close, org billing-create, share delete, share archive, share update (type change), ai chat-delete, download file-url (token expiry), download zip-url (auth required), upload stage-blob (5-min expiry), org transfer-token-create.
+**`_warnings`** appear on destructive, irreversible, or potentially problematic actions. Always read warnings before proceeding -- they flag permanent consequences or important caveats. Actions with `_warnings`: storage purge, storage bulk copy/move/delete/restore (partial failures), workspace details (intelligence=false), workspace update (intelligence=false), workspace archive/delete, org close, org billing-create, share delete, share archive, share update (type change), ai chat-delete, download file-url (token expiry), download zip-url (auth required), org transfer-token-create.
 
 **`_recovery`** hints appear on error responses (when `isError: true`). They provide recovery actions based on HTTP status codes AND error message pattern matching. Error messages also include action context (e.g., "during: org create") to help pinpoint the failing operation.
 
@@ -1660,7 +1628,7 @@ Fast.io MCP Server includes interactive HTML5 widgets that render rich UIs direc
 | File Viewer | `widget://file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
 | Workflow Manager | `widget://workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
 | Comments Panel | `widget://comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
-| Uploader | `widget://uploader` | Upload files to a workspace or share with drag-and-drop, chunked binary uploads, single-step text file creation, and web URL imports with real-time progress tracking |
+| Uploader | `widget://uploader` | Upload files to a workspace or share with drag-and-drop, chunked uploads via POST /blob sidecar, and web URL imports with real-time progress tracking |
 
 ### Uploader Widget
 
@@ -1668,10 +1636,10 @@ The Uploader widget provides a 4-step file upload flow:
 
 1. **Choose destination** -- select an organization, then a workspace or share, then optionally navigate to a subfolder
 2. **Select files** -- drag-and-drop files onto the widget or use the file picker button to browse local files
-3. **Upload with progress** -- files upload automatically with real-time progress bars. Binary files use chunked uploads (create-session, stage-blob, chunk, finalize). Text files use single-step text-file upload. Web URLs use web-import
+3. **Upload with progress** -- files upload automatically with real-time progress bars. All files use chunked uploads (create-session, POST /blob, chunk with blob_ref, finalize). Web URLs use web-import
 4. **Reference in chat** -- after upload completes, click "Reference in Chat" to attach the uploaded files to the agent conversation for further discussion or AI analysis
 
-The widget uses the `upload` tool (actions: create-session, chunk, finalize, stage-blob, text-file, web-import, status, cancel, limits, extensions) and the `storage` tool (action: list) via the MCP bridge.
+The widget uses the `upload` tool (actions: create-session, chunk, finalize, web-import, status, cancel, limits, extensions) and the `storage` tool (action: list) via the MCP bridge.
 
 **Launch via prompt:** Use the `App: Upload Files` prompt in desktop MCP clients.
 
@@ -2062,7 +2030,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **create-session** -- Create a chunked upload session for a file.
 
-**chunk** -- Upload a single chunk. Use `content` for text/strings, `data` for base64-encoded binary, or `blob_ref` for binary staged via `stage-blob` action or `POST /blob`. Provide exactly one.
+**chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_ref` for binary staged via `POST /blob`. Provide exactly one.
 
 **finalize** -- Finalize an upload session, trigger file assembly, and poll until fully stored or failed. Returns the final session state.
 
@@ -2078,10 +2046,6 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **chunk-delete** -- Delete/reset a chunk in an upload session.
 
-**stage-blob** -- Stage base64-encoded binary data as a blob for later use with the `chunk` action's `blob_ref` parameter. Pass `data` (base64 string). Returns `{ blob_id, size }`. Blobs expire after 5 minutes and are consumed on first use. Alternative to passing `data` directly in the chunk call.
-
-**text-file** -- Upload a text file in a single step using the Fast.io single-request upload pattern. Sends the file in one multipart POST and returns the new file ID directly. Use for text-based files (code, markdown, CSV, JSON, config) instead of the multi-step chunked flow.
-
 **web-import** -- Import a file from an external URL into a workspace or share.
 
 **web-list** -- List the user's web upload jobs with optional filtering.
@@ -2094,7 +2058,7 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 **extensions** -- Get restricted and allowed file extensions for uploads.
 
-**blob-info** -- Get the `POST /blob` sidecar endpoint URL, your MCP session ID, required headers, and a ready-to-use `curl` command for shell-based binary uploads. No parameters required. Use this before uploading binary files >64 KB — it gives you everything needed to bypass MCP transport limits via `curl`.
+**blob-info** -- Get the `POST /blob` sidecar endpoint URL, your MCP session ID, required headers, and a ready-to-use `curl` command for shell-based file uploads. No parameters required. Use this before uploading files via the blob sidecar — it gives you everything needed to bypass MCP transport limits via `curl`.
 
 ### download
 
@@ -2355,7 +2319,7 @@ When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the
 | `search` | Discover API endpoints by keyword, tag, or concept |
 | `execute` | Make authenticated API calls to Fast.io |
 
-Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 12 app-* widget tools. Unknown clients default to the full tool set.
+Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 6 app-* widget tools (one per widget in the registry). Unknown clients default to the full tool set.
 
 ### search Tool
 

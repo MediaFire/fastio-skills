@@ -33,7 +33,7 @@ The server exposes **14 consolidated tools** using action-based routing. Each to
 | `workspace` | Workspaces | `list`, `details`, `create`, `update`, `check-name` |
 | `share` | Shares | `list`, `create`, `update`, `delete`, `quickshare-create` |
 | `storage` | Files, folders, locks, previews | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `preview-url` |
-| `upload` | File uploads | `create-session`, `chunk`, `finalize`, `text-file`, `web-import` |
+| `upload` | File uploads | `create-session`, `chunk`, `finalize`, `web-import`, `blob-info` |
 | `download` | Downloads | `file-url`, `zip-create`, `quickshare-details` |
 | `ai` | AI chat | `chat-create`, `message-send`, `message-read`, `chat-list` |
 | `member` | Members | `add`, `update`, `remove`, `details` |
