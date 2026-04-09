@@ -529,7 +529,7 @@ The workspace intelligence toggle (see Workspaces above) controls whether upload
 | `ready` | Complete — available for folder/file scope queries |
 | `failed` | Processing failed |
 
-Only files with `ai_state: ready` are included in folder/file scope searches. Check file state via `storage` action `details` with `context_type: "workspace"`.
+Only files with `ai_state: ready` are included in folder/file scope searches. Check file state via `storage` action `details` with `profile_type: "workspace"`.
 
 #### Attachability — the `ai.attach` Flag
 
@@ -583,7 +583,7 @@ Combining `personality: "concise"` with a direct question produces the shortest 
 
 #### Chat Parameters
 
-Create a chat with `ai` action `chat-create` (with `context_type: "workspace"`) or `ai` action `chat-create` (with `context_type: "share"`):
+Create a chat with `ai` action `chat-create` (with `profile_type: "workspace"`) or `ai` action `chat-create` (with `profile_type: "share"`):
 
 - `type` (required) — `chat` or `chat_with_files`
 - `query_text` (required for workspace, optional for share) — initial message, 2-12,768 characters
@@ -595,13 +595,13 @@ Create a chat with `ai` action `chat-create` (with `context_type: "workspace"`) 
 
 #### Follow-up Messages
 
-Send follow-ups with `ai` action `message-send` (with `context_type: "workspace"` or `"share"`). The chat type is inherited from the parent chat. Each follow-up can update the scope, attachment, and personality parameters.
+Send follow-ups with `ai` action `message-send` (with `profile_type: "workspace"` or `"share"`). The chat type is inherited from the parent chat. Each follow-up can update the scope, attachment, and personality parameters.
 
 #### Waiting for AI Responses
 
 After creating a chat or sending a message, the AI response is asynchronous. Message states progress: `ready` → `in_progress` → `complete` (or `errored`).
 
-**Recommended:** Call `ai` action `message-read` (with `context_type: "workspace"` or `"share"`) with the returned `message_id`. The tool polls automatically (up to 15 attempts, 2-second intervals, ~30 seconds). If the response is still processing after that window, use `event` action `activity-poll` with the workspace/share ID instead of calling the read action in a loop — see Activity Polling in section 7.
+**Recommended:** Call `ai` action `message-read` (with `profile_type: "workspace"` or `"share"`) with the returned `message_id`. The tool polls automatically (up to 15 attempts, 2-second intervals, ~30 seconds). If the response is still processing after that window, use `event` action `activity-poll` with the workspace/share ID instead of calling the read action in a loop — see Activity Polling in section 7.
 
 #### Response Citations
 
@@ -621,11 +621,11 @@ Append `?chat={chat_opaque_id}` to the workspace storage URL:
 
 #### Share AI Chats
 
-Shares support AI chat with identical capabilities. All workspace AI endpoints have share equivalents accessible via `ai` actions with `context_type: "share"`.
+Shares support AI chat with identical capabilities. All workspace AI endpoints have share equivalents accessible via `ai` actions with `profile_type: "share"`.
 
 ### AI Share / Export
 
-Generate temporary markdown-formatted download URLs for files that can be pasted into external AI tools (ChatGPT, Claude, etc.). Use `ai` action `share-generate` (with `context_type: "workspace"` or `"share"`). URLs expire after 5 minutes. Limits: 25 files maximum, 50 MB per file, 100 MB total.
+Generate temporary markdown-formatted download URLs for files that can be pasted into external AI tools (ChatGPT, Claude, etc.). Use `ai` action `share-generate` (with `profile_type: "workspace"` or `"share"`). URLs expire after 5 minutes. Limits: 25 files maximum, 50 MB per file, 100 MB total.
 
 ### Profile IDs
 
@@ -656,7 +656,7 @@ Supported preview formats:
 - **Spreadsheets** -- grid navigation with multi-sheet support
 - **Code and text** -- syntax highlighting, markdown rendering
 
-Use `storage` action `preview-url` (with `context_type: "workspace"` or `"share"`) to generate preview URLs. Use `storage` action `preview-transform` (with `context_type: "workspace"` or `"share"`) for image resize, crop, and format conversion.
+Use `storage` action `preview-url` (with `profile_type: "workspace"` or `"share"`) to generate preview URLs. Use `storage` action `preview-transform` (with `profile_type: "workspace"` or `"share"`) for image resize, crop, and format conversion.
 
 **Agent use case:** Your generated PDF report does not just appear as a download link. The human sees it rendered inline, can flip through pages, zoom in, and comment on specific sections -- all without leaving the browser.
 
@@ -1039,7 +1039,7 @@ Share CRUD, public details, archiving, password authentication, asset management
 
 ### storage
 
-File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search, add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `context_type` parameter (`workspace` or `share`).
+File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search, add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
 **Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
 
@@ -1051,13 +1051,13 @@ File upload operations. Chunked upload lifecycle (create session, upload chunks 
 
 ### download
 
-Generate download URLs and ZIP archive URLs for workspace files, share files, and quickshare links. MCP tools cannot stream binary data -- these actions return URLs that can be opened in a browser or passed to download utilities. Requires `context_type` parameter (`workspace` or `share`) for file-url and zip-url actions. Responses include a `resource_uri` field (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly via MCP resources. Direct download URLs include `?error=html` so errors render as human-readable HTML in browsers.
+Generate download URLs and ZIP archive URLs for workspace files, share files, and quickshare links. MCP tools cannot stream binary data -- these actions return URLs that can be opened in a browser or passed to download utilities. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) for file-url and zip-url actions. Responses include a `resource_uri` field (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly via MCP resources. Direct download URLs include `?error=html` so errors render as human-readable HTML in browsers.
 
 **Actions:** file-url, zip-url, quickshare-details
 
 ### ai
 
-AI-powered chat with RAG and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `context_type` parameter (`workspace` or `share`).
+AI-powered chat with RAG and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
 **Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
 
@@ -1159,9 +1159,9 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 1. `org` action `list` and `org` action `discover-external` -- discover all available organizations (see **Org Discovery**). Note the `org_id` values.
 2. `org` action `list-workspaces` with `org_id` -- get workspaces in the organization. Note the `workspace_id` values.
-3. `storage` action `list` with `context_type: "workspace"`, `context_id` (workspace ID), and `node_id: "root"` -- browse the root folder. Note the `node_id` values for files and subfolders.
-4. `storage` action `details` with `context_type: "workspace"`, `context_id`, and `node_id` -- get full details for a specific file (name, size, type, versions).
-5. `download` action `file-url` with `context_type: "workspace"`, `context_id`, and `node_id` -- get a temporary download URL with an embedded token. The response also includes a `resource_uri` (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly. Return the download URL to the user, or use the resource URI to read the file through MCP.
+3. `storage` action `list` with `profile_type: "workspace"`, `profile_id` (workspace ID), and `node_id: "root"` -- browse the root folder. Note the `node_id` values for files and subfolders.
+4. `storage` action `details` with `profile_type: "workspace"`, `profile_id`, and `node_id` -- get full details for a specific file (name, size, type, versions).
+5. `download` action `file-url` with `profile_type: "workspace"`, `profile_id`, and `node_id` -- get a temporary download URL with an embedded token. The response also includes a `resource_uri` (e.g. `download://workspace/{id}/{node_id}`) that MCP clients can use to read file content directly. Return the download URL to the user, or use the resource URI to read the file through MCP.
 
 ### 3. Upload a File to a Workspace
 
@@ -1236,7 +1236,7 @@ Create a Receive share so humans can upload files directly to you -- no email at
 3. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` to invite the uploader.
 4. The human uploads files through a clean, branded interface.
 5. Files appear in your workspace. If intelligence is enabled, they are auto-indexed by AI.
-6. Use `ai` action `chat-create` with `context_type: "share"` scoped to the receive share's folder to ask questions like "Are all required forms present?"
+6. Use `ai` action `chat-create` with `profile_type: "share"` scoped to the receive share's folder to ask questions like "Are all required forms present?"
 
 ### 7. Build a Knowledge Base
 
@@ -1244,9 +1244,9 @@ Create an intelligent workspace that auto-indexes all content for RAG queries.
 
 1. `org` action `create-workspace` with `org_id`, `name`, and `intelligence: "true"` (this workflow specifically requires intelligence for RAG).
 2. Upload reference documents (see workflow 3 or 4). AI auto-indexes and summarizes everything on upload.
-3. `ai` action `chat-create` with `context_type: "workspace"`, `context_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and `folders_scope` (comma-separated `nodeId:depth` pairs) to query across folders or the entire workspace.
-4. `ai` action `message-read` with `context_type: "workspace"`, `context_id`, `chat_id`, and `message_id` -- polls until the AI response is complete. Returns `response_text` and `citations` pointing to specific files, pages, and snippets.
-5. `storage` action `search` with `context_type: "workspace"`, `context_id`, and a query string -- with intelligence enabled, this performs semantic search (finds files by meaning, not just filename).
+3. `ai` action `chat-create` with `profile_type: "workspace"`, `profile_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and `folders_scope` (comma-separated `nodeId:depth` pairs) to query across folders or the entire workspace.
+4. `ai` action `message-read` with `profile_type: "workspace"`, `profile_id`, `chat_id`, and `message_id` -- polls until the AI response is complete. Returns `response_text` and `citations` pointing to specific files, pages, and snippets.
+5. `storage` action `search` with `profile_type: "workspace"`, `profile_id`, and a query string -- with intelligence enabled, this performs semantic search (finds files by meaning, not just filename).
 6. Answers include citations to specific pages and files. Pass these back to the user with source references.
 
 ### 8. Ask AI About Files
@@ -1255,14 +1255,14 @@ Two modes depending on whether intelligence is enabled on the workspace.
 
 **With intelligence (persistent index):**
 
-1. `ai` action `chat-create` with `context_type: "workspace"`, `context_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and either `files_scope` (comma-separated `nodeId:versionId` pairs) or `folders_scope` (comma-separated `nodeId:depth` pairs, depth range 1-10). **Important:** `files_scope` and `files_attach` are mutually exclusive — sending both will error. Returns `chat_id` and `message_id`.
-2. `ai` action `message-read` with `context_type: "workspace"`, `context_id`, `chat_id`, and `message_id` -- polls the API up to 15 times (2-second intervals, approximately 30 seconds) until the AI response is complete. Returns `response_text` and `citations`. **Tip:** If the built-in polling window expires, use `event` action `activity-poll` with the workspace ID instead of calling `message-read` in a loop — see the Activity Polling section above.
-3. `ai` action `message-send` with `context_type: "workspace"`, `context_id`, `chat_id`, and `query_text` for follow-up questions. Returns a new `message_id`.
+1. `ai` action `chat-create` with `profile_type: "workspace"`, `profile_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and either `files_scope` (comma-separated `nodeId:versionId` pairs) or `folders_scope` (comma-separated `nodeId:depth` pairs, depth range 1-10). **Important:** `files_scope` and `files_attach` are mutually exclusive — sending both will error. Returns `chat_id` and `message_id`.
+2. `ai` action `message-read` with `profile_type: "workspace"`, `profile_id`, `chat_id`, and `message_id` -- polls the API up to 15 times (2-second intervals, approximately 30 seconds) until the AI response is complete. Returns `response_text` and `citations`. **Tip:** If the built-in polling window expires, use `event` action `activity-poll` with the workspace ID instead of calling `message-read` in a loop — see the Activity Polling section above.
+3. `ai` action `message-send` with `profile_type: "workspace"`, `profile_id`, `chat_id`, and `query_text` for follow-up questions. Returns a new `message_id`.
 4. `ai` action `message-read` again with the new `message_id` to get the follow-up response.
 
 **Without intelligence (file attachments):**
 
-1. `ai` action `chat-create` with `context_type: "workspace"`, `context_id`, `query_text`, `type: "chat_with_files"`, and `files_attach` pointing to specific files (comma-separated `nodeId:versionId`, max 20 files / 200 MB). Files must have `ai.attach: true` (check via `storage` action `details`). The AI reads attached files directly without persistent indexing.
+1. `ai` action `chat-create` with `profile_type: "workspace"`, `profile_id`, `query_text`, `type: "chat_with_files"`, and `files_attach` pointing to specific files (comma-separated `nodeId:versionId`, max 20 files / 200 MB). Files must have `ai.attach: true` (check via `storage` action `details`). The AI reads attached files directly without persistent indexing.
 2. `ai` action `message-read` to get the response. No ingestion credit cost -- only chat token credits are consumed.
 
 ### 9. Set Up a Project for a Human
@@ -1271,7 +1271,7 @@ The full agent-to-human handoff workflow. This is the primary way agents deliver
 
 1. `org` action `create` -- creates a new org on the agent billing plan. The agent becomes owner. An agent-plan subscription (free, 50 GB, 5,000 credits/month) is created automatically.
 2. `org` action `create-workspace` with `org_id` and `name` -- create workspaces for each project area.
-3. `storage` action `create-folder` with `context_type: "workspace"` to build out folder structure (templates, deliverables, reference docs, etc.).
+3. `storage` action `create-folder` with `profile_type: "workspace"` to build out folder structure (templates, deliverables, reference docs, etc.).
 4. Upload files to each workspace (see workflow 3 or 4).
 5. `share` action `create` with `type: "send"` for client deliverables, `type: "receive"` for intake/collection.
 6. `share` action `update` to configure branding, passwords, expiration, and access levels on each share.
@@ -1327,17 +1327,21 @@ Profile IDs (org, workspace, share, user) are 19-digit numeric strings. Most end
 
 All other IDs (node IDs, upload IDs, chat IDs, comment IDs, invitation IDs, etc.) are 30-character alphanumeric opaque IDs (displayed with hyphens). Do not apply numeric validation to these.
 
+### Parameter Aliases
+
+The canonical parameter names for context-scoped tools (storage, download, ai, apps) are `profile_type` and `profile_id`. The legacy names `context_type` and `context_id` are accepted as aliases and work identically -- the server maps them automatically. Use `profile_type`/`profile_id` in new code.
+
 ### Pagination
 
 Two pagination styles are used depending on the endpoint:
 
-**Cursor-based (storage list endpoints):** `sort_by`, `sort_dir`, `page_size`, and `cursor`. The response includes a `next_cursor` value when more results are available. Pass this cursor in the next call to retrieve the next page. Page sizes are typically 100, 250, or 500. Used by: `storage` action `list` (with `context_type: "workspace"` or `"share"`).
+**Cursor-based (storage list endpoints):** `sort_by`, `sort_dir`, `page_size`, and `cursor`. The response includes a `next_cursor` value when more results are available. Pass this cursor in the next call to retrieve the next page. Page sizes are typically 100, 250, or 500. Used by: `storage` action `list` (with `profile_type: "workspace"` or `"share"`).
 
 **Limit/offset (all other list endpoints):** `limit` (1-500, default 100) and `offset` (default 0). Used by: `org` actions `list`, `members`, `list-workspaces`, `list-shares`, `billing-members`, `discover-all`, `discover-external`; `share` actions `list`, `members`; `workspace` actions `list`, `members`, `list-shares`; `user` action `list-shares`; `storage` action `search`.
 
 ### Binary Downloads
 
-MCP tools return download URLs -- they never stream binary content directly. `download` action `file-url` (with `context_type: "workspace"` or `"share"`) and `download` action `quickshare-details` call the `/requestread/` endpoint to obtain a temporary token, then construct a full download URL. The agent should return these URLs to the user or pass them to a download utility.
+MCP tools return download URLs -- they never stream binary content directly. `download` action `file-url` (with `profile_type: "workspace"` or `"share"`) and `download` action `quickshare-details` call the `/requestread/` endpoint to obtain a temporary token, then construct a full download URL. The agent should return these URLs to the user or pass them to a download utility.
 
 `download` actions `zip-url` (workspace and share) return the URL along with the required `Authorization` header value.
 
@@ -1453,7 +1457,7 @@ Three mechanisms for detecting changes, listed from most to least preferred:
 
 #### AI Message Completion
 
-`ai` action `message-read` (with `context_type: "workspace"` or `"share"`) implements built-in polling (up to 15 attempts, 2-second intervals). If the response is still processing after that window, use `event` action `activity-poll` with the workspace or share ID instead of calling the read action in a loop:
+`ai` action `message-read` (with `profile_type: "workspace"` or `"share"`) implements built-in polling (up to 15 attempts, 2-second intervals). If the response is still processing after that window, use `event` action `activity-poll` with the workspace or share ID instead of calling the read action in a loop:
 
 1. Call `event` action `activity-poll` with `entity_id` set to the workspace/share ID.
 2. When the response includes an `ai_chat:{chatId}` key matching your chat, call `ai` action `message-read` once to get the completed response.
@@ -1468,7 +1472,7 @@ Three mechanisms for detecting changes, listed from most to least preferred:
 
 ### Trash, Delete, and Purge
 
-- `storage` action `delete` (with `context_type: "workspace"` or `"share"`) moves items to the trash. They are recoverable.
+- `storage` action `delete` (with `profile_type: "workspace"` or `"share"`) moves items to the trash. They are recoverable.
 - `storage` action `restore` recovers items from the trash.
 - `storage` action `purge` permanently and irreversibly deletes items from the trash.
 
@@ -1649,7 +1653,7 @@ The widget uses the `upload` tool (actions: create-session, chunk, finalize, web
 
 **Launch via tool:**
 ```
-apps action launch app_id uploader context_type workspace context_id <workspace_id>
+apps action launch app_id uploader profile_type workspace profile_id <workspace_id>
 ```
 
 ### Using the Apps Tool
@@ -1658,14 +1662,14 @@ The `apps` tool provides widget discovery and launching:
 
 1. **List apps:** `apps` action `list` -- returns all available widgets with metadata
 2. **App details:** `apps` action `details` with `app_id` -- full metadata for a specific widget
-3. **Launch app:** `apps` action `launch` with `app_id`, `context_type`, `context_id` -- opens widget with context
+3. **Launch app:** `apps` action `launch` with `app_id`, `profile_type`, `profile_id` -- opens widget with context
 4. **Find apps for a tool:** `apps` action `get-tool-apps` with `tool_name` -- maps tools to their widgets
 
 ### Widget Context
 
 All widgets accept workspace or share context:
-- `context_type: "workspace"` + `context_id: "<workspace_id>"`
-- `context_type: "share"` + `context_id: "<share_id>"`
+- `profile_type: "workspace"` + `profile_id: "<workspace_id>"`
+- `profile_type: "share"` + `profile_id: "<share_id>"`
 
 ### Design System
 
@@ -1677,7 +1681,7 @@ Widgets use a shared design system matching the Fast.io frontend:
 ### Example: Launch File Picker
 
 ```
-apps action launch app_id file-picker context_type workspace context_id <workspace_id>
+apps action launch app_id file-picker profile_type workspace profile_id <workspace_id>
 ```
 
 ### Example: Find Widgets for Storage Operations
@@ -1984,9 +1988,9 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 ### storage
 
-All storage actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
+All storage actions require `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) and `profile_id` (also accepted as `context_id`) (the 19-digit profile ID).
 
-**list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only). Requires `context_type`, `context_id`, and `node_id` (use `root` for root folder).
+**list** -- List files and folders in a directory with pagination. Each item includes `web_url` (workspace only). Requires `profile_type`, `profile_id`, and `node_id` (use `root` for root folder).
 
 **recent** -- List recently modified files and folders across all directories, sorted by updated descending. Unlike `list` which is scoped to a single folder, this returns nodes from the entire storage tree. Supports optional `type` filter (`file`, `folder`, `link`, `note`), `page_size` (100, 250, or 500), and `cursor` for pagination. For workspace folder shares, results are automatically filtered to the share's subtree.
 
@@ -2066,15 +2070,15 @@ All storage actions require `context_type` parameter (`workspace` or `share`) an
 
 ### download
 
-**file-url** -- Get a download token and URL for a file. Optionally specify a version. Requires `context_type`, `context_id`, and `node_id`.
+**file-url** -- Get a download token and URL for a file. Optionally specify a version. Requires `profile_type`, `profile_id`, and `node_id`.
 
-**zip-url** -- Get a ZIP download URL for a folder or entire workspace/share. Returns the URL with auth instructions. Requires `context_type`, `context_id`, and `node_id` (use `root` for entire storage tree).
+**zip-url** -- Get a ZIP download URL for a folder or entire workspace/share. Returns the URL with auth instructions. Requires `profile_type`, `profile_id`, and `node_id` (use `root` for entire storage tree).
 
 **quickshare-details** -- Get metadata and download info for a quickshare link. No authentication required.
 
 ### ai
 
-All AI actions require `context_type` parameter (`workspace` or `share`) and `context_id` (the 19-digit profile ID).
+All AI actions require `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) and `profile_id` (also accepted as `context_id`) (the 19-digit profile ID).
 
 **chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, provide `nodeId:versionId` pairs — versionId is auto-resolved to the current version if left empty (get explicit `versionId` from storage list/details `version` field). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via storage details). Type is auto-promoted from `chat` to `chat_with_files` when file parameters are present. Returns chat ID and initial message ID -- use message-read to get the AI response.
 
@@ -2308,7 +2312,7 @@ Interactive MCP App widget discovery and launching. Widgets are interactive HTML
 
 **details** -- Get full metadata for a specific widget. Requires `app_id` (the widget name, e.g., "file-picker").
 
-**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `context_type` ("workspace" or "share"), and `context_id` (the 19-digit profile ID). Returns the widget HTML content ready for rendering.
+**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `profile_type` ("workspace" or "share"), and `profile_id` (the 19-digit profile ID). Returns the widget HTML content ready for rendering.
 
 **get-tool-apps** -- Find widgets associated with a specific tool domain. Requires `tool_name` (e.g., "storage", "ai", "comment"). Returns widgets that provide UI for that tool's operations.
 
