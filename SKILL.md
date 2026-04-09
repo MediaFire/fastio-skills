@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.143.0"
+  version: "1.144.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.143
+**Version:** 1.144
 **Last Updated:** 2026-04-09
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -52,7 +52,7 @@ When agents need to *understand* documents -- not just store them -- they have t
 | Collecting files from humans is harder | Receive shares let humans upload directly to your workspace -- no email attachments |
 | Understanding document contents | Built-in AI reads, summarizes, and answers questions about your files |
 | Building a RAG pipeline from scratch | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable |
-| Finding the right file in a large collection | Storage search finds documents by meaning (with intelligence) or keywords (without) |
+| Finding the right file in a large collection | Storage search finds documents by keyword or meaning (semantic search when intelligence is enabled) |
 | Handing a project off to a human | One-click ownership transfer -- human gets the org, agent keeps admin access |
 | Tracking what happened | Full audit trail with AI-powered activity summaries |
 | Cost | Free. 50 GB storage, 5,000 monthly credits, no credit card |
@@ -264,11 +264,17 @@ If the account does not have 2FA enabled, these operations work normally without
 - `auth` action `status` -- checks the local Durable Object session. No API call is made. Returns authentication state, user ID, email, auth_method, token expiry, scopes, and agent_name. If the session has expired, returns `session_expired: true` with `expired_reason` (`"token_expired"` or `"refresh_expired"`) and `expired_at` timestamp.
 - `auth` action `check` -- validates the token against the Fast.io API. Returns the user ID if the token is still valid.
 
-### Session Expiry
+### Session Expiry and Auto-Refresh
 
-JWT tokens last **1 hour**. API keys do not expire by default, but can optionally have an expiration set via `api-key-create` or `api-key-update` with the `key_expires` parameter. When a JWT session expires or a time-limited API key expires, tool calls return a clear error indicating that re-authentication is needed. Call `auth` action `signin` again to establish a new session. The MCP server does not auto-refresh tokens.
+**OAuth/PKCE sessions** (the default) have 1-hour access tokens and 30-day refresh tokens. The MCP server **proactively refreshes** OAuth access tokens before they expire -- an internal alarm fires ~5 minutes before expiry and silently obtains a new token using the stored refresh token. This creates a self-sustaining cycle: sessions stay alive indefinitely without user interaction, until the 30-day refresh token chain expires or is revoked. If proactive refresh fails, a reactive safety net retries on the next tool call (401 → refresh → retry).
 
-**Tip:** For long-running sessions, use `auth` action `status` to check remaining token lifetime before starting a multi-step workflow. If the token is close to expiring, re-authenticate first to avoid mid-workflow interruptions.
+**Basic JWT sessions** (from `auth` action `signin`) last 30 days and have no refresh token. When the token expires, the session is cleaned up and re-authentication is required.
+
+**API keys** do not expire by default, but can optionally have an expiration set via `api-key-create` or `api-key-update` with the `key_expires` parameter. API key expiration is enforced server-side by the backend.
+
+The MCP server tracks how each session was authenticated (`auth_method`: `"api_key"`, `"jwt"`, or `"oauth"`) and skips client-side expiration checks for API key sessions.
+
+**Error differentiation:** When a session expires, tool calls return `"Session expired. Please re-authenticate..."` -- distinct from `"Not authenticated..."` which indicates no prior session existed. This helps distinguish reconnection issues from first-time setup.
 
 ### Signing Out
 
@@ -336,7 +342,7 @@ Workspaces are file storage containers within organizations. Each workspace has:
 - **Archive/unarchive** lifecycle management.
 - **50 GB included storage** on the free agent plan, with files up to 1 GB per upload.
 - **File versioning** -- every edit creates a new version, old versions are recoverable.
-- **Keyword and semantic search** -- find files by name or content (keyword search), or by meaning when intelligence is enabled (semantic search). Both via `storage` action `search`.
+- **Keyword and semantic search** -- find files by name or content; with intelligence enabled, search by meaning.
 
 Workspaces are identified by a 19-digit numeric profile ID.
 
@@ -344,20 +350,20 @@ Workspaces are identified by a 19-digit numeric profile ID.
 
 Workspaces have an **intelligence** toggle that controls whether AI features are active.
 
-> **⚠️ COST WARNING:** Intelligence incurs significant ingestion costs (10 credits per page for every uploaded document). For a workspace with hundreds or thousands of pages, this adds up quickly. **Do NOT enable intelligence unless the user specifically needs RAG queries across many documents or semantic storage search.** Most workflows (file storage, sharing, collaboration, one-off file analysis) work perfectly without it.
+> **⚠️ COST WARNING:** Intelligence incurs significant ingestion costs (10 credits per page for every uploaded document). For a workspace with hundreds or thousands of pages, this adds up quickly. **Do NOT enable intelligence unless the user specifically needs RAG chat queries or semantic search via storage search.** Most workflows (file storage, sharing, collaboration, one-off file analysis) work perfectly without it.
 
 **Intelligence OFF (recommended default)** -- the workspace is pure file storage. You can still attach files directly to an AI chat conversation (up to 20 files, 200 MB total) and ask questions about them -- no ingestion cost. This is the right choice for most use cases: file storage, sharing, collaboration, project coordination, and analyzing a small number of specific files.
 
 **Intelligence ON (only when needed)** -- the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested, summarized, and indexed. **Only enable this when the user needs one of these two capabilities:**
 
 1. **RAG queries across many documents** -- scope AI chat to entire folders or the full workspace and ask questions across all indexed content. The AI retrieves relevant passages and answers with citations. This is useful when you have a large volume of documents and need to search across all of them.
-2. **Semantic storage search** -- `storage` action `search` finds files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
+2. **Semantic search via storage search** -- find files by meaning, not just keywords. Use `storage` action `search` to find documents semantically. "Show me contracts with indemnity clauses" works even if those exact words do not appear in the filename.
 
 Intelligence also enables auto-summarization and automatic metadata extraction, but these alone do not justify the ingestion cost.
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-**Default behavior:** The MCP server defaults intelligence to OFF when creating workspaces and shares. To enable intelligence, you must explicitly pass `intelligence: "true"`. **Do NOT enable intelligence unless the user specifically requests RAG queries across many documents or semantic storage search.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs (10 credits/page) are incurred immediately and are non-refundable.
+**Default behavior:** The MCP server defaults intelligence to OFF when creating workspaces and shares. To enable intelligence, you must explicitly pass `intelligence: "true"`. **Do NOT enable intelligence unless the user specifically requests RAG chat queries or semantic search via storage search.** Do not enable it speculatively "just in case" -- it can always be enabled later, but ingestion costs (10 credits/page) are incurred immediately and are non-refundable.
 
 **Agent use case:** Create a workspace per project or client. Keep intelligence OFF for storage and collaboration. Only enable it when users need to query across a large document set. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders. Everything is organized, searchable, and versioned.
 
@@ -386,6 +392,7 @@ A **Portal** is a Send share created from a workspace folder (`storage_mode=work
 - **Custom branding** -- background images, gradient colors, accent colors, logos
 - **Post-download messaging** -- show custom messages and links after download
 - **Up to 3 custom links** per share for context or calls-to-action
+- **Anonymous file drops** -- allow guests to upload files to Receive/Exchange shares without registration (enable `anonymous_uploads_enabled` with "Anyone" access)
 - **Guest chat** -- let share recipients ask questions in real-time
 - **AI-powered auto-titling** -- shares automatically generate smart titles from their contents
 - **Activity notifications** -- get notified when files are sent or received
@@ -484,10 +491,10 @@ AI chat lets agents ask questions about files stored in workspaces and shares. T
 
 - **`chat`** — Basic AI conversation with no file context from the workspace index. Use for general questions only.
 - **`chat_with_files`** — AI grounded in your files. Two mutually exclusive modes for providing file context:
-  - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `ready` AI state.
-  - **File attachments** — files read directly by the AI. No intelligence required; files must have `ai.attach: true` in storage details (the file must be a supported type for AI analysis). Max 20 files, 200 MB total.
 
 **Auto-promotion:** If you create a chat with `type=chat` but include `files_scope`, `folders_scope`, or `files_attach`, the system automatically promotes the type to `chat_with_files`. You don't need to worry about setting the type exactly right — the intent is unambiguous when file parameters are present.
+  - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `ready` AI state.
+  - **File attachments** — files read directly by the AI. No intelligence required; files must have `ai.attach: true` in storage details (the file must be a supported type for AI analysis). Max 20 files, 200 MB total.
 
 Both types augment answers with web knowledge when relevant.
 
@@ -548,7 +555,7 @@ File nodes in storage list/details responses include an `ai` object with three f
 
 This flag is independent of the workspace intelligence setting — a file can have `ai.attach: true` even when intelligence is off.
 
-**When to enable intelligence:** You need RAG queries across many documents (scoped to folders or the full workspace) or semantic storage search (finding files by meaning via `storage` action `search`). Do NOT enable just for auto-summarization or metadata extraction alone -- the ingestion cost (10 credits/page) is significant.
+**When to enable intelligence:** You need RAG chat queries across many documents (scoped to folders or the full workspace) or semantic search via `storage` action `search`. Do NOT enable just for auto-summarization or metadata extraction alone -- the ingestion cost (10 credits/page) is significant.
 
 **When to disable intelligence (recommended default):** The workspace is for storage, sharing, collaboration, or you only need to analyze specific files via attachments. This covers most use cases. Saves significant credits. Intelligence can always be enabled later if needed.
 
@@ -912,6 +919,7 @@ Several tools use permission parameters with specific allowed values. Use these 
 | `download_security` | `off`, `medium`, `high` | `off` |
 | `download_enabled` | `true`, `false` | `true` (legacy -- prefer `download_security`) |
 | `guest_chat_enabled` | `true`, `false` | `false` |
+| `anonymous_uploads_enabled` | `true`, `false` | `false` |
 | `workspace_style` | `true`, `false` | `true` |
 | `background_image` | `0`-`128` | `0` |
 
@@ -924,6 +932,7 @@ Several tools use permission parameters with specific allowed values. Use these 
 - Field length and format constraints for `custom_name`, `title`, and `description` are documented in the **Profile Field Constraints** table below.
 - Color parameters (`accent_color`, `background_color1`, `background_color2`) accept JSON strings.
 - `create_folder` creates a new workspace folder for the share when used with `storage_mode='workspace_folder'`.
+- `anonymous_uploads_enabled` allows guests to upload files to Receive/Exchange shares without creating an account. Requires an "Anyone" access level. Not applicable to Send shares or Portals.
 
 ### Profile Field Constraints
 
@@ -1042,7 +1051,7 @@ Share CRUD, public details, archiving, password authentication, asset management
 
 ### storage
 
-File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search, add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
+File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search (keyword or semantic when intelligence is enabled), add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
 **Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
 
@@ -1060,7 +1069,7 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 ### ai
 
-AI-powered chat with RAG and document analysis in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
+AI-powered RAG chat, document analysis, and shareable summaries in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
 **Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
 
@@ -1232,11 +1241,11 @@ Create a branded, professional share for outbound file delivery. This replaces r
 
 ### 6. Collect Documents from a User
 
-Create a Receive share so humans can upload files directly to you -- no email attachments, no cloud drive links.
+Create a Receive share so humans can upload files directly to you -- no email attachments, no cloud drive links. For public collection (e.g., job applications, form submissions), enable `anonymous_uploads_enabled` so guests can upload without creating an account.
 
-1. `share` action `create` with `workspace_id`, `name` (e.g., "Upload your tax documents here"), and `type: "receive"`. Returns a `share_id`.
+1. `share` action `create` with `workspace_id`, `name` (e.g., "Upload your tax documents here"), and `type: "receive"`. Returns a `share_id`. For anonymous drops, also pass `anonymous_uploads_enabled: true` and set `access_options` to "Anyone with a registered account" or broader.
 2. `share` action `update` with `share_id` to set access level, expiration, and branding as needed.
-3. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` to invite the uploader.
+3. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` to invite the uploader (skip this step for anonymous drop shares).
 4. The human uploads files through a clean, branded interface.
 5. Files appear in your workspace. If intelligence is enabled, they are auto-indexed by AI.
 6. Use `ai` action `chat-create` with `profile_type: "share"` scoped to the receive share's folder to ask questions like "Are all required forms present?"
@@ -1249,7 +1258,7 @@ Create an intelligent workspace that auto-indexes all content for RAG queries.
 2. Upload reference documents (see workflow 3 or 4). AI auto-indexes and summarizes everything on upload.
 3. `ai` action `chat-create` with `profile_type: "workspace"`, `profile_id` (workspace ID), `query_text`, `type: "chat_with_files"`, and `folders_scope` (comma-separated `nodeId:depth` pairs) to query across folders or the entire workspace.
 4. `ai` action `message-read` with `profile_type: "workspace"`, `profile_id`, `chat_id`, and `message_id` -- polls until the AI response is complete. Returns `response_text` and `citations` pointing to specific files, pages, and snippets.
-5. `storage` action `search` with `profile_type: "workspace"`, `profile_id`, and a query string -- with intelligence enabled, this performs semantic search (finds files by meaning, not just filename).
+5. `storage` action `search` with `profile_type: "workspace"`, `profile_id`, and a query string -- with intelligence enabled, this performs semantic search to find files by meaning, not just filename.
 6. Answers include citations to specific pages and files. Pass these back to the user with source references.
 
 ### 8. Ask AI About Files
@@ -1324,15 +1333,15 @@ The complete agentic workflow pattern: plan work, execute with logging, and gate
 
 ## 7. Key Patterns and Gotchas
 
+### Parameter Aliases
+
+Tools that operate on workspaces or shares use `profile_type` and `profile_id` as the canonical parameter names. The older names `context_type` and `context_id` are accepted as aliases across all tools -- both forms are interchangeable and produce identical behavior.
+
 ### ID Format
 
 Profile IDs (org, workspace, share, user) are 19-digit numeric strings. Most endpoints also accept custom names as identifiers -- workspace folder names, share URL names, org domain names, or user email addresses. Both formats are interchangeable in URL path parameters.
 
 All other IDs (node IDs, upload IDs, chat IDs, comment IDs, invitation IDs, etc.) are 30-character alphanumeric opaque IDs (displayed with hyphens). Do not apply numeric validation to these.
-
-### Parameter Aliases
-
-The canonical parameter names for context-scoped tools (storage, download, ai, apps) are `profile_type` and `profile_id`. The legacy names `context_type` and `context_id` are accepted as aliases and work identically -- the server maps them automatically. Use `profile_type`/`profile_id` in new code.
 
 ### Pagination
 
@@ -1353,6 +1362,28 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 All file uploads go through the `POST /blob` sidecar endpoint. This is the only supported upload data path — it bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size up to 100 MB.
 
 > **Prefer `web-import` for URL-accessible files.** If the file is accessible via any URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import` instead of chunked upload. It's a single tool call — no chunking, no session management.
+
+#### Upload Limits API
+
+Call `upload` action `limits` to get your plan's upload constraints. Optional parameters: `action_context` ("create" or "update"), `instance_id` (target workspace/share ID), `file_id` (for updates), `org` (organization ID).
+
+**Response fields:**
+| Field | Description | Free/Agent | Pro | Business |
+|---|---|---|---|---|
+| `chunk_size` | Maximum chunk size | 100 MB | 100 MB | 100 MB |
+| `size` | Maximum file size per upload | 1 GB | 25 GB | 50 GB |
+| `chunks` | Maximum chunks per session | 35 | 550 | 550 |
+| `sessions` | Maximum concurrent sessions | 150 | 7,500 | 7,500 |
+| `sessions_size_max` | Max aggregate size of all sessions | 6.6 GB | 160 GB | 320 GB |
+
+**Note:** The API returns maximum limits. The **minimum chunk size (1 MB)** is a fixed system constant not returned by this endpoint — it applies to all plans equally.
+
+#### Choosing an Upload Strategy
+
+| File Type | Size | Recommended Approach |
+|---|---|---|
+| Any file with a URL | Any | `upload` action `web-import` (single step) |
+| Text or binary, no URL | Any | `POST /blob` sidecar → `chunk` with `blob_ref` → `finalize` |
 
 #### `POST /blob` endpoint — the standard upload path
 
@@ -1504,9 +1535,11 @@ Failed API calls throw errors with two fields: `code` (unique numeric error ID) 
 
 **403 and scoped keys:** If using a scoped API key (or scoped OAuth token), 403 errors often mean the target resource is outside the key's granted scope, not a role/permissions issue. Check `auth` action `status` and look at `scopes_detail` to see which entities your key can access. Scoped keys can only access the specific organizations, workspaces, or shares they were granted -- all other endpoints return 403.
 
+**Read-only scope and tool filtering:** When authenticated with a read-only scoped key (all entity grants have `:r` access mode), the server automatically filters each tool to only expose read actions. Write actions are removed from the action enum, description, and annotations (which change to `readOnlyHint=true`, `destructiveHint=false`). Attempting a write action on a read-only session returns a schema validation error, not a 403. Re-authenticating with a read-write key (or an unscoped key) restores the full action set.
+
 ### Session State
 
-The auth token, user ID, email, and token expiry are persisted in the server session. There is no need to pass tokens between tool calls. The session survives across multiple tool invocations within the same MCP connection.
+The auth token, user ID, email, token expiry, and refresh token are persisted in the server session. There is no need to pass tokens between tool calls. The session survives across multiple tool invocations within the same MCP connection. OAuth sessions auto-refresh silently -- access tokens are renewed before expiry via an internal alarm, so sessions remain active for up to 30 days (the refresh token lifetime) without user intervention.
 
 ### Human-Facing URLs
 
@@ -1618,6 +1651,8 @@ Pattern-based recovery: error messages are also matched against common patterns 
 
 **Tool annotations:** Tools include MCP annotation hints -- `readOnlyHint`, `destructiveHint`, `idempotentHint` (download, event), and `openWorldHint` (org, user, workspace, share, storage) -- to help clients understand tool behavior without documentation.
 
+**Destructive action tags:** Actions that perform irreversible operations (delete, purge, close, etc.) have `[DESTRUCTIVE]` appended to their description line in the tool listing. This is a text-level signal complementing the `destructiveHint` annotation -- use it to distinguish safe writes from operations that cannot be undone.
+
 **Resource completion and listing:** The workspace and share download resource templates support both dynamic listing (`resources/list`) and tab-completion (`completion/complete`). Dynamic listing shows root-level files across workspaces and shares in the client's resource picker. Tab-completion suggests valid workspace and share IDs as you type.
 
 ### Unauthenticated Tools
@@ -1665,7 +1700,7 @@ The `apps` tool provides widget discovery and launching:
 
 1. **List apps:** `apps` action `list` -- returns all available widgets with metadata
 2. **App details:** `apps` action `details` with `app_id` -- full metadata for a specific widget
-3. **Launch app:** `apps` action `launch` with `app_id`, `profile_type`, `profile_id` -- opens widget with context
+3. **Launch app:** `apps` action `launch` with `app_id`, `profile_type` (or `context_type`), `profile_id` (or `context_id`) -- opens widget with context
 4. **Find apps for a tool:** `apps` action `get-tool-apps` with `tool_name` -- maps tools to their widgets
 
 ### Widget Context
@@ -1999,7 +2034,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
 
-**search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs -- scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 -- scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result -- previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 -- keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource -- previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool -- false if gRPC failed, graceful degradation), `scoped` (bool -- true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` -- keyword-only behavior. Each result includes `web_url` (workspace only).
+**search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs — scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 — scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result — previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 — keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource — previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool — false if gRPC failed, graceful degradation), `scoped` (bool — true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` — keyword-only behavior. Each result includes `web_url` (workspace only).
 
 **trash-list** -- List items currently in the trash. Each item includes `web_url` (workspace only).
 
@@ -2065,9 +2100,9 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **web-status** -- Get detailed status of a specific web upload job.
 
-**limits** -- Get upload size and chunk limits for the user's plan.
+**limits** -- Get upload size and chunk limits for the user's plan. Returns `chunk_size` (max chunk, 100 MB all plans), `size` (max file: 1 GB free/agent, 25 GB pro, 50 GB business), `chunks` (max per session: 35 free/agent, 550 pro/business), `sessions`, `sessions_size_max`. **Note:** The minimum chunk size (1 MB, except last chunk) is a fixed system constant not returned by this endpoint. Optional params: `action_context`, `instance_id`, `file_id`, `org`.
 
-**extensions** -- Get restricted and allowed file extensions for uploads.
+**extensions** -- Get restricted and allowed file extensions for uploads. Optional `plan` param to check restrictions for a specific plan. Returns `restricted_extensions`, `archive_extensions`, `enforcement_enabled`, `plan`, `cache_ttl`.
 
 **blob-info** -- Get the `POST /blob` sidecar endpoint URL, your MCP session ID, required headers, and a ready-to-use `curl` command for shell-based file uploads. No parameters required. Use this before uploading files via the blob sidecar — it gives you everything needed to bypass MCP transport limits via `curl`.
 
@@ -2315,7 +2350,7 @@ Interactive MCP App widget discovery and launching. Widgets are interactive HTML
 
 **details** -- Get full metadata for a specific widget. Requires `app_id` (the widget name, e.g., "file-picker").
 
-**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `profile_type` ("workspace" or "share"), and `profile_id` (the 19-digit profile ID). Returns the widget HTML content ready for rendering.
+**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `profile_type` ("workspace" or "share") (also accepted as `context_type`), and `profile_id` (the 19-digit profile ID) (also accepted as `context_id`). Returns the widget HTML content ready for rendering.
 
 **get-tool-apps** -- Find widgets associated with a specific tool domain. Requires `tool_name` (e.g., "storage", "ai", "comment"). Returns widgets that provide UI for that tool's operations.
 
