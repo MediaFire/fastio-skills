@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.138.0"
+  version: "1.141.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.138
-**Last Updated:** 2026-04-07
+**Version:** 1.141
+**Last Updated:** 2026-04-09
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -61,6 +61,8 @@ When agents need to *understand* documents -- not just store them -- they have t
 
 This MCP server exposes 19 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
 
+**All API access goes through the MCP tools.** Do not make direct HTTP calls to `api.fast.io` or the MCP server -- the tools handle authentication, session management, error recovery, and response formatting automatically. The only exceptions are binary transfers: `POST /blob` on the MCP server for uploads (the tool provides the curl command), download URLs returned by tools (which are pre-authenticated), and `GET /file/` pass-through endpoints on the MCP server for large file streaming. Everything else must use the tools.
+
 Once a user authenticates, the auth token is stored in the server session and automatically attached to all subsequent API calls. There is no need to pass tokens between tool invocations.
 
 ### Server Endpoints
@@ -80,7 +82,7 @@ The server exposes static MCP resources, widget resources, and file download res
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
-| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
+| `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `auth_method` (`"api_key"`, `"jwt"`, or `"oauth"` -- how the session was authenticated), `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
 | `widget://*` | Widget HTML | Interactive HTML5 widgets (6 total) -- use the `apps` tool to discover and launch | `text/html` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
@@ -128,7 +130,7 @@ The server includes workflow features for project tracking: **tasks** (structure
 ### Additional References
 
 - **Agent guide (this file):** `/skill.md` on the MCP server -- tool documentation, workflows, and constraints.
-- **REST API reference:** `https://api.fast.io/llms.txt` -- endpoint documentation for the underlying Fast.io API.
+- **REST API reference:** `https://api.fast.io/llms.txt` -- endpoint documentation for the underlying REST API (reference only -- use the MCP tools, not direct HTTP calls).
 - **Platform guide:** [references/REFERENCE.md](references/REFERENCE.md) -- capabilities, agent plan details, key workflows, and upgrade paths.
 
 ---
@@ -150,7 +152,7 @@ If you are operating independently (storing files, running workflows, building w
 
 **Option 2: Assisting a Human -- Use Their API Key**
 
-If a human already has a Fast.io account and wants your help managing their files, workspaces, or shares, they can create an API key for you to use. No separate agent account is needed -- you operate as the human user. The human creates a key at Settings -> Devices & Agents -> API Keys (direct link: `https://go.fast.io/settings/api-keys`). Call `auth` with action `set-api-key` and the key to authenticate -- the key is validated and stored in the session automatically. API keys work as Bearer tokens and by default have the same permissions as the account owner. Keys can optionally be scoped to specific organizations, workspaces, or shares (using the same scope system as OAuth tokens), tagged with an `agent_name` for tracking, and given an expiration date. Unscoped keys do not expire unless revoked. Agents can also manage API keys programmatically with `auth` actions `api-key-create`, `api-key-update`, `api-key-list`, `api-key-get`, and `api-key-delete`.
+If a human already has a Fast.io account and wants your help managing their files, workspaces, or shares, they can create an API key for you to use. No separate agent account is needed -- you operate as the human user. The human creates a key at Settings -> Devices & Agents -> API Keys (direct link: `https://go.fast.io/settings/api-keys`). Call `auth` with action `set-api-key` and the key to authenticate -- the key is validated and stored in the MCP session automatically. All subsequent tool calls use it. By default, API keys have the same permissions as the account owner. Keys can optionally be **scoped** to specific organizations, workspaces, or shares (using the same scope system as OAuth tokens) -- scoped keys can only access the granted entities, and operations outside the scope return 403. Keys can also be tagged with an `agent_name` for tracking and given an expiration date. Unscoped keys do not expire unless revoked. Agents can also manage API keys programmatically with `auth` actions `api-key-create`, `api-key-update`, `api-key-list`, `api-key-get`, and `api-key-delete`.
 
 **Option 3: Agent Account Invited to a Human's Org**
 
@@ -256,7 +258,7 @@ If the account does not have 2FA enabled, these operations work normally without
 
 ### Checking Session Status
 
-- `auth` action `status` -- checks the local Durable Object session. No API call is made. Returns authentication state, user ID, email, token expiry, scopes, and agent_name.
+- `auth` action `status` -- checks the local Durable Object session. No API call is made. Returns authentication state, user ID, email, auth_method, token expiry, scopes, and agent_name. If the session has expired, returns `session_expired: true` with `expired_reason` (`"token_expired"` or `"refresh_expired"`) and `expired_at` timestamp.
 - `auth` action `check` -- validates the token against the Fast.io API. Returns the user ID if the token is still valid.
 
 ### Session Expiry
@@ -324,7 +326,7 @@ To discover all available orgs, agents **must call both actions**:
 
 Workspaces are file storage containers within organizations. Each workspace has:
 
-- Its own set of **members** with roles (owner, admin, member, guest).
+- Its own set of **members** with roles (owner, admin, member, guest). Members have a `status` of `active` or `pending`. Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. Notifications for pending members are suppressed until they sign up. When they sign up, their status becomes `active` and all assignments are preserved.
 - A **storage tree** of files and folders (storage nodes).
 - Optional **AI features** for RAG-powered chat.
 - **Shares** that can be created within the workspace.
@@ -813,7 +815,7 @@ Tasks are organized into lists. Each workspace or share can have multiple task l
 - **Tasks** have a title, description, status, priority, assignee, dependencies, and optional node link. Create with `task` action `create-task`, list with `task` action `list-tasks`.
 - **Statuses:** `pending`, `in_progress`, `complete`, `blocked`
 - **Priorities:** 0 = none, 1 = low, 2 = medium, 3 = high, 4 = critical
-- **Assignees** are profile IDs (workspace or share members). Use `task` action `assign-task` to assign or unassign.
+- **Assignees** are profile IDs (workspace or share members, including pending members). Use `task` action `assign-task` to assign or unassign. Pending members (invited but not yet registered) can be assigned tasks — their assignments are preserved when they sign up.
 - **Bulk operations:** `task` action `bulk-status` changes status on up to 100 tasks at once.
 - **Moving tasks:** `task` action `move-task` moves a task from one list to another within the same profile. Requires the source `list_id`, `task_id`, and `target_task_list_id`. Optionally set `sort_order` to control position in the target list (default: 0).
 - **Reordering:** `task` action `reorder-tasks` sets the display order of tasks within a list. `task` action `reorder-lists` sets the display order of task lists within a profile. Pass arrays of IDs in the desired order; the server converts them to `{id, sort_order}` objects for the API.
@@ -839,7 +841,7 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 
 Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. Use when a decision requires explicit sign-off.
 
-- **Create:** `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, `description` (1-65535 chars), and optionally `approver_id` (a single profile ID, must be an entity member).
+- **Create:** `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, `description` (1-65535 chars), and optionally `approver_id` (a single profile ID, must be an entity member — can be a pending member).
 - **Resolve:** `approval` action `resolve` with `profile_type`, `profile_id`, `approval_id`, and `resolve_action: "approve"` or `"reject"` plus an optional comment. Only designated approvers can resolve.
 - **Bulk operations:** `approval` action `bulk-create` creates approval requests for every file and note in a share (max 50 nodes). `approval` action `bulk-approve` resolves all pending approvals in a share (skips stale approvals where version_match=false). `approval` action `bulk-reject` rejects all pending approvals in a share.
 - **Version tracking:** Approvals track `version_id` and `version_match`. If a node is modified after an approval is created, `version_match` becomes false (stale). Bulk operations skip stale approvals to prevent resolving outdated content.
@@ -854,9 +856,9 @@ Formal approval requests scoped to tasks, storage nodes, worklog entries, or sha
 
 Simple flat checklists scoped to workspaces and shares. No nesting -- just a list of items that can be checked off.
 
-- **Create:** `todo` action `create` with a title.
+- **Create:** `todo` action `create` with a title. Optional `assignee_id` — can be a pending member.
 - **Toggle:** `todo` action `toggle` flips the done state of a single todo. `todo` action `bulk-toggle` sets done state on up to 100 todos at once.
-- **Update/Delete:** `todo` action `update` changes title. `todo` action `delete` soft-deletes a todo.
+- **Update/Delete:** `todo` action `update` changes title or assignee. `todo` action `delete` soft-deletes a todo.
 - **Creator tracking:** Todos include a `created_by` field (profile ID of the creator).
 - **Filtered lists:** `todo` action `filtered-list` returns todos filtered by category -- "assigned" (assigned to me), "created" (created by me), "done" (completed), or "pending" (incomplete).
 - **Summary:** `todo` action `summary` returns lightweight counts -- total, done, pending, assigned-to-me, and created-by-me.
@@ -1073,13 +1075,13 @@ Search the audit/event log with rich filtering by category, subcategory, and eve
 
 ### member
 
-Member management for organizations, workspaces, and shares. Add, remove, update roles, transfer ownership, leave, join, and join via invitation. Requires `entity_type` parameter (`workspace` or `share`).
+Member management for workspaces and shares. Add, remove, update roles, transfer ownership, leave, join, and join via invitation. Member lists include both active and pending (invited but not yet registered) members — pending members have `status: "pending"` and an `invite` object with `id`, `created`, and `expires` fields. Requires `entity_type` parameter (`workspace` or `share`).
 
 **Actions:** add, remove, details, update, transfer-ownership, leave, join, join-invitation
 
 ### invitation
 
-Invitation management for organizations, workspaces, and shares. List invitations, list by state, update, and delete. Requires `entity_type` parameter (`workspace` or `share`).
+Invitation management for workspaces and shares. List invitations, list by state, update, and delete/revoke. Deleting a pending member's invitation also removes them from the member list and unassigns their workflow items (tasks, approvals, todos). Requires `entity_type` parameter (`workspace` or `share`).
 
 **Actions:** list, list-by-state, update, delete
 
@@ -1493,6 +1495,8 @@ This applies to: `workspace` actions `create-note` and `update-note`, `upload` a
 
 Failed API calls throw errors with two fields: `code` (unique numeric error ID) and `text` (human-readable description). Tools surface these as error text in the MCP response. Common HTTP status codes include 401 (unauthorized), 403 (forbidden), 404 (not found), and 429 (rate limited).
 
+**403 and scoped keys:** If using a scoped API key (or scoped OAuth token), 403 errors often mean the target resource is outside the key's granted scope, not a role/permissions issue. Check `auth` action `status` and look at `scopes_detail` to see which entities your key can access. Scoped keys can only access the specific organizations, workspaces, or shares they were granted -- all other endpoints return 403.
+
 ### Session State
 
 The auth token, user ID, email, and token expiry are persisted in the server session. There is no need to pass tokens between tool calls. The session survives across multiple tool invocations within the same MCP connection.
@@ -1692,7 +1696,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **signin** -- Sign in to Fast.io with email and password. Returns a JWT auth token. If the account has 2FA enabled the token will have limited scope until 2fa-verify is called. The token is stored in the session automatically.
 
-**set-api-key** -- Authenticate using a Fast.io API key. API keys work as Bearer tokens and by default have the same permissions as the account owner. Scoped keys restrict access to specific entities (same scope system as OAuth tokens). The key is validated against the API and stored in the session. All subsequent tool calls are authenticated automatically. Unscoped API keys do not expire unless revoked; scoped keys may have an optional expiration.
+**set-api-key** -- Authenticate using a Fast.io API key. The key is validated against the API and stored in the MCP session -- all subsequent tool calls are authenticated automatically. By default, keys have the same permissions as the account owner. Scoped keys restrict access to specific entities (same scope system as OAuth tokens) -- operations outside the granted scope return 403. When a scoped key is detected, the response includes `scopes_detail` showing which entities are accessible. Unscoped keys do not expire unless revoked; scoped keys may have an optional expiration.
 
 **signup** -- Create a new Fast.io agent account (agent=true), then automatically sign in. Sets account_type to "agent" and assigns the free agent plan. Email verification is required after signup -- call email-verify to send a code, then call it again with the code to verify. Most endpoints require a verified email. No authentication required for signup itself.
 
@@ -1712,7 +1716,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **email-verify** -- Send or validate an email verification code. When email_token is omitted a new code is sent. When provided the code is validated and the email marked as verified.
 
-**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, token expiry, scopes (raw string), scopes_detail (hydrated array with entity names, domains, and parent hierarchy -- or null if not yet fetched), and agent_name (if set).
+**status** -- Check local session status. No API call is made. Returns whether the user is authenticated, and if so their user_id, email, auth_method (`"api_key"`, `"jwt"`, or `"oauth"`), token expiry, scopes (raw string), scopes_detail (hydrated array with entity names, domains, and parent hierarchy -- or null if not yet fetched), and agent_name (if set).
 
 **pkce-login** -- Start a browser-based PKCE login flow. Returns a URL for the user to open in their browser. After signing in and approving access, the browser displays an authorization code. The user copies the code and provides it to pkce-complete to finish signing in. No password is sent through the agent. Optional params: `scope_type` (default `"user"` for full access; use `"org"`, `"workspace"`, `"all_orgs"`, `"all_workspaces"`, or `"all_shares"` for scoped access), `agent_name` (displayed in the approval screen and audit logs; defaults to MCP client name).
 
@@ -1886,7 +1890,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **unarchive** -- Restore an archived workspace to active status. Requires Admin+.
 
-**members** -- List all members of a workspace with their roles and status.
+**members** -- List all members of a workspace with their roles and status. Includes both active and pending members. Pending members have `status: "pending"` and an `invite` object (`{id, created, expires}` — `expires` is ISO 8601 or null if no expiration); active members have `status: "active"` and `invite: null`. Pending members are invited users who haven't signed up yet — they are valid assignment targets for tasks, approvals, and todos. Use `invite.id` with `invitation` action `delete` to cancel a pending member's invitation.
 
 **list-shares** -- List all shares within a workspace, optionally filtered by archive status. Each share includes `web_url`.
 
@@ -1966,7 +1970,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **password-auth** -- Authenticate with a share password. Returns a scoped JWT for the share.
 
-**members** -- List all members of a share.
+**members** -- List all members of a share. Includes both active and pending members with `status` and `invite` fields (same as workspace members).
 
 **available** -- List shares available to join (joined and owned, excludes pending invitations). Each share includes `web_url`.
 
@@ -2140,7 +2144,9 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 All member actions require `entity_type` parameter (`workspace` or `share`) and `entity_id` (the 19-digit profile ID).
 
-**add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`. For workspaces, set access level with `permissions` (admin/member/guest). For shares, use `role` (admin/member/guest/view).
+Member objects include `status` (`active` or `pending`) and `invite` (null for active members, `{id, created, expires}` for pending — `expires` is ISO 8601 or null if no expiration). Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. When a pending member signs up, their status becomes `active` and all assignments are preserved. Canceling an invitation (via `invitation` action `delete` with `invite.id`) removes the pending member and unassigns their workflow items.
+
+**add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`. Inviting by email creates a pending member if the user doesn't have an account. For workspaces, set access level with `permissions` (admin/member/guest). For shares, use `role` (admin/member/guest/view).
 
 **remove** -- Remove a member (cannot remove the owner).
 
@@ -2166,7 +2172,7 @@ All invitation actions require `entity_type` parameter (`workspace` or `share`) 
 
 **update** -- Resend or update an invitation (by ID or invitee email).
 
-**delete** -- Revoke and delete a pending invitation.
+**delete** -- Revoke and delete a pending invitation. This also removes the corresponding pending member from the member list and unassigns any workflow items (tasks, approvals, todos) assigned to them. Use the `invite.id` from the member object as the `invitation_id`.
 
 ### asset
 
@@ -2198,17 +2204,17 @@ Task list and task management for workspaces and shares. All task actions requir
 
 **list-tasks** -- List tasks in a task list. Requires `list_id`. Supports `status` filter, `assignee` filter, `sort_by` (created, updated, name, priority, status), `sort_dir`, `limit` (1-200), `offset`, and `format`.
 
-**create-task** -- Create a new task in a list. Requires `list_id` and `title` (1-500 chars). Optional `description` (max 5000 chars), `status` (pending, in_progress, complete, blocked), `priority` (0=none, 1=low, 2=medium, 3=high, 4=critical), `assignee_id` (profile ID), `dependencies` (array of task IDs), `node_id` (link to file/folder/note).
+**create-task** -- Create a new task in a list. Requires `list_id` and `title` (1-500 chars). Optional `description` (max 5000 chars), `status` (pending, in_progress, complete, blocked), `priority` (0=none, 1=low, 2=medium, 3=high, 4=critical), `assignee_id` (profile ID — can be a pending member), `dependencies` (array of task IDs), `node_id` (link to file/folder/note).
 
 **task-details** -- Get full details of a specific task. Requires `list_id` and `task_id`. Supports `format`.
 
-**update-task** -- Update a task's title, description, status, priority, assignee, dependencies, or node link. Requires `list_id` and `task_id`.
+**update-task** -- Update a task's title, description, status, priority, assignee (including pending members), dependencies, or node link. Requires `list_id` and `task_id`.
 
 **delete-task** -- Soft-delete a task. Requires `list_id` and `task_id`. Destructive.
 
 **change-status** -- Change a task's status. Requires `list_id`, `task_id`, and `status`.
 
-**assign-task** -- Assign or unassign a task. Requires `list_id` and `task_id`. Pass `assignee_id` (profile ID) to assign, or null/omit to unassign.
+**assign-task** -- Assign or unassign a task. Requires `list_id` and `task_id`. Pass `assignee_id` (profile ID, including pending members) to assign, or null/omit to unassign.
 
 **bulk-status** -- Change status on multiple tasks at once. Requires `list_id`, `task_ids` (array of task IDs, max 100), and `status`.
 
@@ -2250,13 +2256,13 @@ Formal approval requests scoped to tasks, storage nodes, worklog entries, or sha
 
 **list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 50), `offset`, and `format`.
 
-**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver), `deadline` (ISO 8601), `node_id` (artifact reference).
+**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver — can be a pending member), `deadline` (ISO 8601), `node_id` (artifact reference).
 
 **details** -- Get full details of an approval request including approver list and resolution. Requires `profile_type`, `profile_id`, and `approval_id` (opaque alphanumeric). Supports `format`.
 
 **resolve** -- Resolve an approval request. Requires `profile_type`, `profile_id`, `approval_id`, and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
 
-**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id`, `deadline` (ISO 8601). Share-only, members/admins only.
+**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id` (can be a pending member), `deadline` (ISO 8601). Share-only, members/admins only.
 
 **bulk-approve** -- Bulk-approve all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can approve their assigned approvals.
 
@@ -2266,7 +2272,7 @@ Formal approval requests scoped to tasks, storage nodes, worklog entries, or sha
 
 **summary** -- Lightweight approval counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts. Supports `format`.
 
-**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id`, `deadline` (ISO 8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
+**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id` (can be a pending member), `deadline` (ISO 8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
 
 **delete** -- Permanently delete an approval (any status). Requires `profile_type`, `profile_id`, and `approval_id`. Irreversible. Members and admins only; guests blocked.
 
@@ -2278,11 +2284,11 @@ Simple flat checklists scoped to workspaces and shares. No nesting. All todo act
 
 **list** -- List todos for a workspace or share. Requires `profile_type` and `profile_id`. Supports `filter_done` (boolean), `sort_by` (created, updated, title), `sort_dir`, `limit` (1-200, default 100), `offset`, and `format`.
 
-**create** -- Create a new todo item. Requires `profile_type`, `profile_id`, and `title` (1-500 chars). Optional `assignee_id`.
+**create** -- Create a new todo item. Requires `profile_type`, `profile_id`, and `title` (1-500 chars). Optional `assignee_id` (can be a pending member).
 
 **details** -- Get full details of a todo. Requires `todo_id` (opaque alphanumeric). Supports `format`.
 
-**update** -- Update a todo. Requires `todo_id`. Supports `title`, `assignee_id`, `done`.
+**update** -- Update a todo. Requires `todo_id`. Supports `title`, `assignee_id` (can be a pending member), `done`.
 
 **delete** -- Soft-delete a todo. Requires `todo_id`. Destructive.
 

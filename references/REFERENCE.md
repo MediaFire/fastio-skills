@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.28.0 | **Last updated:** 2026-04-06
+> **Version:** 1.29.0 | **Last updated:** 2026-04-08
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -319,6 +319,11 @@ GET /current/orgs/list/?limit=10&offset=10
 | `GET /current/workspace/{id}/storage/search/`        | `files`            |
 | `GET /current/share/{id}/storage/search/`            | `files`            |
 | `GET /current/share/{id}/members/list/`              | `users`            |
+
+**Pending members in member lists:** Member list responses include a `status` field for each user: `"active"` for
+members who have accepted their invitation, or `"pending"` for users who have been invited but have not yet created an
+account. Pending members also include an `invite` object with `id`, `created`, and `expires` fields. To cancel a
+pending invitation, use `DELETE` on the invitation endpoint with the `invite.id`.
 
 ---
 
@@ -1616,6 +1621,13 @@ the human upgrades when they're ready. The agent retains admin access to keep ma
 5. Use attach-only AI chat (no intelligence needed) for one-off analysis to save credits
 6. When credits run low, transfer the org to a human who can upgrade to unlimited credits
 
+### Invite and Pre-assign Tasks
+
+1. Invite a user: `POST /current/workspace/{id}/members/email/` with the user's email and permission level
+2. List members: `GET /current/workspace/{id}/members/list/` — find the pending member (look for `"status": "pending"`)
+3. Assign a task: `POST /tasks/{list_id}/items/create` with `assignee_id` set to the pending member's user ID
+4. When the user signs up and accepts the invitation, the task assignment transfers automatically — no follow-up needed
+
 ---
 
 ## CLI Tool
@@ -2368,6 +2380,11 @@ Workflow features must be enabled on each workspace or share before use:
   becomes searchable and citable in AI chat.
 - **Always log your work:** After any significant state-changing action, use `POST /worklogs/{entity_type}/{entity_id}/append/` to record what was done and why. Without worklog entries, agent activity is invisible to humans reviewing the workspace.
 - **Pattern:** Create context note → Create task list → Link tasks to notes → Log progress → AI searches across all.
+- **Assigning to pending members:** Tasks and approvals can be assigned to pending members — users who have been invited
+  but have not yet created an account. Pending members appear in the member list with `"status": "pending"` and have
+  real user IDs. Use the pending member's ID as `assignee_id` (tasks) or `approver_id` (approvals) just like any other
+  member. When the invited user claims their account, all assignments transfer automatically — no action needed from
+  the agent. If the invitation is cancelled, pending members are removed and their assignments are unassigned.
 
 ### Recommended Workflow for Agent Teams
 
