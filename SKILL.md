@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.144.0"
+  version: "1.145.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.144
+**Version:** 1.145
 **Last Updated:** 2026-04-09
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -1059,7 +1059,7 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management. All files upload through the chunked flow with `POST /blob` sidecar for binary data.
 
-**Actions:** create-session, chunk, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
+**Actions:** create-session, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
 ### download
 
@@ -1380,10 +1380,11 @@ Call `upload` action `limits` to get your plan's upload constraints. Optional pa
 
 #### Choosing an Upload Strategy
 
-| File Type | Size | Recommended Approach |
+| File Type | Size Known? | Recommended Approach |
 |---|---|---|
-| Any file with a URL | Any | `upload` action `web-import` (single step) |
-| Text or binary, no URL | Any | `POST /blob` sidecar → `chunk` with `blob_ref` → `finalize` |
+| Any file with a URL | N/A | `upload` action `web-import` (single step) |
+| Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_ref` → `finalize` |
+| Generated/piped content, no URL | No | `create-session` with `stream=true` → `POST /blob` → `stream` with `blob_ref` (auto-finalizes) |
 
 #### `POST /blob` endpoint — the standard upload path
 
@@ -1391,11 +1392,19 @@ A sidecar HTTP endpoint that accepts raw data outside the JSON-RPC pipe. **This 
 
 **Getting the endpoint URL and session ID:** The `create-session` response automatically includes a `blob_upload` object with the endpoint URL, your session ID, and a ready-to-use `curl` command — no separate `blob-info` call needed. You can also call `upload` action `blob-info` independently.
 
-**Flow:**
+**Chunked flow (known size):**
 1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command`.
 2. Use `curl` (or any HTTP client) to `POST /blob` with the file data and the headers from the `blob_upload` object. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
 3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
 4. Repeat steps 2-3 for additional chunks (if splitting a large file), then `upload` action `finalize`.
+
+**Stream flow (unknown size):**
+1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `stream=true`. `filesize` is optional — provide `max_size` as a ceiling or omit for plan default.
+2. `POST /blob` with the file data (same as chunked flow). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+3. `upload` action `stream` with `upload_id` and `blob_ref: "<blob_id>"`. Optionally include `hash` and `hash_algo` for verification.
+4. Done — stream auto-finalizes. No separate `finalize` call needed.
+
+**Stream restrictions:** Stream sessions cannot use `chunk`/`finalize` (rejected with 406). Chunked sessions cannot use `stream` (rejected with 406). Stream is single-shot — cannot stream to the same session twice.
 
 **Blob constraints:**
 - Blobs expire after **5 minutes**. Stage and consume them promptly.
