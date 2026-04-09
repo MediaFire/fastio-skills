@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.141.0"
+  version: "1.143.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.141
+**Version:** 1.143
 **Last Updated:** 2026-04-09
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -160,6 +160,8 @@ If you want your own agent identity but need to work within a human's existing o
 
 **Option 4: Browser Login (PKCE)**
 
+**Not for headless agents:** PKCE requires a human with a browser present in the conversation. Headless agents, CLI tools, and automated pipelines cannot complete this flow — use Option 1 (signup) or Option 2 (API key) instead.
+
 If you prefer not to send a password through the agent, use browser-based PKCE login. Call `auth` action `pkce-login` (optionally with an `email` hint) to get a login URL. The user opens the URL in a browser, signs in (email/password or SSO like Google/Microsoft), and approves access. The browser displays an authorization code which the user copies back to the agent. Call `auth` action `pkce-complete` with the code to finish signing in. This is the most secure option -- no credentials pass through the agent.
 
 PKCE login supports optional **scoped access** via the `scope_type` parameter. By default, `scope_type` is `"user"` (full account access). Other scope types restrict the token to specific entity types:
@@ -198,6 +200,7 @@ The MCP server defaults to `scope_type="user"` for backward compatibility.
 | Working within a human's org with your own identity | Create an agent account, have the human invite you (Option 3) |
 | Building something to hand off to a human | Create an agent account, build it, then transfer the org (Option 1) |
 | Signing in without sending a password through the agent | Browser-based PKCE login (Option 4) |
+| Running headless / no browser available | Create an agent account (Option 1) or use an API key (Option 2) — do NOT use PKCE |
 
 **Credit limits by account type:** Agent accounts (Options 1, 3) can transfer orgs to humans when credits run out -- see Ownership Transfer in section 3. Human accounts (Option 2) cannot use the transfer/claim API; direct the human to upgrade their plan at `https://go.fast.io/settings/billing` or via `org` action `billing-create`.
 
@@ -1591,7 +1594,7 @@ Workflow-critical tool responses include a `_next` field -- a short array of sug
 | HTTP Status | Recovery |
 |-------------|----------|
 | 400 | Check required parameters and ID formats |
-| 401 | Re-authenticate: auth action signin or pkce-login |
+| 401 | Re-authenticate: auth action signin or set-api-key. If the error says "Session expired", the prior session timed out -- re-auth to continue. If "Not authenticated", no session exists yet. |
 | 402 | Credits exhausted -- check balance: org action limits |
 | 403 | Permission denied -- check role: org action details |
 | 404 | Resource not found -- verify the ID, use list actions to discover valid IDs |
