@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.145.0"
+  version: "1.147.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.145
+**Version:** 1.147
 **Last Updated:** 2026-04-09
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -387,7 +387,7 @@ A **Portal** is a Send share created from a workspace folder (`storage_mode=work
 
 - **Password protection** -- require a password for link access
 - **Expiration dates** -- shares auto-expire after a set period
-- **Download controls** -- three security levels: `off` (no restrictions, default), `medium` (guests can preview files inline but cannot download), `high` (all guest downloads blocked). Set via `download_security` on create/update. Legacy `download_enabled` boolean still supported.
+- **Download controls** -- three security levels: `off` (no restrictions, default), `medium` (guests can preview files inline but cannot download), `high` (all guest downloads blocked). Set via `download_security` on create/update.
 - **Access levels** -- Members Only, Org Members, Registered Users, or Public (anyone with the link)
 - **Custom branding** -- background images, gradient colors, accent colors, logos
 - **Post-download messaging** -- show custom messages and links after download
@@ -917,7 +917,6 @@ Several tools use permission parameters with specific allowed values. Use these 
 | `intelligence` | `true`, `false` | `false` (always `false` for `workspace_folder` shares) |
 | `comments_enabled` | `true`, `false` | `true` |
 | `download_security` | `off`, `medium`, `high` | `off` |
-| `download_enabled` | `true`, `false` | `true` (legacy -- prefer `download_security`) |
 | `guest_chat_enabled` | `true`, `false` | `false` |
 | `anonymous_uploads_enabled` | `true`, `false` | `false` |
 | `workspace_style` | `true`, `false` | `true` |
@@ -1185,15 +1184,15 @@ If the file has a URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `u
 **Option B: `POST /blob` sidecar (all other files — text or binary)**
 1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command` with a ready-to-use curl command.
 2. Run the curl command from `blob_upload.curl_command`, replacing `@<file>` with your file path. Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
-3. `upload` action `chunk` with `upload_id`, `chunk_number: 1`, and `blob_ref: "<blob_id>"`.
+3. `upload` action `chunk` with `upload_id`, `chunk_number: 1`, and `blob_id: "<blob_id>"`.
 4. Repeat steps 2-3 for additional chunks (if splitting a large file).
 5. `upload` action `finalize` with `upload_id`.
 
 **IMPORTANT:** The `blob_upload.session_id` is the MCP session ID for this connection. You **must** use this exact session ID in the `Mcp-Session-Id` header when POSTing to `/blob`. Using a different session ID (e.g., from a separately-established MCP connection) will stage the blob in a different location, and the `chunk` action will not find it.
 
 Two options for passing chunk data (provide exactly one):
-- **`blob_ref`** — blob ID from `POST /blob`. The standard upload path for all files — no base64, no MCP transport limits.
-- **`content`** — for small text strings only (code snippets, short JSON). For larger text files, use `POST /blob` + `blob_ref`.
+- **`blob_id`** — blob ID from `POST /blob` response. The standard upload path for all files — no base64, no MCP transport limits. (Also accepted as `blob_ref` for backward compatibility.)
+- **`content`** — for small text strings only (code snippets, short JSON). For larger text files, use `POST /blob` + `blob_id`.
 
 `upload` action `finalize` with `upload_id` triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on failure. Terminal failure states: `assembly_failed` (chunks could not be assembled) and `store_failed` (assembled file could not be stored — check `status_message` for details). The file is automatically added to the target workspace and folder specified during session creation -- no separate add-file call is needed.
 
@@ -1383,8 +1382,8 @@ Call `upload` action `limits` to get your plan's upload constraints. Optional pa
 | File Type | Size Known? | Recommended Approach |
 |---|---|---|
 | Any file with a URL | N/A | `upload` action `web-import` (single step) |
-| Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_ref` → `finalize` |
-| Generated/piped content, no URL | No | `create-session` with `stream=true` → `POST /blob` → `stream` with `blob_ref` (auto-finalizes) |
+| Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_id` → `finalize` |
+| Generated/piped content, no URL | No | `create-session` with `stream=true` → `POST /blob` → `stream` with `blob_id` (auto-finalizes) |
 
 #### `POST /blob` endpoint — the standard upload path
 
@@ -1395,13 +1394,13 @@ A sidecar HTTP endpoint that accepts raw data outside the JSON-RPC pipe. **This 
 **Chunked flow (known size):**
 1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `filesize`. The response includes `blob_upload.curl_command`.
 2. Use `curl` (or any HTTP client) to `POST /blob` with the file data and the headers from the `blob_upload` object. Returns `{ "blob_id": "<uuid>", "size": <bytes> }` (HTTP 201).
-3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_ref: "<blob_id>"`.
+3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_id: "<blob_id>"`.
 4. Repeat steps 2-3 for additional chunks (if splitting a large file), then `upload` action `finalize`.
 
 **Stream flow (unknown size):**
 1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `stream=true`. `filesize` is optional — provide `max_size` as a ceiling or omit for plan default.
 2. `POST /blob` with the file data (same as chunked flow). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
-3. `upload` action `stream` with `upload_id` and `blob_ref: "<blob_id>"`. Optionally include `hash` and `hash_algo` for verification.
+3. `upload` action `stream` with `upload_id` and `blob_id: "<blob_id>"`. Optionally include `hash` and `hash_algo` for verification.
 4. Done — stream auto-finalizes. No separate `finalize` call needed.
 
 **Stream restrictions:** Stream sessions cannot use `chunk`/`finalize` (rejected with 406). Chunked sessions cannot use `stream` (rejected with 406). Stream is single-shot — cannot stream to the same session twice.
@@ -1691,7 +1690,7 @@ The Uploader widget provides a 4-step file upload flow:
 
 1. **Choose destination** -- select an organization, then a workspace or share, then optionally navigate to a subfolder
 2. **Select files** -- drag-and-drop files onto the widget or use the file picker button to browse local files
-3. **Upload with progress** -- files upload automatically with real-time progress bars. All files use chunked uploads (create-session, POST /blob, chunk with blob_ref, finalize). Web URLs use web-import
+3. **Upload with progress** -- files upload automatically with real-time progress bars. All files use chunked uploads (create-session, POST /blob, chunk with blob_id, finalize). Web URLs use web-import
 4. **Reference in chat** -- after upload completes, click "Reference in Chat" to attach the uploaded files to the agent conversation for further discussion or AI analysis
 
 The widget uses the `upload` tool (actions: create-session, chunk, finalize, web-import, status, cancel, limits, extensions) and the `storage` tool (action: list) via the MCP bridge.
@@ -2085,7 +2084,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **create-session** -- Create a chunked upload session for a file.
 
-**chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_ref` for binary staged via `POST /blob`. Provide exactly one.
+**chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
 
 **finalize** -- Finalize an upload session, trigger file assembly, and poll until fully stored or failed. Returns the final session state.
 
