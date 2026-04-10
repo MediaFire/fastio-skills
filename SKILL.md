@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.147.0"
+  version: "1.148.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.147
-**Last Updated:** 2026-04-09
+**Version:** 1.148
+**Last Updated:** 2026-04-10
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -1331,6 +1331,10 @@ The complete agentic workflow pattern: plan work, execute with logging, and gate
 ---
 
 ## 7. Key Patterns and Gotchas
+
+### Action Name Format
+
+Action names use hyphens as separators (e.g. `create-session`, `list-shares`). Underscores are also accepted -- `create_session` and `create-session` are equivalent. The canonical form is hyphens.
 
 ### Parameter Aliases
 

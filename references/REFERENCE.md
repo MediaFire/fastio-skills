@@ -1477,7 +1477,7 @@ demonstrate value, with room to grow when the org transfers to a human on a paid
 | **Storage**               | 50 GB                                               |
 | **Max file size**         | Plan-dependent (1 GB free, up to 40 GB paid) — query `/upload/limits/` |
 | **Monthly credits**       | 5,000 (resets every 30 days)                        |
-| **Workspaces**            | 5                                                   |
+| **Workspaces**            | 3                                                   |
 | **Shares**                | 50                                                  |
 | **Members per workspace** | 5                                                   |
 | **Share invitations**     | 10 per share                                        |
@@ -1523,11 +1523,11 @@ Once an agent transfers an org to a human, they get the free plan (credit-based,
 
 | Feature         | Agent (Free) | Free (Human) | Pro       | Business  |
 |-----------------|--------------|--------------|-----------|-----------|
-| Monthly credits | 5,000        | 5,000        | Unlimited | Unlimited |
+| Monthly credits | 5,000        | 10,000       | Unlimited | Unlimited |
 | Storage         | 50 GB        | 50 GB        | 1 TB      | 5 TB      |
-| Max file size   | 1 GB         | 1 GB         | 25 GB     | 40 GB     |
-| Workspaces      | 5            | 5            | 10        | 1,000     |
-| Shares          | 50           | 50           | 1,000     | 50,000    |
+| Max file size   | 1 GB         | 1 GB         | 25 GB     | 50 GB     |
+| Workspaces      | 3            | 3            | 20        | 1,000     |
+| Shares          | 50           | 50           | 1,000     | 5,000     |
 
 The transfer flow is the primary way agents deliver value — and the only way to upgrade beyond the agent plan. Set
 everything up on the free agent plan, transfer ownership when the work is complete or when credits are exhausted, and
