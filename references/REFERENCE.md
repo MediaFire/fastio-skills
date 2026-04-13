@@ -1292,7 +1292,18 @@ The system has three layers:
 1. **Templates** — define a metadata schema: named fields with types (`string`, `int`, `float`, `bool`, `json`, `url`,
    `datetime`), constraints (`min`, `max`, `fixed_list`), and descriptions. Templates belong to a workspace and are
    grouped by category (`legal`, `financial`, `business`, `medical`, `technical`, `engineering`, `insurance`,
-   `educational`, `multimedia`, `hr`). Plan limits: Free=1, Pro=1, Business=10 templates per workspace.
+   `educational`, `multimedia`, `hr`). The metadata feature is available on all plan tiers, with three caps that
+   scale by plan — templates per workspace, files per template, and fields (columns) per template: Free=1/10/10,
+   Agent=1/10/10, Pro=2/10/10, Business=10/1000/50. Listing, details, and preview-match endpoints return
+   `plan_node_limit`, `is_truncated`, and the unfiltered count alongside the visible count so frontends can render
+   upsell messaging; the `/details` and `/list` endpoints also return `field_count` and `plan_field_limit` for the
+   field cap. Each field carries an `autoextract` boolean (default true); templates must declare at least one
+   autoextract-eligible field and auto-extraction jobs filter their default scope to those fields. Node responses
+   (metadata details + template nodes listing) carry an `autoextractable` boolean — true when the node is a
+   non-trashed file with a completed AI summary — so clients can gate "extract now" affordances. On downgrade,
+   overflow rows are preserved but hidden; under truncation the visible window is ordered by mapping creation
+   order (oldest-mapped first), so the same files remain visible across plan changes and re-upgrade restores
+   full visibility.
 
 2. **Template-Node Mappings** — many-to-many relationships between templates and files. Files are linked to templates
    either manually (add/remove endpoints) or automatically via AI-based matching. A template can be applied to multiple
@@ -1311,7 +1322,7 @@ The system has three layers:
 | `GET /current/workspace/{id}/metadata/templates/list/` | List templates (sub-paths: `all`, `custom`, `system`, `enabled`, `disabled`) |
 | `GET /current/workspace/{id}/metadata/templates/{template_id}/details/` | Get template details with all fields |
 | `POST /current/workspace/{id}/metadata/templates/{template_id}/settings/` | Enable/disable, set priority (1-5) |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/update/` | Update definition (append `/create/` to copy) |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/update/` | Update definition (append `/create/` to copy). Response includes a `schema_update` object with `added_fields` and `type_changed_fields` when either triggers auto re-extraction across mapped files |
 
 #### Template-Node Mapping
 
@@ -1331,7 +1342,7 @@ The system has three layers:
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | Get all metadata (`template_metadata` + `custom_metadata`) |
 | `POST /current/workspace/{id}/storage/{node_id}/metadata/update/{template_id}/` | Set/update key-value pairs |
 | `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Delete metadata keys |
-| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | AI-extract metadata from file content (requires `template_id`) |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | Enqueue async AI extraction for a single file (returns HTTP 202 + `job_id`; poll `/jobs/status/` and read values from `/metadata/details/` once `status: "completed"`) |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/list/{template_id}/` | List files with metadata for a template |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/templates/` | List templates in use across files |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/versions/` | Metadata version history |
@@ -1355,9 +1366,16 @@ Metadata extraction works in three modes:
    needed — metadata appears on the file after ingestion completes. This includes documents, spreadsheets, images
    (PNG, JPEG, WebP up to 30 MB), and code files.
 
-2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) reads the file content and uses AI to
-   populate the template fields. The `template_id` parameter specifies which template to extract against. Extraction is
-   synchronous — the response includes the extracted metadata immediately.
+2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) enqueues an async AI extraction job
+   against the specified `template_id` (optional `fields` parameter restricts the scope to a subset of the template
+   schema). The endpoint returns HTTP 202 Accepted with `{ job_id, template_id, node_id, fields, status, status_uri }`
+   in milliseconds; the actual extraction runs in the background. Clients poll `GET /current/workspace/{id}/jobs/status/`
+   and watch the `metadata_extract` array for a matching `kind: "single"` entry transitioning through
+   `queued` → `in_progress` → `completed`, then fetch the values via
+   `GET /current/workspace/{id}/storage/{node_id}/metadata/details/`. Submitting the same `(node, template, fields)`
+   combination while a job is already in flight is idempotent — the existing `job_id` is returned and no duplicate is
+   enqueued. Real-time activity events fire on every state transition for clients that prefer the activity stream
+   over polling.
 
 3. **Batch (per template)** — the template-level extract-all endpoint
    (`POST .../metadata/templates/{template_id}/extract-all/`) enqueues an async job that processes every file mapped to
@@ -1366,6 +1384,11 @@ Metadata extraction works in three modes:
 
 A daily background process also detects stale metadata — files whose extraction predates the template's last update —
 and automatically re-extracts them, ensuring metadata stays current when templates evolve.
+
+Additionally, the template-update endpoint itself auto-enqueues partial re-extraction at the moment of change for
+meaningful schema edits: new field names (`added_fields`) and type changes on existing names (`type_changed_fields`).
+Soft edits (description, min/max, nullable, fixed_list, regex) bump the schema hash but do not auto-trigger extraction
+— invoke `extract-all` manually if you want those applied.
 
 For example, uploading an invoice to a workspace and mapping it to a "financial" template automatically fills in fields
 like `invoice_number`, `amount`, `vendor_name`, and `due_date` — no extraction call required if intelligence is enabled.

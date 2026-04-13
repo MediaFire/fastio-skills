@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.148.0"
+  version: "1.163.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.148
-**Last Updated:** 2026-04-10
+**Version:** 1.163
+**Last Updated:** 2026-04-13
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -439,6 +439,18 @@ Notes are a storage node type (alongside files and folders) that store markdown 
 
 Create notes with `workspace` action `create-note`, read with `workspace` action `read-note`, and update with `workspace` action `update-note`.
 
+> **Files and Notes are not interchangeable, even when both hold markdown.** A `.md` uploaded via the file-upload flow is a **File** (`type: "file"`), not a **Note** (`type: "note"`). Reading a markdown File returns text and "looks like" a note, but note-specific APIs (`update-note`, `read-note`) reject it with `Node is not a note` (error 153548). Choose the right creation path up front:
+>
+> - **If you will edit the content incrementally from an agent** → use `create-note`. Pass markdown as `content` directly. Do NOT upload it as a file first.
+> - **If it is a static artifact** (report, export, attachment) → use the upload flow. Accept that `update-note` will not work later; to change the content, upload a new version by calling `upload` action `create-session` with the **same** `parent_node_id` and **same** `filename` as the existing File, then `chunk`/`finalize` (or `stream`). Same-name uploads overwrite the File in place and preserve the previous content as a version (recover via `storage` action `version-list` / `version-restore`).
+>
+> When `update-note` fails with `Node is not a note`, the node is almost always a File. You have two valid recovery paths — pick based on what the node should be going forward:
+>
+> - **(a) Keep it as a File** and just change its bytes → use the upload flow described above (same `parent_node_id` + `filename` = in-place overwrite with a version entry). The node ID does NOT change; the node stays a File.
+> - **(b) Convert to a Note** (because you want to edit it incrementally via `update-note` from now on) → delete the File via `storage` action `delete`, then call `create-note` with the markdown content in the desired `parent_id`. This produces a NEW node with `type: "note"`. Future edits use `update-note` with the new `node_id`.
+>
+> Do NOT use delete-and-re-upload (via the upload flow) as a fix — that just creates another File and you will hit the same `Node is not a note` error on the next `update-note` call. To verify a node's type before calling, use `storage` action `details` and inspect the `type` field (`"file"` vs `"note"` vs `"folder"` vs `"link"`).
+
 **Creating:** Provide `workspace_id`, `parent_id` (folder opaque ID or `"root"`), `name` (must end in `.md`, max 100 characters), and `content` (markdown text, max 100 KB).
 
 **Reading:** Provide `workspace_id` and `node_id`. Returns the note's markdown content and metadata.
@@ -463,7 +475,7 @@ Key behaviors:
 
 - Notes are ingested for RAG when workspace intelligence is enabled
 - Notes within a folder scope are included in scoped queries
-- Notes with `ai_state: ready` are searchable via RAG
+- Notes with `ai_state: indexed` are searchable via RAG
 - Notes can also be attached directly to a chat via `files_attach` (check `ai.attach` is `true` in storage details)
 
 **Use cases:**
@@ -493,7 +505,7 @@ AI chat lets agents ask questions about files stored in workspaces and shares. T
 - **`chat_with_files`** — AI grounded in your files. Two mutually exclusive modes for providing file context:
 
 **Auto-promotion:** If you create a chat with `type=chat` but include `files_scope`, `folders_scope`, or `files_attach`, the system automatically promotes the type to `chat_with_files`. You don't need to worry about setting the type exactly right — the intent is unambiguous when file parameters are present.
-  - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `ready` AI state.
+  - **Folder/file scope (RAG)** — limits the retrieval search space. Requires intelligence enabled; files must be in `indexed` AI state.
   - **File attachments** — files read directly by the AI. No intelligence required; files must have `ai.attach: true` in storage details (the file must be a supported type for AI analysis). Max 20 files, 200 MB total.
 
 Both types augment answers with web knowledge when relevant.
@@ -506,7 +518,7 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 |---------|------------------------|------------------|
 | How it works | Limits RAG search space | Files read directly by AI |
 | Requires intelligence | Yes | No |
-| File readiness requirement | `ai_state: ready` | `ai.attach: true` |
+| File readiness requirement | `ai_state: indexed` | `ai.attach: true` |
 | Best for | Many files, knowledge retrieval | Specific files, direct analysis |
 | Max references | 100 folder refs (subfolder tree expansion) or 100 file refs | 20 files / 200 MB |
 | Default (no scope given) | Entire workspace | N/A |
@@ -529,17 +541,20 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 
 #### Intelligence and AI State
 
-The workspace intelligence toggle (see Workspaces above) controls whether uploaded documents and code files are auto-ingested, summarized, and indexed for RAG. When intelligence is enabled, each file has an `ai_state` indicating its readiness:
+The workspace intelligence toggle (see Workspaces above) controls whether uploaded documents and code files are auto-ingested, summarized, and indexed for RAG. Each file has an `ai_state` indicating its readiness:
 
 | State | Meaning |
 |-------|---------|
-| `disabled` | AI processing disabled for this file |
-| `pending` | Queued for processing |
-| `in_progress` | Currently being ingested and indexed |
-| `ready` | Complete — available for folder/file scope queries |
+| `disabled` | No AI processing done (file type not supported, or AI completely off) |
+| `pending` | Queued for AI processing |
+| `in_progress` | Currently being processed |
+| `ready` | Summary exists, file is attachable for AI chat, but NOT vector-indexed (intelligence OFF) |
+| `indexed` | Summary + vector indexed — file is searchable via RAG/semantic search (intelligence ON) |
 | `failed` | Processing failed |
 
-Only files with `ai_state: ready` are included in folder/file scope searches. Check file state via `storage` action `details` with `profile_type: "workspace"`.
+Only files with `ai_state: indexed` are included in folder/file scope (RAG) searches. Files with `ai_state: ready` or `indexed` are both attachable for AI chat — check the `ai.attach` field. Check file state via `storage` action `details` with `profile_type: "workspace"`.
+
+When polling for AI processing completion: if intelligence is ON, wait for `indexed`; if intelligence is OFF (but AI summaries are enabled), wait for `ready`. Check `capabilities.can_use_intelligence` on the workspace to know which terminal state to expect.
 
 #### Attachability — the `ai.attach` Flag
 
@@ -547,7 +562,7 @@ File nodes in storage list/details responses include an `ai` object with three f
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `ai.state` | string | AI indexing state (`disabled`, `pending`, `inprogress`, `ready`, `failed`) |
+| `ai.state` | string | AI processing state (`disabled`, `pending`, `inprogress`, `ready`, `indexed`, `failed`) |
 | `ai.attach` | boolean | Whether the file can be used with `files_attach` |
 | `ai.summary` | boolean | Whether the file already has an AI-generated summary |
 
@@ -752,18 +767,33 @@ Use `upload` action `web-import` with the source URL, target profile, and parent
 
 ### Metadata
 
-Metadata enables structured data annotation on files within workspaces. The system uses a template-based approach: administrators create templates that define the fields (name, type, constraints), then assign a template to the workspace. Files can then have metadata values set against the template fields.
+Metadata enables structured data annotation on files within workspaces. The system uses a template-based approach (called "views" in the UI): administrators create templates that define the fields (name, type, constraints), then assign a template to the workspace. Files can then have metadata values set against the template fields.
 
 Key points:
 
-- **One template per workspace** -- each workspace supports at most one assigned metadata template at a time.
+- **Available on all plans** -- metadata templates are no longer Pro/Business-gated. Free and Agent users can create their first template.
+- **Per-plan caps** -- each plan limits both how many templates a workspace can have and how many files (nodes) each template can hold:
+
+  | Plan     | Templates per workspace | Nodes per template |
+  |----------|-------------------------|--------------------|
+  | Agent    | 1                       | 10                 |
+  | Free     | 1                       | 10                 |
+  | Pro      | 2                       | 10                 |
+  | Business | 10                      | 1,000              |
+
+  Caps are enforced across automatch, manual add, and listings. On downgrade, overflow rows are preserved in storage but hidden by listings.
+- **Truncation signaling on `metadata-template-preview-match`** -- the response includes `plan_node_limit` (`-1` = unlimited) and `would_truncate_at` (= `min(total_matched, plan_node_limit)` when the cap applies, otherwise = `total_matched`). Doc-recommended frontend heuristic: warn the user when `would_truncate_at < total_matched` — the plan cap is clipping the sampled match count. The MCP `metadata-template-preview-match` handler emits this warning automatically in `_warnings`. Treat `plan_node_limit = -1` as "no cap" in UI.
+- **Truncation signaling on `metadata-template-list` and `metadata-template-details`** -- the live AI category overview states: *"Listing, details, and preview endpoints return `plan_node_limit`, `is_truncated`, and an unfiltered count alongside the visible (capped) count, so consumers can render upsell messaging."* The current response examples in the live reference don't show these fields explicitly, so verify the exact field names at runtime. The unfiltered count field is named `total_count_unfiltered` on the per-template `nodes/` listing endpoint; the field name on `list`/`details` is not pinned in the docs and may differ. Show an upsell prompt whenever `is_truncated` is true on either endpoint.
+- **`metadata-template-suggest-fields` concurrency** -- the server rate-limits concurrent calls per user+workspace and returns **409 Conflict** when another suggest-fields call is in flight. Wait a few seconds and retry. (Earlier internal notes incorrectly said 406; live docs are authoritative — it is 409.)
+- **`nodes/add/` cap-exceeded** (REST endpoint, not exposed as an MCP action) -- returns **400 (Fast.io error code 1605, "Invalid Input")** with a structured "would exceed cap" message. Concurrent calls cannot collectively exceed the cap. To pre-flight, read the per-template nodes listing endpoint and compute remaining slots from `plan_node_limit - total_count_unfiltered`.
+- **Auto-match silently caps** -- the server-side `auto-match` endpoint (not currently exposed as an MCP action) caps at `plan_node_limit` even when more files are matchable (saves credits and LLM cost). Because neither `auto-match` nor the per-template `nodes/` listing is currently driveable from the MCP tool, agents needing to know exactly how many files were mapped after auto-match must call those REST endpoints directly or surface the gap to the user.
+- **MCP tool coverage** -- the `workspace` MCP tool exposes template CRUD (`metadata-template-{create,delete,list,details,update,clone}`), workspace assignment (`metadata-template-{assign,unassign,resolve,assignments}`), the new view-creation flow (`metadata-template-{preview-match,suggest-fields}`), and file-level metadata (`metadata-{get,set,delete,extract}`, `metadata-list-files`, `metadata-list-templates-in-use`, `metadata-versions`). It does **not** currently expose `nodes/add`, `nodes/remove`, the per-template `nodes/` listing, `auto-match`, `extract-all`, or `/metadata/eligible/`. Agents needing those workflows must surface the gap to the user.
 - **Template categories** -- legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr.
 - **Field types** -- string, int, float, bool, json, url, datetime -- each with optional constraints (min, max, default, fixed_list, can_be_null).
 - **Two metadata types** -- template metadata conforms to template field definitions; custom metadata is freeform key-value pairs not tied to any template.
 - **System templates** -- pre-built templates that are automatically cloned when assigned to a workspace, so customizations do not affect the global definition.
 - **AI extraction** -- the `extract` action uses AI to analyze file content and automatically populate metadata fields. Extracted values are flagged with `is_auto: true`. Consumes AI credits.
 - **Version history** -- metadata changes are tracked with version snapshots, accessible via the `versions` action.
-- **Requires billing feature** -- the organization must have the metadata billing feature enabled.
 - **Template IDs** are alphanumeric strings prefixed with `mt_` (e.g. `mt_abc123def456`).
 
 ### Ownership Transfer
@@ -1040,7 +1070,7 @@ Organization CRUD, member management, billing and subscription operations, works
 
 Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
 
 ### share
 
@@ -1526,7 +1556,7 @@ Always confirm with the user before calling purge operations.
 
 ### Node Types
 
-Storage nodes can be files, folders, notes, or links. The type is indicated in the storage details response. Notes are markdown files created with `workspace` action `create-note`, read with `workspace` action `read-note`, and updated with `workspace` action `update-note`. Links are share reference nodes created with `storage` action `add-link`.
+Storage nodes can be files, folders, notes, or links. The type is indicated in the storage details response. Notes are markdown-content nodes (a distinct node type — `type: "note"`, not `type: "file"` — even though both can hold markdown text) created with `workspace` action `create-note`, read with `workspace` action `read-note`, and updated with `workspace` action `update-note`. Links are share reference nodes created with `storage` action `add-link`.
 
 ### Text Content and Newlines
 
@@ -1655,7 +1685,7 @@ Pattern-based recovery: error messages are also matched against common patterns 
 - Intelligence ON: `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed document search)
 - Intelligence OFF: `files_attach` only (max 20 files, 200 MB, no RAG indexing)
 
-**`_ai_state_legend`** is included in storage list and search responses when files have AI indexing state. States: `ready` (indexed, queryable), `pending` (queued), `inprogress` (indexing), `disabled` (intelligence off), `failed` (re-upload needed). Also includes `_attach_field` explaining the `ai.attach` boolean — check this flag before using `files_attach`.
+**`_ai_state_legend`** is included in storage list and search responses when files have AI processing state. States: `indexed` (vector-indexed, RAG-searchable — intelligence ON), `ready` (summary available, attachable, but not vector-indexed — intelligence OFF), `pending` (queued), `inprogress` (processing), `disabled` (no AI processing), `failed` (re-upload needed). Also includes `_attach_field` explaining the `ai.attach` boolean — check this flag before using `files_attach`.
 
 **`_context`** provides contextual metadata on specific responses. Currently used by comment add when anchoring is involved, providing `anchor_formats` with the expected format for image regions, video/audio timestamps, and PDF pages.
 
@@ -1956,7 +1986,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **create-note** -- Create a new markdown note in workspace storage. Returns `web_url` (note preview link).
 
-**update-note** -- Update a note's markdown content and/or name (at least one required). Returns `web_url` (note preview link).
+**update-note** -- Update a note's markdown content and/or name (at least one required). Returns `web_url` (note preview link). **Only accepts `type: "note"` nodes.** A `.md` File uploaded via the upload flow is a File, not a Note, and this action will reject it with error 153548 `Node is not a note`. To change a File's content, call `upload` action `create-session` with the **same** `parent_node_id` and **same** `filename` as the existing File, then chunk/finalize (or stream) — same-name uploads overwrite in place and keep the previous content as a version. To verify node type before calling, use `storage` action `details` and check the `type` field. See **Notes** section for full File-vs-Note guidance.
 
 **read-note** -- Read a note's markdown content and metadata. Returns the note content and `web_url` (note preview link).
 
@@ -1966,17 +1996,21 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **quickshares-list** -- List all active quickshares in the workspace. Each quickshare includes `web_url`.
 
-**metadata-template-create** -- Create a new metadata template in the workspace. Requires name, description, category (legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr), and fields (JSON-encoded array of field definitions). Each field has name, description, type (string, int, float, bool, json, url, datetime), and optional constraints (min, max, default, fixed_list, can_be_null).
+**metadata-template-create** -- Create a new metadata template in the workspace. Available on all plans (Agent/Free can create their first template; Pro allows 2 per workspace; Business allows 10). Requires name, description, category (legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr), and fields (JSON-encoded array of field definitions). Each field has name, description, type (string, int, float, bool, json, url, datetime), and optional constraints (min, max, default, fixed_list, can_be_null, autoextract). `autoextract` defaults to `true`; set it to `false` on fields that should be managed manually (user-entered notes, reviewer flags, etc.) — those fields are skipped by full-row AI extraction but still accept writes via `metadata-set`. **Every template must have at least one field with `autoextract:true`** or the API returns 1605 (Invalid Input). Per-plan node caps (10 for Agent/Free/Pro, 1,000 for Business) apply to the file mappings, not to the template itself.
 
 **metadata-template-delete** -- Delete a metadata template. System templates and locked templates cannot be deleted. Requires template_id.
 
-**metadata-template-list** -- List metadata templates. Optional template_filter: enabled, disabled, custom (non-system), or system. Returns all non-deleted templates when no filter is specified.
+**metadata-template-list** -- List metadata templates. Optional template_filter: enabled, disabled, custom (non-system), or system. Returns all non-deleted templates when no filter is specified. Each entry's `fields` array now always includes `autoextract` on every field (defaulting to `true` for pre-existing templates). Per the live AI category overview, the response should also carry `plan_node_limit`, `is_truncated`, and an unfiltered count alongside each entry's visible count — these fields are not pinned in the live response examples, so verify exact field names at runtime before depending on them.
 
-**metadata-template-details** -- Get full details of a metadata template including all field definitions. Requires template_id.
+**metadata-template-details** -- Get full details of a metadata template including all field definitions. Requires template_id. The returned `fields` array now always includes `autoextract` on every field (defaulting to `true` for pre-existing templates). Per the live AI category overview, the response should also carry `plan_node_limit`, `is_truncated`, and an unfiltered count — these fields are not pinned in the live response examples, so verify field names at runtime. The unfiltered-count field on the per-template `nodes/` listing endpoint is `total_count_unfiltered`; the corresponding field on `details` may differ.
 
 **metadata-template-update** -- Update an existing metadata template. Any combination of name, description, category, and fields can be updated. Requires template_id.
 
 **metadata-template-clone** -- Clone a metadata template with optional modifications. Creates a new template based on an existing one. Same parameters as metadata-template-update. Requires template_id.
+
+**metadata-template-preview-match** -- Preview which files in the workspace would match a proposed template before creating it. Requires `name` (1-255 chars) and `description` (1-2000 chars) describing the intended template. Returns `matched_files` (a sampled set of matching nodes with `node_id`, `name`, `mimetype`, and short summaries — the live reference doesn't pin a fixed sample-array length, so iterate `matched_files` rather than assuming a count), plus `total_eligible`, `total_scanned`, and `total_matched` counts. **Note on `total_eligible`**: per the live reference, this is the size of the eligible-file sample window, not a workspace-wide count — when the workspace has more eligible files than fit in the sample window, `total_eligible` is set to `sample_ceiling + 1` as a "more available" signal. Treat any single returned value as a lower bound, not a true total. Also returns `plan_node_limit` (per-template node cap from the workspace's current plan; `-1` = unlimited) and `would_truncate_at` (= `min(total_matched, plan_node_limit)` when the cap applies, otherwise = `total_matched`). Doc-recommended truncation heuristic: warn the user when `would_truncate_at < total_matched` — the plan cap is clipping the sampled match count and auto-match would silently skip the overflow. The MCP handler emits this warning automatically in `_warnings` (with the actual numbers) when the heuristic fires. Use the returned `node_id`s as input to `metadata-template-suggest-fields` to get AI-suggested columns.
+
+**metadata-template-suggest-fields** -- Ask the AI to propose 1-5 custom fields based on a sample of files. Requires `workspace_id`, `description` (1-2000 chars — the same view/template description used for preview-match), and `node_ids` (JSON-encoded array of 1-25 node IDs, typically from preview-match results; folder nodes are filtered out server-side). Optional `user_context` is a short user-written hint about what they are creating (max 64 chars, letters/numbers/spaces only — e.g. `"photo collection"` or `"contract tracker"`). Returns: (a) `suggested_name` — an AI-suggested display name for the template/view based on the files + description + user_context; (b) `suggested_description` — an AI-suggested template description; (c) `suggested_fields` — array of `{name, type, description, can_be_null, max?, fixed_list?, example_value?}` objects (the `name`/`type`/`description`/`can_be_null`/`max`/`fixed_list` keys are directly compatible with the `fields` parameter of `metadata-template-create`, while `example_value` is a preview-only hint showing a plausible value for that field, type-matched to the declared `type` (integer for `int`, ISO 8601 for `datetime`, boolean for `bool`, coerced server-side and capped at 256 chars; omitted when the AI could not produce a valid/coercible example) — strip `example_value` before forwarding the array to `metadata-template-create`); and (d) `file_sample_count`. Use `suggested_name` and `suggested_description` as pre-populated defaults in the template-creation UI (users can accept or edit them). The call typically takes 10-30s. Error cases: 400 for invalid input or insufficient credits, **409 Conflict** if another suggest-fields call is in flight for the same user+workspace (wait a few seconds and retry), 500 on transient LLM failure (retry).
 
 **metadata-template-assign** -- Assign a metadata template to a workspace. Each workspace can have at most one assigned template. Assigning a system template automatically clones it. Requires template_id. Optional node_id (null for workspace-level assignment).
 
@@ -1986,13 +2020,15 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **metadata-template-assignments** -- List all template assignments in the workspace.
 
-**metadata-get** -- Get all metadata for a file, including both template-conforming metadata and custom (freeform) key-value pairs. Returns node details, template_id, template_metadata array, and custom_metadata array. Requires node_id.
+**metadata-get** -- Get all metadata for a file, including both template-conforming metadata and custom (freeform) key-value pairs. Returns node details, template_id, template_metadata array, custom_metadata array, and a top-level `autoextractable` boolean (sibling of `template_id`, not nested inside either metadata array). `autoextractable` is `true` only when the node is a file (not a folder), not trashed, and has a completed AI summary — the same signal the extraction pipeline uses internally. Use it to gate "extract now" / "re-extract" UI affordances: if false, calling `metadata-extract` will fail or no-op (wait for the AI summary to finish first). Requires node_id.
 
 **metadata-set** -- Set or update metadata key-value pairs on a file. Values must conform to the template field definitions. Requires node_id, template_id, and key_values (JSON object of key-value pairs).
 
 **metadata-delete** -- Delete metadata from a file. Provide keys (JSON array of key names) to delete specific entries, or omit to delete all metadata. Only works on files and notes, not folders. Requires node_id.
 
-**metadata-extract** -- Trigger AI-powered metadata extraction from a file. The AI analyzes file content and populates metadata fields according to the template. Extracted values are marked with is_auto: true. Consumes AI credits. Optional template_id (defaults to workspace template). Requires node_id.
+**metadata-extract** -- Enqueue AI-powered metadata extraction for a file. The endpoint is **asynchronous** (HTTP 202): it enqueues a background job and returns in ~500ms with `job_id`, `status` (queued/in_progress/completed/errored), `status_uri`, `node_id`, `template_id`, and `fields` (the requested scope or null for full-row). The response does NOT contain extracted values. Requires `node_id`. Optional `template_id` (defaults to the workspace template). Optional `extract_fields` is a JSON-encoded array of field NAMES (e.g. `["vendor","amount"]`) for partial extraction; omit it for full-row extraction. **Autoextract interaction**: when `extract_fields` is omitted, the effective scope is restricted to template fields with `autoextract:true`. If every field in the template has been opted out of autoextract, the endpoint returns success with **no `job_id`** and no job is enqueued. To force extraction of a field opted out of autoextract, pass it explicitly via `extract_fields` — the explicit list is honored verbatim as a manual override. **Pre-flight gating**: check the target node's `autoextractable` flag (returned by `metadata-get`) before firing. If false, the extract will fail or no-op; wait for the AI summary to complete first. Idempotency: re-firing extract for the same `(node_id, template_id, fields)` tuple while the first call is in flight returns the same `job_id` (no duplicate job is enqueued); different `template_id` or different `extract_fields` produce distinct jobs. Extracted values are marked with `is_auto: true` and consume AI credits. **The new agent flow is**: (1) verify `autoextractable:true` via `metadata-get`; (2) call `metadata-extract`, save the returned `job_id` if present (an all-opted-out template returns success with NO `job_id` — handle that branch by passing explicit `extract_fields` as a manual override, or skip polling entirely); (3) poll `jobs-status`, filter the `metadata_extract` array for `kind:"single"` entries matching your `node_id`; (4) when an entry shows `status:"completed"`, call `metadata-get` to read values; on `status:"errored"`, surface the entry's `error_message`. Stale entries (completed or errored more than ~1 hour ago) are auto-hidden from `jobs-status`. Activity events `EVENT_METADATA_KV_EXTRACT_STARTED` / `EVENT_METADATA_KV_EXTRACT` / `EVENT_METADATA_KV_EXTRACT_ERRORED` fire on each state transition for subscribers who'd rather react than poll.
+
+**jobs-status** -- Get the workspace's async job state. Requires `workspace_id`. Returns categorized arrays of in-flight async jobs (currently includes a `metadata_extract` array; additional categories may exist for AI indexing and other background work). The `metadata_extract` array interleaves single-node entries (`kind:"single"`, with `node_id`, `job_id`, `template_id`, `fields_scope`, `status`, `progress_percent`, `started_at`, `updated_at`, `completed_at`, `error_message`) and batch entries (`kind:"batch"`, with `total_files`, `eligible_files`, `processed`, `skipped`, `failed`, `progress_percent`, etc.) — discriminate via the `kind` field. Stale completed/errored entries are auto-hidden after ~1 hour, so an absent entry should be treated as "no longer active". Poll interval: 1-3s is fine — this endpoint is generously rate-limited.
 
 **metadata-list-files** -- List files that have metadata for a specific template, with optional filtering and sorting. Requires node_id (folder to search in) and template_id. Optional metadata_filters (JSON-encoded), order_by (field key), and order_desc.
 
