@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.163.0"
+  version: "1.164.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.163
-**Last Updated:** 2026-04-13
+**Version:** 1.164
+**Last Updated:** 2026-04-14
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -422,14 +422,58 @@ Key operations on storage nodes: list, create-folder, move, copy, rename, delete
 
 Nodes have versions. Each file modification creates a new version. Version history can be listed and files can be restored to previous versions.
 
-**Conflict resolution (REPLACE by default):** When a file operation encounters an existing file with the same name in the target folder, the default behavior is to **replace** (overwrite) the existing file:
+#### Overwriting files (REPLACE by default, versioned in place)
 
-- **Upload (addfile)** -- silently overwrites the existing file. The previous content is preserved as a version entry, recoverable via `storage` action `version-list` / `version-restore`.
+**Do NOT delete and re-upload to "update" a file.** Same-name uploads to the same parent folder **overwrite the existing node in place, preserving the `node_id`**. The prior content is kept as a version and is recoverable at any time. Deleting the old node first is wasted work, breaks any `node_id` references held by other entities (comments, tasks, approvals, metadata, links), and can leak the file into trash — it is never the right pattern for editing a file's bytes.
+
+**The correct update-a-file pattern:**
+
+1. `upload` action `create-session` with the **same** `parent_node_id` and the **same** `filename` as the existing file (plus `profile_type`, `profile_id`, `filesize`). The server resolves the collision to the existing node.
+2. `POST /blob` with the new bytes (see Upload section below).
+3. `upload` action `chunk` with `blob_id`, then `upload` action `finalize` (or use `stream` mode for single-shot streamed uploads).
+4. The `node_id` is unchanged. The previous content becomes a version entry.
+5. Inspect history with `storage` action `version-list` (returns all versions for the node). Roll back to any earlier version with `storage` action `version-restore`.
+
+Deterministic overwrite by node_id: if the filename may have drifted (e.g., a previous rename), or you want to guarantee the overwrite hits a specific `node_id` without re-resolving the parent folder, pass `target_node_id` on `create-session`. This pins the update target explicitly — the server uses `action=update` + `file_id=<target_node_id>`; `parent_node_id` is ignored and `filename` is optional (omit to keep the current name, or pass a new one to rename-on-replace). See the `target_node_id` documentation in the Upload section below.
+
+**Worked example — edit a file's content and recover the prior version:**
+
+```
+# Initial upload
+upload create-session
+  profile_type=workspace, profile_id=<ws_id>, parent_node_id=<folder_id>,
+  filename="state.json", filesize=1024
+POST /blob <bytes>
+upload chunk upload_id=<id> chunk_number=1 blob_id=<blob>
+upload finalize upload_id=<id>
+# → new_file_id = f3jm5-zqzfx-...   (this is the stable node_id)
+
+# Later, "edit" the file by re-uploading with the same name+parent
+upload create-session
+  profile_type=workspace, profile_id=<ws_id>, parent_node_id=<folder_id>,
+  filename="state.json", filesize=2048
+POST /blob <new_bytes>
+upload chunk upload_id=<id2> chunk_number=1 blob_id=<blob2>
+upload finalize upload_id=<id2>
+# → new_file_id = f3jm5-zqzfx-...   (SAME node_id — overwritten in place)
+
+# Inspect version history
+storage version-list profile_type=workspace profile_id=<ws_id> node_id=f3jm5-zqzfx-...
+# → [{version_id: v2, current: true}, {version_id: v1, ...}]
+
+# Roll back if needed
+storage version-restore profile_type=workspace profile_id=<ws_id>
+  node_id=f3jm5-zqzfx-... version_id=v1
+```
+
+**What overwriting covers (REPLACE is the default behavior for all name collisions):**
+
+- **Upload (addfile)** -- silently overwrites the existing file. The previous content is preserved as a version entry, recoverable via `storage` action `version-list` / `version-restore`. Node ID is stable.
 - **Move / Copy** -- trashes the existing conflicting file, then completes the operation. The old file is recoverable from trash.
 - **Restore from trash** -- trashes the existing conflicting file, then restores.
 - **Folder conflicts and type mismatches** (file vs folder) still fall back to rename (e.g. `folder (2)`).
 
-This means uploading a file with the same name as an existing file will **overwrite it**, not create a renamed copy like `report (2).pdf`. If you need multiple files with the same name to coexist, rename them before uploading.
+Uploading a file with the same name as an existing file will **overwrite it**, not create a renamed copy like `report (2).pdf`. If you specifically need multiple files with the same name to coexist, rename them before uploading.
 
 ### Notes
 
@@ -451,11 +495,28 @@ Create notes with `workspace` action `create-note`, read with `workspace` action
 >
 > Do NOT use delete-and-re-upload (via the upload flow) as a fix — that just creates another File and you will hit the same `Node is not a note` error on the next `update-note` call. To verify a node's type before calling, use `storage` action `details` and inspect the `type` field (`"file"` vs `"note"` vs `"folder"` vs `"link"`).
 
-**Creating:** Provide `workspace_id`, `parent_id` (folder opaque ID or `"root"`), `name` (must end in `.md`, max 100 characters), and `content` (markdown text, max 100 KB).
+**Creating:** Provide `workspace_id`, `parent_id` (folder opaque ID or `"root"`), `name` (must end in `.md`, max 100 characters), and exactly one of `content` (inline markdown, max 100 KB) or `blob_id` (see below).
 
 **Reading:** Provide `workspace_id` and `node_id`. Returns the note's markdown content and metadata.
 
-**Updating:** Provide `workspace_id`, `node_id`, and at least one of `name` (must end in `.md`) or `content` (max 100 KB).
+**Updating:** Provide `workspace_id`, `node_id`, and at least one of `name` (must end in `.md`), `content` (max 100 KB), or `blob_id`. When `content` and `blob_id` are both passed, the call errors — provide exactly one.
+
+#### Passing note content via `blob_id` (preferred for large notes)
+
+Both `create-note` and `update-note` accept an optional `blob_id` as an alternative to inline `content`:
+
+> `blob_id`: optional string. Blob ID from `POST /blob` response. Recommended for large note content — avoids base64 overhead and MCP transport limits. Consumed after use. Bytes are decoded as UTF-8 and passed as note content. (used by: `create-note`, `update-note` as one of `content`/`blob_id`)
+
+**Why this exists.** MCP transports tool parameters as inline JSON strings over the JSON-RPC pipe. Sending more than a few KB of note content through the `content` parameter is measurably slow — the full string has to be serialized into the tool call, travel through the transport, and be parsed again on the server. The `POST /blob` sidecar is a separate raw-HTTP path that bypasses MCP transport entirely: you POST the raw bytes (up to 100 MB, single-use, 5-minute TTL), get back a `blob_id`, and hand the `blob_id` to the tool. The server consumes the blob, UTF-8 decodes it, sanitizes it, and uses it as note content. Same pattern as `upload` action `chunk`/`stream`.
+
+**When to use which:**
+
+| Note size | Recommended path |
+|---|---|
+| Small edits (< ~10 KB — a few paragraphs, bullets, small sections) | Inline `content` |
+| Large notes (> ~10 KB — rich project context, transcripts, long markdown documents) | `POST /blob` → `blob_id` |
+
+Notes are capped at **100 KB** per node. Writes at or above **80 KB** return a non-fatal warning in `_warnings` (or via `withHints` on `create-note`) recommending rollover before you hit the ceiling. The warning is advisory — the write still succeeds. A typical rollover pattern is dated archive files: when a growing note crosses ~80 KB, create a new note named something like `archive-2026-04-14.md` or `notes-2026-W15.md`, move the older material there, and keep the "live" note small.
 
 | Constraint | Limit |
 |------------|-------|
@@ -1241,7 +1302,9 @@ Two options for passing chunk data (provide exactly one):
 
 **Note:** `storage` action `add-file` is only needed if you want to link the upload to a *different* location than the one specified during session creation.
 
-**Same-name uploads:** If a file with the same name already exists in the target folder, the upload **replaces** (overwrites) it. The previous content is preserved as a version. To keep both files, rename before uploading.
+**Same-name uploads (REPLACE in place, versioned):** If a file with the same name already exists in the target folder, the upload **overwrites the existing node in place**. The `node_id` is preserved and the prior content is kept as a version. **This is how you "edit" a file — do not delete and re-upload.** After any same-name overwrite, the previous content is recoverable via `storage` action `version-list` (list versions) and `version-restore` (restore by `version_id`). The `node_id` is stable across versions, so references from comments, tasks, approvals, metadata, etc. keep working. To keep both files instead of overwriting, rename before uploading. See **Overwriting files** in section 4 for the full pattern and a worked example.
+
+**Deterministic overwrite by node_id:** If the filename may have drifted, or you want to avoid re-resolving the parent folder, pass `target_node_id` on `create-session` to pin the overwrite to a specific node. When set, `parent_node_id` is ignored and `filename` is optional (omit to keep the existing name, or pass a new one to rename-on-replace). The server uses `action=update` + `file_id=<target_node_id>` under the hood. `node_id` is preserved; the new version shows up in `storage` action `version-list`. Typical sequence: find the node via `storage` action `list`/`details` → `upload` action `create-session` with `target_node_id` → `POST /blob` → `chunk`/`stream` → `finalize`.
 
 ### 4. Import a File from URL
 
@@ -1438,6 +1501,8 @@ A sidecar HTTP endpoint that accepts raw data outside the JSON-RPC pipe. **This 
 4. Done — stream auto-finalizes. No separate `finalize` call needed.
 
 **Stream restrictions:** Stream sessions cannot use `chunk`/`finalize` (rejected with 406). Chunked sessions cannot use `stream` (rejected with 406). Stream is single-shot — cannot stream to the same session twice.
+
+**Overwriting an existing file (do not delete-then-reupload).** Same-name uploads into the same parent folder overwrite the existing node in place — `node_id` is preserved and the prior content becomes a version entry. To update a file's bytes, call `create-session` with the same `parent_node_id` + `filename` as the existing file, then `POST /blob` → `chunk`/`stream` → `finalize`. For a deterministic overwrite when the filename may have drifted or you want to avoid re-resolving the parent folder, pass `target_node_id` on `create-session` instead (server uses `action=update` + `file_id=<target_node_id>`; `parent_node_id` is ignored and `filename` is optional, enabling rename-on-replace). After any same-name overwrite, the previous content is recoverable via `storage` action `version-list` (list versions) and `version-restore` (restore by `version_id`). `node_id` is stable across versions. See **Overwriting files** in section 4 for a full worked example.
 
 **Blob constraints:**
 - Blobs expire after **5 minutes**. Stage and consume them promptly.
@@ -1984,9 +2049,9 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **check-name** -- Check if a workspace folder name is available for use. Workspace names are globally unique. Pass optional `check_org_id` to get an org-ID-prefixed alternative suggestion (e.g. `3587676312889739297-reports`) if the name is taken.
 
-**create-note** -- Create a new markdown note in workspace storage. Returns `web_url` (note preview link).
+**create-note** -- Create a new markdown note in workspace storage. Accepts exactly one of `content` (inline markdown) or `blob_id` (from `POST /blob` — recommended for notes larger than ~10 KB to avoid MCP transport overhead). Returns `web_url` (note preview link). Writes at or above 80 KB include a non-fatal warning hint suggesting rollover to a new file before the 100 KB ceiling.
 
-**update-note** -- Update a note's markdown content and/or name (at least one required). Returns `web_url` (note preview link). **Only accepts `type: "note"` nodes.** A `.md` File uploaded via the upload flow is a File, not a Note, and this action will reject it with error 153548 `Node is not a note`. To change a File's content, call `upload` action `create-session` with the **same** `parent_node_id` and **same** `filename` as the existing File, then chunk/finalize (or stream) — same-name uploads overwrite in place and keep the previous content as a version. To verify node type before calling, use `storage` action `details` and check the `type` field. See **Notes** section for full File-vs-Note guidance.
+**update-note** -- Update a note's markdown content and/or name (at least one of `name`, `content`, or `blob_id` required). Accepts exactly one of `content` (inline markdown) or `blob_id` (from `POST /blob` — recommended for large updates). Returns `web_url` (note preview link). Writes at or above 80 KB include a non-fatal `_warnings` entry suggesting rollover. **Only accepts `type: "note"` nodes.** A `.md` File uploaded via the upload flow is a File, not a Note, and this action will reject it with error 153548 `Node is not a note`. To change a File's content, call `upload` action `create-session` with the **same** `parent_node_id` and **same** `filename` as the existing File (or pass `target_node_id` to pin the overwrite by ID), then chunk/finalize (or stream) — same-name uploads overwrite in place and keep the previous content as a version. To verify node type before calling, use `storage` action `details` and check the `type` field. See **Notes** section for full File-vs-Note guidance.
 
 **read-note** -- Read a note's markdown content and metadata. Returns the note content and `web_url` (note preview link).
 
@@ -2122,7 +2187,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 ### upload
 
-**create-session** -- Create a chunked upload session for a file.
+**create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
 
 **chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
 
