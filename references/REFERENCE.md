@@ -1,6 +1,6 @@
 # Fast.io for AI Agents
 
-> **Version:** 1.29.0 | **Last updated:** 2026-04-08
+> **Version:** 1.29.0 | **Last updated:** 2026-04-14
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -65,8 +65,8 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code                |
-| Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Pro or Business) |
+| Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable (requires Pro or Business) |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Handing a project off to a human             | One-click ownership transfer — human gets the org, agent keeps admin access                       |
 | Tracking what happened                       | Full audit trail with AI-powered activity summaries                                               |
@@ -94,6 +94,13 @@ workflows), create your own agent account:
 
 Agent accounts get the free agent plan (50 GB, 5,000 monthly credits) and can transfer orgs to humans when ready. This
 is the recommended path for autonomous agents.
+
+> **AI capability on the free agent plan.** Agent-plan orgs can ingest, store, organize, preview, and share files, and can
+> use read-only AI surfaces (listing chats, reading existing chat messages, auto-title, auto-OG, notes). They **cannot**
+> create new AI chats, send chat messages, or enable the `intelligence` indexing toggle — those interactive agentic flows
+> require a plan with the `ai_agent` feature (Pro or Business). If the user needs agentic chat or RAG across indexed files,
+> [transfer the org to a human](#ownership-transfer) who can upgrade. The [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements)
+> has the full plan matrix.
 
 #### Permission Values
 
@@ -325,6 +332,49 @@ members who have accepted their invitation, or `"pending"` for users who have be
 account. Pending members also include an `invite` object with `id`, `created`, and `expires` fields. To cancel a
 pending invitation, use `DELETE` on the invitation endpoint with the `invite.id`.
 
+### Compact Responses (`output=`)
+
+Most list and detail endpoints accept an optional `output` query parameter with three detail levels for nodes
+(files/folders/notes/links), events, users, workspaces, orgs, and shares. Picking the right level is the single
+biggest lever you have for keeping agent payloads small without losing information you actually need.
+
+- **`terse`** — identifiers, primary labels, and the handful of fields needed to navigate between resources.
+  Use for tree traversal, pickers, autocomplete, mention suggestions, and any prefetch step that will follow up
+  with a detail call only on user (or agent) interest.
+- **`standard`** — `terse` plus the operational context most list/detail views render: timestamps, lifecycle
+  flags, short descriptions, plan/status fields, creator/owner refs, member status, short summaries. **This is
+  the recommended default for most agent list and detail workflows** — it covers the fields a typical agent
+  needs to reason about a resource without pulling branding, capability matrices, or long-form AI summaries.
+- **`full`** — the complete resource shape; equivalent to omitting `?output=` entirely. Use when you need
+  branding, capability matrices, permission blocks, long-form AI summaries, metadata blocks, EXIF, virus state,
+  or any field specifically called out under the `full` tier in the category references.
+
+**Rules:**
+- **Syntax:** `?output=<level>` or `?output=<level>,<modifier>` (comma-separated tokens).
+- **Mutually exclusive levels:** Specifying more than one detail level in the same request (e.g.
+  `?output=terse,standard`) is an error and returns **HTTP 400**. Pick exactly one.
+- **Cumulative fields:** `standard` is a superset of `terse`, and `full` is a superset of `standard` — nothing
+  disappears as you move up a tier.
+- **Default:** When `output=` is absent, responses are `full` and byte-for-byte unchanged.
+- **Unknown tokens:** Silently ignored for forward compatibility.
+- **`markdown` modifier:** Add `markdown` to any request (e.g. `?output=terse,markdown` or `?output=markdown` alone) to receive the response as GitHub-flavored Markdown instead of JSON. Response `Content-Type` becomes `text/markdown; charset=UTF-8`. Homogeneous record lists render as GFM pipe tables, associative maps as bullet lists, and error envelopes as a leading `# Error` section — useful when pasting agent output into a chat or for human review of a failing call. Validation errors (HTTP 400) render as markdown too when the modifier is present. If the caller is an LLM that reasons better over markdown than JSON, prefer `?output=standard,markdown`.
+
+Example markdown response body for `GET /current/user/details/?output=terse,markdown`:
+
+```markdown
+**Result:** success
+
+# user
+- **id:** 12345678901234567890
+- **account_type:** agent
+- **first_name:** Alice
+- **last_name:** Example
+- **profile_pic:** https://…
+```
+
+Category-specific detail pages (linked from the LLM reference) list exactly which fields appear at each level
+for each resource type.
+
 ---
 
 ## Core Capabilities
@@ -364,17 +414,24 @@ summarized, and indexed for RAG. This enables:
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-Intelligence is enabled by default when creating workspaces via the API for agent accounts. **Agents should explicitly
-set intelligence to `false` unless the user needs RAG queries across many documents or AI-powered semantic search.**
-The ingestion cost (10 credits/page) is significant and non-refundable — a 100-page document costs 1,000 credits to
-ingest. If your team only needs a shared workspace for coordination, disable it to conserve credits.
+> **Plan requirement.** Enabling `intelligence=true` requires both the `content_ai` and `ai_agent` plan features (Pro
+> or Business). On the free agent plan, `intelligence` defaults to `false` on new workspaces and cannot be set to `true`
+> — the API rejects the request with `1605 (Invalid Input)`. On paid plans that include `ai_agent`, agent accounts default
+> `intelligence` to `true` when the parameter is omitted at create time. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements)
+> for the full matrix.
+
+On plans that support intelligence, **agents should explicitly set `intelligence=false` unless the user needs RAG
+queries across many documents or AI-powered semantic search.** The ingestion cost (10 credits/page) is significant and
+non-refundable — a 100-page document costs 1,000 credits to ingest. If your team only needs a shared workspace for
+coordination, disable it to conserve credits.
 
 **Agent use case:** Create a workspace per project or client. Enable intelligence only if agents or humans need to query the
-content via RAG or semantic search. Upload reports, datasets, and deliverables. Invite other agents and human stakeholders.
-Everything is organized, searchable, and versioned — and the whole team can see it.
+content via RAG or semantic search (and the plan supports it). Upload reports, datasets, and deliverables. Invite other
+agents and human stakeholders. Everything is organized, searchable, and versioned — and the whole team can see it.
 
-> **Cost-saving tips:** Disable intelligence on storage-only workspaces to avoid ingestion costs. Use attach-only AI chat
-> (no intelligence needed) for one-off file analysis — up to 20 files can be attached directly without indexing.
+> **Cost-saving tips:** Disable intelligence on storage-only workspaces to avoid ingestion costs. Attach-only AI chat
+> (up to 20 files without indexing) also requires a plan with `ai_agent`, so free-agent-plan orgs that need file Q&A
+> should transfer to a human for upgrade.
 
 ### 2. Shares — Structured Agent-Human Exchange
 

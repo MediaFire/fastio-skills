@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.164.0"
+  version: "1.165.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.164
-**Last Updated:** 2026-04-14
+**Version:** 1.165
+**Last Updated:** 2026-04-15
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -1765,6 +1765,31 @@ Pattern-based recovery: error messages are also matched against common patterns 
 ### Unauthenticated Tools
 
 The following actions work without a session: `auth` actions `signin`, `signup`, `set-api-key`, `pkce-login`, `email-check`, `password-reset-request`, `password-reset`; and `download` action `quickshare-details`.
+
+### Response format
+
+All tool responses are **GitHub-flavored Markdown** (CommonMark + tables). No JSON envelopes.
+
+For most tools, markdown is rendered client-side from the API's JSON envelope using the same rules as the platform's `?output=markdown` modifier — so passthrough and rendered responses look identical.
+
+A handful of list/activity actions additionally accept a `detail` param to trade verbosity for token cost:
+
+| Tool | Action | Accepts `detail` | Default |
+|---|---|---|---|
+| event | search | terse \| standard \| full | standard |
+| event | activity-list | terse \| standard \| full | standard |
+| event | activity-poll | terse \| standard \| full | terse |
+| comment | list | terse \| standard \| full | standard |
+
+What each level returns (cumulative — each adds to the previous):
+
+- **terse**: just the identifiers, primary labels, and timestamp — enough to navigate or advance a cursor.
+- **standard**: terse + the operational context most list views render (actors, descriptions, flags, counts).
+- **full**: standard + the long-form fields (full summaries, metadata, schema details). Equivalent to omitting `detail`.
+
+For **storage/share/org/workspace** list/search operations (and any other action that returns file or entity lists), responses are markdown too — rendered locally — but do not currently accept a `detail` param. These endpoints return the `full` shape by default; pass through any filtering you need via other action params (e.g. `search` query, `limit`/`offset`).
+
+Separate from the generic markdown output, **tasks/todo/approval/worklog** tools still accept `format: 'md'` which triggers a purpose-built domain renderer (checkbox lists, timelines, status tables) — distinct from the envelope-style markdown described here. Both produce markdown; they just have different shapes.
 
 ---
 
