@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.165.0"
+  version: "1.167.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.165
-**Last Updated:** 2026-04-15
+**Version:** 1.167
+**Last Updated:** 2026-04-16
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -1117,9 +1117,11 @@ Authentication, sign-in/sign-up, two-factor authentication, API key management, 
 
 ### user
 
-Retrieve and update the current user profile, search for other users, manage invitations, upload and delete user assets (profile photos), check account eligibility, and list shares the user belongs to.
+Retrieve and update the current user profile, search your contacts, manage invitations, upload and delete user assets (profile photos), check account eligibility, and list shares the user belongs to.
 
-**Actions:** me, update, search, close, details-by-id, profiles, allowed, org-limits, list-shares, invitation-list, invitation-details, accept-all-invitations, asset-upload, asset-delete, asset-types, asset-list
+**Actions:** me, update, search-contacts, close, details-by-id, profiles, allowed, org-limits, list-shares, invitation-list, invitation-details, accept-all-invitations, asset-upload, asset-delete, asset-types, asset-list
+
+> `search-contacts` searches your personal contact list (prior interactions) and returns `{email: name}` only — no user_id, no context scope. To find members of a specific workspace/share/org, use `org action=members`, `workspace action=members`, or `share action=members`.
 
 ### org
 
@@ -1147,9 +1149,9 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 ### upload
 
-File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), web imports from external URLs, upload limits and file extension restrictions, and session management. All files upload through the chunked flow with `POST /blob` sidecar for binary data.
+File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), web imports from external URLs, upload limits and file extension restrictions, and session management. Binary data flows through the `POST /blob` sidecar (100 MB cap per blob).
 
-**Actions:** create-session, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
+**Actions:** create-session, stream-upload, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
 ### download
 
@@ -1480,7 +1482,7 @@ Call `upload` action `limits` to get your plan's upload constraints. Optional pa
 |---|---|---|
 | Any file with a URL | N/A | `upload` action `web-import` (single step) |
 | Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_id` → `finalize` |
-| Generated/piped content, no URL | No | `create-session` with `stream=true` → `POST /blob` → `stream` with `blob_id` (auto-finalizes) |
+| Generated/piped content, no URL | No | `POST /blob` → `upload` action `stream-upload` with `blob_id` (single call — creates the session, streams the bytes, and auto-finalizes) |
 
 #### `POST /blob` endpoint — the standard upload path
 
@@ -1494,11 +1496,18 @@ A sidecar HTTP endpoint that accepts raw data outside the JSON-RPC pipe. **This 
 3. `upload` action `chunk` with `upload_id`, `chunk_number`, and `blob_id: "<blob_id>"`.
 4. Repeat steps 2-3 for additional chunks (if splitting a large file), then `upload` action `finalize`.
 
-**Stream flow (unknown size):**
-1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `stream=true`. `filesize` is optional — provide `max_size` as a ceiling or omit for plan default.
-2. `POST /blob` with the file data (same as chunked flow). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+**Stream flow (unknown size) — preferred single-call path:**
+1. `POST /blob` with the file data (see `blob-info` or the `blob_upload` object from any `create-session` response for the endpoint + curl command). Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
+2. `upload` action `stream-upload` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `blob_id: "<blob_id>"`. Optionally include `max_size` (see guidance below), `hash`, and `hash_algo`.
+3. Done — `stream-upload` creates the stream session, streams the bytes, and auto-finalizes in one call. If the stream fails, the dangling session is canceled automatically.
+
+**Stream flow (explicit two-step — when you need the session ID between calls):**
+1. `upload` action `create-session` with `profile_type`, `profile_id`, `parent_node_id`, `filename`, and `stream=true`. `filesize` is optional — provide `max_size` as a ceiling (see guidance below) or omit for plan default.
+2. `POST /blob` with the file data. Returns `{ "blob_id": "<uuid>", "size": <bytes> }`.
 3. `upload` action `stream` with `upload_id` and `blob_id: "<blob_id>"`. Optionally include `hash` and `hash_algo` for verification.
 4. Done — stream auto-finalizes. No separate `finalize` call needed.
+
+**`max_size` guidance — always overestimate, never undershoot.** `max_size` is a ceiling on the stream body. If the actual bytes exceed it, the upload aborts mid-transfer and the file is errored. There is no penalty for setting it too high. **Safest default: omit `max_size` entirely and the server uses your plan's file-size limit.** Note: streaming uploads via MCP are also bounded by the `POST /blob` sidecar (100 MB cap per blob) — for files approaching or exceeding 100 MB, switch to the chunked flow (`create-session` → `chunk` → `finalize`) and call `upload` action `limits` first to confirm the plan's max file size.
 
 **Stream restrictions:** Stream sessions cannot use `chunk`/`finalize` (rejected with 406). Chunked sessions cannot use `stream` (rejected with 406). Stream is single-shot — cannot stream to the same session twice.
 
@@ -1930,7 +1939,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **update** -- Update the current user's profile (name, email, etc.).
 
-**search** -- Search for users by name or email address.
+**search-contacts** -- Search your personal contact list (people you've interacted with via prior invites, shares, or chat mentions) by name or email substring. Returns a flat `{email: name}` map — no user_id, no context scope. For workspace/share/org membership use `workspace action=members`, `share action=members`, or `org action=members`.
 
 **close** -- Close/delete the current user account (requires email confirmation).
 
@@ -2214,7 +2223,11 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
 
+**stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` | `blob_id`. Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
+
 **chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
+
+**stream** -- Upload the entire file body into an existing stream session (one created via `create-session` with `stream=true`); auto-finalizes. Prefer `stream-upload` unless you need the `upload_id` between calls. Requires `upload_id` and exactly one of `content` | `blob_id`. Optional: `hash`, `hash_algo`.
 
 **finalize** -- Finalize an upload session, trigger file assembly, and poll until fully stored or failed. Returns the final session state.
 
