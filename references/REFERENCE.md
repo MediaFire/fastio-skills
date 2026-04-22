@@ -1303,8 +1303,8 @@ Use `GET .../storage/{node_id}/requestread/` to generate a temporary auth-free d
 browser tabs without sending Authorization headers.
 
 **MCP agents** have additional download options: use the `download://` resource templates for direct content retrieval
-(up to 50 MB), or the `/file/` HTTP pass-through endpoint for streaming larger files. See the "MCP Tool Architecture"
-section for details.
+(up to 100 KB — textual MIME types as UTF-8 `text`, everything else as base64 `blob`), or the `/file/` HTTP
+pass-through endpoint for streaming anything larger. See the "MCP Tool Architecture" section for details.
 
 #### Unit Calculations
 
@@ -1509,20 +1509,24 @@ When presenting links to users, always use `web_url` from tool responses. Never 
 **Resources** available via `resources/read`:
 - `skill://guide` — full tool documentation with parameters and examples
 - `session://status` — current authentication state
-- `download://workspace/{workspace_id}/{node_id}` — download a workspace file (returns base64 content up to 50 MB)
-- `download://share/{share_id}/{node_id}` — download a share file (returns base64 content up to 50 MB)
-- `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, up to 50 MB)
+- `download://workspace/{workspace_id}/{node_id}` — download a workspace file (inline content up to 100 KB)
+- `download://share/{share_id}/{node_id}` — download a share file (inline content up to 100 KB)
+- `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, inline content up to 100 KB)
 
 The `download://` resource templates provide direct file content retrieval via the MCP `resources/read` protocol.
-Files up to 50 MB are returned inline as base64 blobs. Larger files return a fallback message directing to the HTTP
-pass-through endpoint (see below). The `download` tool's `file-url` and `quickshare-details` actions include a
-`resource_uri` field in their response that points to the corresponding `download://` resource URI.
+Files up to 100 KB are returned inline — textual MIME types (`text/*`, `application/json`, `application/xml`, `+json` /
+`+xml` structured-syntax suffixes, etc.) as a UTF-8 `text` field; everything else as a base64 `blob` field. Content
+declared as `application/octet-stream` (common when an upload pipeline couldn't sniff the type) is decoded as UTF-8
+and returned as `text` when the bytes are valid UTF-8; otherwise it falls back to `blob` as usual. Larger files
+return a fallback message directing to the HTTP pass-through endpoint (see below). The `download` tool's `file-url`
+and `quickshare-details` actions include a `resource_uri` field in their response that points to the corresponding
+`download://` resource URI.
 
 **HTTP pass-through endpoint** for file downloads:
 
 The MCP server exposes a `/file/` HTTP endpoint that streams file content directly with proper `Content-Type`,
-`Content-Length`, and `Content-Disposition` headers — useful for large files that exceed the 50 MB MCP resource limit
-or when streaming is preferred over base64 encoding.
+`Content-Length`, and `Content-Disposition` headers — useful for files that exceed the 100 KB MCP resource limit or
+when streaming is preferred over base64 encoding.
 
 | Path | Auth | Description |
 |------|------|-------------|
@@ -1536,8 +1540,9 @@ the session's auth token to fetch the file and streams it back.
 **Query parameters:**
 - `?error=html` — returns error pages as HTML instead of JSON (useful for browser-facing links)
 
-**Size limits:** The `download://` resource templates return file content inline (base64) for files up to **50 MB**.
-Larger files return a fallback message directing to the `/file/` HTTP pass-through endpoint.
+**Size limits:** The `download://` resource templates return file content inline for files up to **100 KB** —
+textual MIME types as UTF-8 `text`, everything else as base64 `blob`. Larger files return a fallback message directing
+to the `/file/` HTTP pass-through endpoint, which has no size cap.
 
 **`web_url` in download responses:** The `download` tool's `file-url` and `quickshare-details` actions include both
 a `resource_uri` (for MCP resource reads) and a `web_url` (for browser-facing links) in their responses.

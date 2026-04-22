@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.105.0"
+  version: "1.109.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.104
-**Last Updated:** 2026-02-26
+**Version:** 1.109
+**Last Updated:** 2026-04-21
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -91,7 +91,7 @@ The server exposes static MCP resources, widget resources, and file download res
 | `download://share/{share_id}/{node_id}` | download-share-file | Session token | Yes | Download a file from a share |
 | `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | No | Download a quickshare file |
 
-Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
+Files up to 100 KB are returned inline. Textual MIME types (`text/*`, `application/json`, `application/xml`, `+json` / `+xml` structured-syntax suffixes, etc.) come back as a UTF-8 `text` field; everything else comes back as a base64 `blob` field. Content declared as `application/octet-stream` (or no MIME at all — common when an upload pipeline couldn't sniff the type) is decoded as UTF-8 when possible and returned as `text`; if the bytes aren't valid UTF-8 it falls back to `blob` as usual. **When the sniff succeeds, the content entry's `mimeType` still reports the server's declared value (e.g. `application/octet-stream`) — trust the presence of the `text` field over the MIME string.** Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below) — the pass-through route has no size cap and should be used for anything bigger. The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
 
 **Dynamic resource listing:** When authenticated, workspace and share file resources are dynamically listed via `resources/list`. MCP clients (such as Claude Desktop's `@` mention picker) can discover available files without any tool calls. Up to 10 workspaces and 10 shares are enumerated, with up to 25 most recently updated root-level files from each. Resources appear as "WorkspaceName / filename.ext" or "ShareTitle / filename.ext". Results are cached for 1 minute per session. Only root-level files are listed -- subdirectories are not recursively enumerated. Use the `storage` tool with action `list` to browse deeper. The quickshare template remains template-only and is not dynamically enumerable.
 
@@ -108,7 +108,7 @@ The server registers MCP prompts that appear in the client's "Add From" / "+" me
 
 ### HTTP File Pass-Through
 
-For files larger than 50 MB or when raw binary streaming is needed, the server provides an HTTP pass-through endpoint that streams file content directly from the API:
+For files larger than 100 KB or when raw binary streaming is needed, the server provides an HTTP pass-through endpoint that streams file content directly from the API:
 
 | Endpoint | Auth | Description |
 |---|---|---|
