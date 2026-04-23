@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.181.0"
+  version: "1.184.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.181
+**Version:** 1.184
 **Last Updated:** 2026-04-23
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -220,7 +220,7 @@ When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` 
 
 **Steps:**
 
-1. Optionally call `auth` action `email-check` with the desired `email` to verify it is available for registration before attempting signup.
+1. (Optional) `auth` action `email-check` -- advisory hint only; do NOT gate on the result. Always attempt `signup`; see Section 9 for why.
 2. Call `auth` action `signup` with `first_name`, `last_name`, `email`, and `password`. The `agent=true` flag is sent automatically by the MCP server.
 3. The account is created and a session is established automatically -- the agent is signed in immediately.
 4. **Verify your email** (required before using most endpoints): Call `auth` action `email-verify` with `email` to send a verification code, then call `auth` action `email-verify` again with `email` and `email_token` to validate the code.
@@ -1298,7 +1298,7 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 **Option 1 -- Autonomous agent (new account):**
 
-1. Optionally call `auth` action `email-check` with the desired `email` to verify availability.
+1. (Optional) `auth` action `email-check` — advisory hint only; do not gate on the result. `email-check` can return `available: false` for emails that `signup` then accepts. Always call `signup` and let its error be authoritative.
 2. `auth` action `signup` with `first_name`, `last_name`, `email`, and `password` -- registers as an agent account (agent=true is sent automatically) and signs in immediately.
 3. `auth` action `email-verify` with `email` -- sends a verification code. Then `auth` action `email-verify` with `email` and `email_token` -- validates the code. Required before using most endpoints.
 4. `org` action `create` to create a new org on the agent plan, or `org` action `list` to check existing orgs.
@@ -1954,7 +1954,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **2fa-verify** -- Complete two-factor authentication by submitting a 2FA code. Call this after signin returns two_factor_required: true. The new full-scope token is stored automatically.
 
-**email-check** -- Check if an email address is available for registration. No authentication required.
+**email-check** -- Advisory hint for whether an email appears available for registration. **Not authoritative:** `available: false` responses have been observed for emails that `signup` subsequently accepts (suspected: response caching or domain-specific policy in the upstream `POST /user/email/` endpoint). Always proceed to `signup` regardless of the `email-check` result and treat the signup error as the source of truth. No authentication required.
 
 **password-reset-request** -- Request a password reset email. Always returns success for security (does not reveal whether the email exists). No authentication required.
 
