@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.184.0"
+  version: "1.185.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.184
+**Version:** 1.185
 **Last Updated:** 2026-04-23
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -848,7 +848,7 @@ Key points:
 - **`metadata-template-suggest-fields` concurrency** -- the server rate-limits concurrent calls per user+workspace and returns **409 Conflict** when another suggest-fields call is in flight. Wait a few seconds and retry. (Earlier internal notes incorrectly said 406; live docs are authoritative — it is 409.)
 - **`nodes/add/` cap-exceeded** (REST endpoint, not exposed as an MCP action) -- returns **400 (Fast.io error code 1605, "Invalid Input")** with a structured "would exceed cap" message. Concurrent calls cannot collectively exceed the cap. To pre-flight, read the per-template nodes listing endpoint and compute remaining slots from `plan_node_limit - total_count_unfiltered`.
 - **Auto-match silently caps** -- the server-side `auto-match` endpoint (not currently exposed as an MCP action) caps at `plan_node_limit` even when more files are matchable (saves credits and LLM cost). Because neither `auto-match` nor the per-template `nodes/` listing is currently driveable from the MCP tool, agents needing to know exactly how many files were mapped after auto-match must call those REST endpoints directly or surface the gap to the user.
-- **MCP tool coverage** -- the `workspace` MCP tool exposes template CRUD (`metadata-template-{create,delete,list,details,update,clone}`), workspace assignment (`metadata-template-{assign,unassign,resolve,assignments}`), the new view-creation flow (`metadata-template-{preview-match,suggest-fields}`), and file-level metadata (`metadata-{get,set,delete,extract}`, `metadata-list-files`, `metadata-list-templates-in-use`, `metadata-versions`). It does **not** currently expose `nodes/add`, `nodes/remove`, the per-template `nodes/` listing, `auto-match`, `extract-all`, or `/metadata/eligible/`. Agents needing those workflows must surface the gap to the user.
+- **MCP tool coverage** -- the `workspace` MCP tool exposes template CRUD (`metadata-template-{create,delete,list,details,update,clone}`), workspace assignment (`metadata-template-{assign,unassign,resolve,assignments}`), the view-creation flow (`metadata-template-{preview-match,suggest-fields}`), per-user saved views (`metadata-view-{get,save,delete}`, `metadata-views-list`), and file-level metadata (`metadata-{get,set,delete,extract}`, `metadata-list-files`, `metadata-list-templates-in-use`, `metadata-versions`). It does **not** currently expose `nodes/add`, `nodes/remove`, the per-template `nodes/` listing, `auto-match`, `extract-all`, or `/metadata/eligible/`. Agents needing those workflows must surface the gap to the user.
 - **Template categories** -- legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr.
 - **Field types** -- string, int, float, bool, json, url, datetime -- each with optional constraints (min, max, default, fixed_list, can_be_null).
 - **Two metadata types** -- template metadata conforms to template field definitions; custom metadata is freeform key-value pairs not tied to any template.
@@ -1196,7 +1196,7 @@ Organization CRUD, member management, billing and subscription operations, works
 
 Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
 
 ### share
 
@@ -2181,6 +2181,34 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 **metadata-template-resolve** -- Resolve which metadata template applies to a given node. Returns the workspace-level template (node_id is accepted but currently inherits from workspace). Returns null if no template is assigned.
 
 **metadata-template-assignments** -- List all template assignments in the workspace.
+
+**metadata-view-get** -- Retrieve the caller's saved view for a template. Requires `workspace_id` and `template_id`. Returns the saved view record `{id, user_id, template_id, config, created, updated}`, or error 1609 if the caller has no saved view for that template. Saved views are **private per user** — the identity tuple is `(workspace, user, template)` and there is at most one saved view per tuple.
+
+**metadata-view-save** -- Upsert the caller's saved view for a template. Requires `workspace_id`, `template_id`, and `config` (a JSON-encoded string — the MCP tool accepts the stringified JSON, parses it to validate the JSON is well-formed, then forwards the re-stringified form as the `config` field of a form-urlencoded body to the API). `config` schema: `version` (must equal `1`), `columns` (array; order is display order; each entry: `field` string required, `visible?` bool, `width?` positive int), `sort` (`{field: string, dir: "asc" | "desc"}`), `filters` (array, max 5, AND-chained; each entry: `field` string, `operator` one of `= != < <= > >=`, `value_type` one of `string | int | float | bool` — `json` is rejected, `value` matching the declared `value_type`). Unknown keys anywhere in `config` are rejected with error 1605. Upsert semantics: if a view already exists for `(workspace, user, template)` it is replaced in place — the row's `id` and `created` are preserved and `updated` is refreshed; otherwise a new row is inserted. Returns the stored view.
+
+Example `config`:
+
+```json
+{
+  "version": 1,
+  "columns": [
+    { "field": "vendor", "visible": true, "width": 180 },
+    { "field": "amount", "visible": true, "width": 120 },
+    { "field": "notes", "visible": false }
+  ],
+  "sort": { "field": "amount", "dir": "desc" },
+  "filters": [
+    { "field": "vendor", "operator": "=", "value_type": "string", "value": "Acme" },
+    { "field": "amount", "operator": ">=", "value_type": "float", "value": 100.0 }
+  ]
+}
+```
+
+**metadata-view-delete** -- Remove the caller's saved view for a template. Requires `workspace_id` and `template_id`. Only affects the caller's own saved view (other users' views for the same template are untouched).
+
+**metadata-views-list** -- List all of the caller's saved views across templates in a workspace. Requires `workspace_id`. Returns `{items, count}` where `items` is an array of saved view records (one per template the caller has a saved view for).
+
+**Saved-view auto-apply on the nodes listing endpoint.** The per-template nodes listing endpoint (`GET /workspace/{id}/metadata/templates/{tid}/nodes/`) auto-applies the caller's saved `config.sort` and `config.filters` whenever the corresponding query params (`sort_field` / `filters`) are omitted. Explicit query params always win — there is no server-side merge between stateless query params and saved-view state. `columns` is **not** auto-applied server-side; clients must render column order/visibility/width from the saved `columns` array themselves. Note the field-name quirk: the stateless `filters` query param uses `key` per entry (the legacy contract, unchanged), while saved-view `config.filters` entries use `field` — the server translates `field` → `key` internally when auto-applying a saved view. **This endpoint is not currently exposed as an MCP `workspace` action** (see the "MCP tool coverage" bullet above) — to exercise the auto-apply, call the endpoint via code-mode `execute` with `fastio.get()`.
 
 **metadata-get** -- Get all metadata for a file, including both template-conforming metadata and custom (freeform) key-value pairs. Returns node details, template_id, template_metadata array, custom_metadata array, and a top-level `autoextractable` boolean (sibling of `template_id`, not nested inside either metadata array). `autoextractable` is `true` only when the node is a file (not a folder), not trashed, and has a completed AI summary — the same signal the extraction pipeline uses internally. Use it to gate "extract now" / "re-extract" UI affordances: if false, calling `metadata-extract` will fail or no-op (wait for the AI summary to finish first). Requires node_id.
 
