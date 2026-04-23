@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.167.0"
+  version: "1.170.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.167
-**Last Updated:** 2026-04-16
+**Version:** 1.170
+**Last Updated:** 2026-04-23
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -434,7 +434,7 @@ Nodes have versions. Each file modification creates a new version. Version histo
 4. The `node_id` is unchanged. The previous content becomes a version entry.
 5. Inspect history with `storage` action `version-list` (returns all versions for the node). Roll back to any earlier version with `storage` action `version-restore`.
 
-Deterministic overwrite by node_id: if the filename may have drifted (e.g., a previous rename), or you want to guarantee the overwrite hits a specific `node_id` without re-resolving the parent folder, pass `target_node_id` on `create-session`. This pins the update target explicitly — the server uses `action=update` + `file_id=<target_node_id>`; `parent_node_id` is ignored and `filename` is optional (omit to keep the current name, or pass a new one to rename-on-replace). See the `target_node_id` documentation in the Upload section below.
+Deterministic overwrite by node_id: if the filename may have drifted (e.g., a previous rename), or you want to guarantee the overwrite hits a specific `node_id` without re-resolving the parent folder, pass `target_node_id` on `create-session`. This pins the update target explicitly — the server uses `action=update` + `file_id=<target_node_id>`; `parent_node_id` is ignored and `filename` is optional (omit to keep the current name, or pass a new one to rename-on-replace). When `filename` is omitted, the tool performs one extra `storage` `details` lookup to fetch the current name (the Fast.io API still requires `name` in update mode); pass `filename` explicitly if you want to skip that call. See the `target_node_id` documentation in the Upload section below.
 
 **Worked example — edit a file's content and recover the prior version:**
 
@@ -1306,7 +1306,7 @@ Two options for passing chunk data (provide exactly one):
 
 **Same-name uploads (REPLACE in place, versioned):** If a file with the same name already exists in the target folder, the upload **overwrites the existing node in place**. The `node_id` is preserved and the prior content is kept as a version. **This is how you "edit" a file — do not delete and re-upload.** After any same-name overwrite, the previous content is recoverable via `storage` action `version-list` (list versions) and `version-restore` (restore by `version_id`). The `node_id` is stable across versions, so references from comments, tasks, approvals, metadata, etc. keep working. To keep both files instead of overwriting, rename before uploading. See **Overwriting files** in section 4 for the full pattern and a worked example.
 
-**Deterministic overwrite by node_id:** If the filename may have drifted, or you want to avoid re-resolving the parent folder, pass `target_node_id` on `create-session` to pin the overwrite to a specific node. When set, `parent_node_id` is ignored and `filename` is optional (omit to keep the existing name, or pass a new one to rename-on-replace). The server uses `action=update` + `file_id=<target_node_id>` under the hood. `node_id` is preserved; the new version shows up in `storage` action `version-list`. Typical sequence: find the node via `storage` action `list`/`details` → `upload` action `create-session` with `target_node_id` → `POST /blob` → `chunk`/`stream` → `finalize`.
+**Deterministic overwrite by node_id:** If the filename may have drifted, or you want to avoid re-resolving the parent folder, pass `target_node_id` on `create-session` to pin the overwrite to a specific node. When set, `parent_node_id` is ignored and `filename` is optional (omit to keep the existing name, or pass a new one to rename-on-replace). Omitting `filename` triggers one extra `storage` `details` lookup so the tool can forward the existing name to the API (update mode still requires `name`); pass `filename` to skip that round-trip. The server uses `action=update` + `file_id=<target_node_id>` under the hood. `node_id` is preserved; the new version shows up in `storage` action `version-list`. Typical sequence: find the node via `storage` action `list`/`details` → `upload` action `create-session` with `target_node_id` → `POST /blob` → `chunk`/`stream` → `finalize`.
 
 ### 4. Import a File from URL
 
@@ -2221,9 +2221,9 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 ### upload
 
-**create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
+**create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). When `filename` is omitted, the tool does one extra `storage` `details` round-trip to fetch the current name (the API still requires `name` in update mode); pass `filename` to skip it. Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
 
-**stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` | `blob_id`. Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
+**stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` | `blob_id`. Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set — omitting `filename` triggers the same extra `storage` `details` lookup noted under `create-session`), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
 
 **chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
 
