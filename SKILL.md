@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.170.0"
+  version: "1.176.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.170
+**Version:** 1.176
 **Last Updated:** 2026-04-23
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -123,7 +123,7 @@ The response includes proper `Content-Type`, `Content-Length`, and `Content-Disp
 
 ### Workflow Overview
 
-The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
+The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests — see **Workflow Approvals -- Quick Start** below), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
 
 **Best practice (IMPORTANT):** After state-changing actions (uploading files, creating shares, changing task status, member changes, file moves/deletes), append a worklog entry describing what you did and why. Without worklog entries, agent work is invisible to humans reviewing the workspace. For multiple related actions (e.g., uploading several files), you may log once after the batch completes rather than after each individual action. Worklog entries are append-only and permanent.
 
@@ -763,7 +763,7 @@ Comments use JSON request bodies (`Content-Type: application/json`), unlike most
 
 **Listing comments:** Use `comment` action `list` for per-file comments and `comment` action `list-all` for all comments across a workspace or share. Both support `sort`, `limit` (2-200), `offset`, `include_deleted`, `reference_type` filter, and `include_total`.
 
-**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 2,048 chars. Optionally include `linked_entity_type` and `linked_entity_id` to link the comment to a task or approval at creation time.
+**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 500 chars. Optionally include `linked_entity_type` and `linked_entity_id` to link the comment to a task or approval at creation time.
 
 **Deleting comments:** `comment` action `delete` is recursive -- deleting a parent also removes all replies. `comment` action `bulk-delete` is NOT recursive -- replies to deleted comments are preserved.
 
@@ -937,6 +937,69 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 - **Filtered lists:** `worklog` action `filtered-list` returns worklogs filtered by category -- "authored" (worklogs authored by me) or "interjections" (interjections targeted at me). Optional `type` sub-filter ("info" or "interjection").
 - **Summary:** `worklog` action `summary` returns lightweight counts -- total entries, breakdown by entry type, authored-by-me, and pending interjections.
 - **Markdown output:** Pass `format: "md"` for human-readable output.
+
+### Comments & Discussions -- Quick Start
+
+**When to use:** leave feedback on a file, start a container-level discussion, or attach a note to a workflow approval/task.
+
+**Comments are JSON** -- always use JSON request bodies (`Content-Type: application/json`). This is the #1 source of 406 errors on the comment API.
+
+**Three relationship modes -- pick one before you call:**
+
+**1. Node-attached (thread on a specific file/folder):**
+- `comment` action `add` with `profile_type`, `profile_id`, `node_id`, `text` (and optional `reference` for anchoring, `parent_comment_id` for replies).
+- Wraps `POST /comments/{entity_type}/{parent_id}/{node_id}/`. List with action `list`.
+
+**2. Workspace/share-attached (top-level container thread):**
+- Not exposed by `comment` action `add` (which requires `node_id`). For container-level comments, call the underlying endpoint via `execute`: `POST /comments/{entity_type}/{parent_id}/` with JSON body `{body, parent_id?}`. List via `comment` action `list-all`.
+
+**3. Workflow-linked (attach existing comment to an approval or task):**
+- Step A: create a comment via mode 1 or 2.
+- Step B: `comment` action `link` with `comment_id`, `linked_entity_type: "task" | "approval"`, `linked_entity_id`.
+- Reverse-lookup with `comment` action `linked`. Detach with `comment` action `unlink`. A comment can have at most one workflow link at a time.
+
+**Valid `entity_type` / `profile_type` values:**
+- Create/list endpoints: `"workspace"` or `"share"` ONLY.
+- Link/unlink/linked endpoints: `"task"` or `"approval"` ONLY (not `worklog_entry`, not `node`, not `share`).
+
+**Threading:** single-level only. Set `parent_comment_id` (body field: `parent_id`) to the top-level comment id. Replies to replies auto-flatten as siblings.
+
+**Reactions:** `comment` action `reaction-add` with `comment_id` + `emoji`. One reaction per user per comment -- new ones replace the previous.
+
+**Anti-patterns:**
+- Don't pass `entity_type: "approval"` (or `"task"`) to a create endpoint -- they only accept `"workspace"` or `"share"`. To comment on an approval, create on the parent workspace/share first, then LINK.
+- Don't hand-roll `/approvals/{id}/comments/` or `/tasks/{id}/comments/` -- no such paths exist.
+- Don't use form-encoded bodies -- comments are JSON everywhere. In code-mode, that's `fastio.postJson()`, not `fastio.post()`.
+- Don't mix a `node_id` with a `parent_id` from a different workspace/share -- the node must live under the parent you name. 404 usually means wrong parent.
+- Don't try to link to `worklog_entry` -- only `task` and `approval` are link targets.
+
+### Workflow Approvals -- Quick Start
+
+**When to use:** a file, folder, or task needs formal sign-off from one or more reviewers.
+
+**Approvals attach to entities directly** -- not to shares. Common mistake: creating a share to hold approvals. Don't. Shares are for distribution (Send/Receive/Exchange); approvals are review gates that live on the entity itself.
+
+**Step 1 -- Enable workflow on the workspace (one time, per workspace):**
+- `workspace` action `enable-workflow` with `workspace_id`.
+
+**Step 2 -- Create one approval per reviewer on the target node:**
+- `approval` action `create` with:
+  - `profile_type: "workspace"` (or `"share"`), `profile_id: <workspace_id_or_share_id>`
+  - `entity_type: "node"` (for a file or folder)
+  - `entity_id: <node_id>`
+  - `description` (the review request, 1-65535 chars)
+  - `approver_id: <user_id>` -- the reviewer (must be a member of the profile; pending members are fine)
+- For multiple reviewers, repeat this call N times with different `approver_id` values. There is no bulk-create mode.
+
+**Valid `entity_type` values:** `node` (file/folder), `task`, `worklog_entry`, `share`. Use `node` for file/folder reviews.
+
+**Resolve:** `approval` action `resolve` with `approval_id` and `resolve_action: "approve" | "reject"` (optional `comment`).
+
+**Anti-patterns to avoid:**
+- Don't create a share of the file -- approvals go on the node directly.
+- Don't create a task just to hold an approval on a file -- use `entity_type: "node"`.
+- Don't create todos -- todos are checklists, not review gates.
+- `approver_id` is a single user, not a group. For 3 reviewers, make 3 calls.
 
 #### Approvals
 
@@ -2303,7 +2366,7 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 **list-all** -- List all comments across a workspace or share (not node-specific). Same listing params as list.
 
-**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 2,048 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring; exact, prefix, suffix, start_offset, end_offset for text anchoring on markdown/notes -- use type `"document"` or `"text"`), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
+**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 500 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring; exact, prefix, suffix, start_offset, end_offset for text anchoring on markdown/notes -- use type `"document"` or `"text"`), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
 
 **delete** -- Delete a comment. Recursive: deleting a parent also removes all its replies.
 
@@ -2449,13 +2512,13 @@ Formal approval requests scoped to tasks, storage nodes, worklog entries, or sha
 
 **list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 50), `offset`, and `format`.
 
-**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver — can be a pending member), `deadline` (ISO 8601), `node_id` (artifact reference).
+**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver — can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601), `node_id` (artifact reference).
 
 **details** -- Get full details of an approval request including approver list and resolution. Requires `profile_type`, `profile_id`, and `approval_id` (opaque alphanumeric). Supports `format`.
 
 **resolve** -- Resolve an approval request. Requires `profile_type`, `profile_id`, `approval_id`, and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
 
-**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id` (can be a pending member), `deadline` (ISO 8601). Share-only, members/admins only.
+**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id` (can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601). Share-only, members/admins only.
 
 **bulk-approve** -- Bulk-approve all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can approve their assigned approvals.
 
@@ -2465,7 +2528,7 @@ Formal approval requests scoped to tasks, storage nodes, worklog entries, or sha
 
 **summary** -- Lightweight approval counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts. Supports `format`.
 
-**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id` (can be a pending member), `deadline` (ISO 8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
+**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id` (can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
 
 **delete** -- Permanently delete an approval (any status). Requires `profile_type`, `profile_id`, and `approval_id`. Irreversible. Members and admins only; guests blocked.
 
@@ -2515,24 +2578,71 @@ When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the
 |------|---------|
 | `auth` | Authentication (signin, signup, API keys, PKCE, 2FA) |
 | `upload` | File uploads (chunked, text, web-import) |
-| `search` | Discover API endpoints by keyword, tag, or concept |
+| `search` | Find content (files, notes, folders) OR discover API endpoints |
 | `execute` | Make authenticated API calls to Fast.io |
 
 Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 6 app-* widget tools (one per widget in the registry). Unknown clients default to the full tool set.
 
-### search Tool
+### Finding Content (USE THIS FIRST)
 
-Query the API spec by keywords, paths, or concepts. Returns matching endpoints with method, path, parameters, and descriptions.
+When the user asks "find my X", "where is my Y", or "do I have a Z" in their Fast.io data, call `search` **without** setting `target` (defaults to `content`). Do NOT compose `/storage/search/` calls by hand through `execute` — the `search` tool already wraps the right endpoints, fans out across workspaces, and normalizes results.
 
 ```
-search query="list files in workspace" tag="storage"
-search query="create share" tag="share"
-search query="authentication"
-search query="pagination" include_concepts=true
+search query="tax return 2023"                               (fan out across ALL workspaces)
+search query="Q3 budget" workspace_id="1234567890123456789"  (scoped to one workspace)
+search query="invoice" share_id="9876543210987654321"        (scoped to one share)
+search query="meeting notes from last quarter" details=true  (semantic, with full node details)
 ```
 
-Parameters:
-- `query` (string, required) -- Keywords, endpoint paths, or concepts to search for
+Result shape:
+
+```json
+{
+  "results": [
+    { "id": "<30-char node id>", "type": "file", "name": "tax-return-2023.pdf",
+      "parent_id": "<folder id>", "workspace_id": "1234…",
+      "score": 0.87, "snippet": "…2023 tax return for…" }
+  ],
+  "total": 1,
+  "scope": { "type": "workspace", "workspace_ids": ["1234…"] },
+  "next_offset": 50
+}
+```
+
+**Keyword vs. semantic search:** With workspace intelligence OFF (the default), search matches file and folder **names** only — fast and free. With intelligence ON, the same endpoint also runs semantic (RAG) search over indexed document content and returns `score` and `snippet` fields. Enable intelligence with `execute POST /workspace/{id}/update/ intelligence=true`. Indexing costs ~10 credits per document page; queries themselves are free.
+
+**Narrowing semantic search:** Pass `folders_scope` (`nodeId:depth` pairs, depth 1-10) to limit results to a subtree, or `files_scope` (`nodeId:versionId` pairs) to limit to specific file versions. Both are silently ignored when intelligence is off.
+
+**Scopes:**
+- `workspace_id` given → single-workspace search with `limit`/`offset` pagination.
+- `share_id` given → single-share search.
+- Neither → fan out across the top 10 accessible workspaces (4-way concurrent). Pagination is not available across the fanout; for deep pagination, pass an explicit `workspace_id`.
+
+### search Tool (API-endpoint discovery)
+
+When you need to call a REST endpoint that is NOT already wrapped by the code-mode tools (`auth`, `upload`, `search` content mode), flip `target` to `"api"` to search the API spec. Returns matching endpoints with method, path, parameters, and descriptions — pass the chosen path to `execute`.
+
+```
+search target="api" query="list files in workspace" tag="storage"
+search target="api" query="create share" tag="share"
+search target="api" query="authentication"
+search target="api" query="pagination" include_concepts=true
+```
+
+Parameters (all modes):
+- `query` (string, required) -- Keywords, endpoint paths, or concepts (api mode) or the thing you're trying to find (content mode)
+- `target` (enum, optional) -- `"content"` (default) or `"api"`
+
+Parameters (content mode only):
+- `workspace_id` (string, optional) -- 19-digit workspace ID to scope to one workspace
+- `share_id` (string, optional) -- 19-digit share ID to scope to one share
+- `limit` (number, optional) -- Max results 1-200 (default 50 single-scope, 25 per-workspace on fanout)
+- `offset` (number, optional) -- Pagination offset for single-scope search
+- `details` (boolean, optional) -- Include full node details (previews, AI state, metadata). Default false
+- `folders_scope` (string, optional) -- Narrow semantic search to folder subtrees (requires intelligence)
+- `files_scope` (string, optional) -- Narrow semantic search to specific file versions (requires intelligence)
+
+Parameters (api mode only):
 - `tag` (string, optional) -- Filter by domain: auth, workspace, storage, ai, share, upload, org, user, member, comment, event, metadata, etc.
 - `include_concepts` (boolean, optional) -- Include concept docs (pagination, IDs, errors). Default true.
 
