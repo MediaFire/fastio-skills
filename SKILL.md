@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.192.0"
+  version: "1.193.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.192
+**Version:** 1.193
 **Last Updated:** 2026-04-25
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -2309,7 +2309,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **recent** -- List recently modified files and folders across all directories, sorted by updated descending. Unlike `list` which is scoped to a single folder, this returns nodes from the entire storage tree. Supports optional `type` filter (`file`, `folder`, `link`, `note`), `page_size` (100, 250, or 500), and `cursor` for pagination. For workspace folder shares, results are automatically filtered to the share's subtree.
 
-**details** -- Get full details of a specific file or folder. Returns `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only).
+**details** -- Get full details for one or more nodes. Single lookup via `node_id` returns the legacy single shape with `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only). Bulk lookup via `node_ids` (1-25 IDs, all in the same workspace/share) returns `{format: "multi", nodes, errors, node_count, error_count, requested_count}` — partial results are normal (a 200 with non-empty `errors` is not a failure; render the nodes you got and surface per-id errors next to their input IDs). Match results by `node.id` (case-insensitive); order is not preserved. Per-id error codes you may see: 133123 (not found / wrong workspace), 191878 (invalid OpaqueId), 146950 (physical content gone — stale cache after dedup, not retryable), 146256 (transient retrieval — safe to retry), 179961 (formatting failure, rare). >25 IDs is rejected client-side; chunk above that. The bulk endpoint accepts any node type (files, folders, notes, links).
 
 **search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs — scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 — scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result — previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 — keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource — previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool — false if gRPC failed, graceful degradation), `scoped` (bool — true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` — keyword-only behavior. Each result includes `web_url` (workspace only).
 
