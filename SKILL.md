@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.185.0"
+  version: "1.192.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.185
-**Last Updated:** 2026-04-23
+**Version:** 1.192
+**Last Updated:** 2026-04-25
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -1212,9 +1212,9 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 ### upload
 
-File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), web imports from external URLs, upload limits and file extension restrictions, and session management. Binary data flows through the `POST /blob` sidecar (100 MB cap per blob).
+File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), bulk uploads of many small files in one round-trip (`batch`), web imports from external URLs, upload limits and file extension restrictions, and session management. Binary data flows through the `POST /blob` sidecar (100 MB cap per blob).
 
-**Actions:** create-session, stream-upload, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
+**Actions:** create-session, stream-upload, batch, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
 ### download
 
@@ -1541,11 +1541,50 @@ Call `upload` action `limits` to get your plan's upload constraints. Optional pa
 
 #### Choosing an Upload Strategy
 
+Single-file uploads are the default path. Batch is a specialized option only for the case of "multiple small files in one shot" — use the single-file paths for everything else.
+
 | File Type | Size Known? | Recommended Approach |
 |---|---|---|
 | Any file with a URL | N/A | `upload` action `web-import` (single step) |
 | Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_id` → `finalize` |
 | Generated/piped content, no URL | No | `POST /blob` → `upload` action `stream-upload` with `blob_id` (single call — creates the session, streams the bytes, and auto-finalizes) |
+| **Specialized:** several small files at once (≤4 MB each) | Yes | `POST /blob` per file → `upload` action `batch` with a `files[]` manifest (one round-trip, up to 200 files; not for single uploads — use the single-file paths above) |
+
+#### Batch uploads — many small files in one round-trip
+
+When you have multiple small files to upload (AI outputs, report bundles, exported CSVs, receipts), `upload` action `batch` posts the entire manifest in one request. This avoids burning N entries in the per-file upload rate-limit bucket and typically cuts wall-clock time by an order of magnitude for small-file workloads.
+
+**Hard limits (enforced client-side before the request is sent):**
+- **≤ 200 files per call.** Calling with more returns an error telling you to split.
+- **≤ 4 MB per file.** Any file over 4 MB rejects the whole batch with a pointer to the chunked flow (`create-session` → `chunk` → `finalize`). Batch and chunked uploads are not intermixable.
+- **≤ 100 MB total resolved bytes.** Multipart raw — no base64 inflation. (Multipart framing overhead is small but non-zero; the server measures body size post-framing, so a batch that lands exactly on 100 MB of raw bytes can still be rejected. Leave a few hundred KB of headroom on large batches.)
+- **Auth required.** Anonymous callers are rejected with HTTP 401 (code 10011). For public-receive / public-exchange share uploads without auth, use the single-file `create-session` flow instead.
+- **`relative_path` format.** Trailing slash required (auto-normalized if missing). No leading slash. No `.` or `..` segments. Violations are rejected client-side with a per-entry error so you can fix one file without losing the batch.
+
+**Typical flow:**
+1. For each file, `POST /blob` with the file bytes (see the blob section below, or call `upload` action `blob-info`). Collect the returned `blob_id` values.
+2. `upload` action `batch` with:
+   - `profile_type` + `profile_id` — target workspace or share
+   - `folder_id` (optional) — target folder OpaqueId or `"root"` (batch-level; every file in the call lands in this folder). Omit for instance root. If you need different destinations per file, issue separate batches — don't abuse `relative_path` for this.
+   - `files[]` — one entry per file: `{filename, blob_id}` or `{filename, content}` (inline text, non-empty). `filename` is 1-255 chars (the server truncates names over 100 chars while preserving the extension). Optional per-entry `relative_path` (1-8192 chars, trailing slash required and auto-normalized; no leading `/` and no `.`/`..` segments) creates sub-folders under `folder_id`. Optional per-entry `hash` (hex string) + `hash_algo` (one of `md5`, `sha1`, `sha256`, `sha384`) — caller-supplied digests are forwarded verbatim (the server validates them). By default the tool computes SHA-256 client-side for entries that don't already carry a hash; set `include_hash: false` on the call to skip.
+   - `creator` (optional) — echoed back in the response (1-150 chars, alphanumeric/hyphens).
+
+**Response shape:**
+- `batch_id`, `count_total`, `count_succeeded`, `count_errored`, `partial` (true when both succeeded and errored are non-zero), `all_failed` (true when every entry errored), `creator` (echo).
+- `results[]` — one entry per file with `index`, `filename`, `status` (`"ok"` or `"error"`). On `ok`: `upload_id` (audit correlation handle) and `node_id` (may be **null** — see below). On `error`: `error_code` and `error_message`.
+- `errors[]` — pre-filtered view of just the errored entries for convenience.
+
+**⚠️ Three critical semantic traps:**
+
+1. **`node_id` is nullable on success.** Workspaces with async storage finalization return `"status": "ok"` with `"node_id": null` — the storage node is assigned later by the assemble worker. **This is SUCCESS, not failure.** Do NOT treat a null `node_id` as an error. If you need the final node id, call `storage` action `list` on the target folder after a short delay, or subscribe to upload events.
+
+2. **Partial success is normal.** HTTP 200 with `count_errored > 0` is the expected shape when some entries hit per-file validation errors (bad hash, disallowed extension, etc.). **Do NOT retry the whole batch.** Inspect `results[]`, split by status, and retry only the errored entries whose `error_code` is retryable.
+
+3. **All-failed still returns HTTP 200.** When every entry errors, the tool sets `all_failed: true` on the response. Nothing was uploaded; inspect `results[]`/`errors[]` to see what went wrong (hash mismatch, extension blocked, etc.) and fix the inputs before resubmitting. The `batch_id` is retained for 1 hour for audit lookup.
+
+**Rate limit:** The batch endpoint is rate-limited in a bucket independent of the per-file `/upload/` bucket — bulk uploads don't consume your single-file budget. On HTTP 429, the tool surfaces the `x-ve-limit-expires` header (a UTC datetime string, e.g. `"2026-04-24 23:49:04 UTC"`) in the error message along with the remaining `x-ve-limit-avail`/`x-ve-limit-max` quota — pause until that datetime before retrying. The tool reports whatever error code the server sends.
+
+**Whole-batch rejections** (HTTP 4xx with no `results[]`) are input-validation failures: bad `folder_id`, missing `instance_id`, body too large, over 200 files, etc. Fix the input before retrying.
 
 #### `POST /blob` endpoint — the standard upload path
 
@@ -2315,6 +2354,8 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 **create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). When `filename` is omitted, the tool does one extra `storage` `details` round-trip to fetch the current name (the API still requires `name` in update mode); pass `filename` to skip it. Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
 
 **stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` | `blob_id`. Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set — omitting `filename` triggers the same extra `storage` `details` lookup noted under `create-session`), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
+
+**batch** -- Upload up to 200 small files (≤4 MB each, ≤100 MB total) to one target folder in a single multipart round-trip. Requires `profile_type`, `profile_id`, and `files[]` (each entry: `filename` + exactly one of `blob_id` | `content`; optional `relative_path`, `hash`, `hash_algo`). Optional: `folder_id` (batch-level target, defaults to instance root), `creator` (echo-back tag), `include_hash` (default `true` — computes SHA-256 client-side for entries without a hash). Returns per-entry `results[]` with `status`, `upload_id`, and `node_id`, plus a pre-filtered `errors[]` view. **`node_id` is nullable on success** — workspaces with async storage assign the node id later; do not treat null as an error. **Partial success is normal** — `count_errored > 0` with HTTP 200 is expected; retry only the errored entries. When every entry errors, the response carries `all_failed: true`. Uses a rate-limit bucket independent of the per-file upload bucket — the tool surfaces the `x-ve-limit-expires` UTC datetime on 429. Requires authentication (anon callers get HTTP 401 code 10011 — route those through the single-file `create-session` flow).
 
 **chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
 

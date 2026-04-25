@@ -1385,12 +1385,12 @@ The system has three layers:
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /current/workspace/{id}/metadata/eligible/` | List files eligible for metadata extraction (have summary + preview) |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/add/` | Manually add files to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/remove/` | Remove files from a template |
-| `GET /current/workspace/{id}/metadata/templates/{template_id}/nodes/` | List files mapped to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/auto-match/` | AI-based file matching to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/extract-all/` | Batch-extract metadata for all mapped files (async, returns job_id) |
+| `GET /current/workspace/{id}/metadata/eligible/` | List nodes (files and notes) eligible for metadata extraction (have summary + preview) |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/add/` | Manually add nodes (files or notes) to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/remove/` | Remove nodes from a template |
+| `GET /current/workspace/{id}/metadata/templates/{template_id}/nodes/` | List nodes mapped to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/auto-match/` | AI-based node matching to a template |
+| `POST /current/workspace/{id}/metadata/templates/{template_id}/extract-all/` | Batch-extract metadata for all mapped nodes (async, returns job_id) |
 
 #### Node Metadata Operations
 
