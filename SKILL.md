@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.193.0"
+  version: "1.194.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.193
-**Last Updated:** 2026-04-25
+**Version:** 1.194
+**Last Updated:** 2026-04-26
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -2249,7 +2249,7 @@ Example `config`:
 
 **Saved-view auto-apply on the nodes listing endpoint.** The per-template nodes listing endpoint (`GET /workspace/{id}/metadata/templates/{tid}/nodes/`) auto-applies the caller's saved `config.sort` and `config.filters` whenever the corresponding query params (`sort_field` / `filters`) are omitted. Explicit query params always win — there is no server-side merge between stateless query params and saved-view state. `columns` is **not** auto-applied server-side; clients must render column order/visibility/width from the saved `columns` array themselves. Note the field-name quirk: the stateless `filters` query param uses `key` per entry (the legacy contract, unchanged), while saved-view `config.filters` entries use `field` — the server translates `field` → `key` internally when auto-applying a saved view. **This endpoint is not currently exposed as an MCP `workspace` action** (see the "MCP tool coverage" bullet above) — to exercise the auto-apply, call the endpoint via code-mode `execute` with `fastio.get()`.
 
-**metadata-get** -- Get all metadata for a file, including both template-conforming metadata and custom (freeform) key-value pairs. Returns node details, template_id, template_metadata array, custom_metadata array, and a top-level `autoextractable` boolean (sibling of `template_id`, not nested inside either metadata array). `autoextractable` is `true` only when the node is a file (not a folder), not trashed, and has a completed AI summary — the same signal the extraction pipeline uses internally. Use it to gate "extract now" / "re-extract" UI affordances: if false, calling `metadata-extract` will fail or no-op (wait for the AI summary to finish first). Requires node_id.
+**metadata-get** -- Get all metadata for one or more files, including both template-conforming metadata and custom (freeform) key-value pairs. Single-id form: pass `node_id`; returns node details, `template_id`, `template_metadata` array, `custom_metadata` array, and a top-level `autoextractable` boolean (sibling of `template_id`, not nested inside either metadata array). `autoextractable` is `true` only when the node is a file (not a folder), not trashed, and has a completed AI summary — the same signal the extraction pipeline uses internally. Use it to gate "extract now" / "re-extract" UI affordances: if false, calling `metadata-extract` will fail or no-op (wait for the AI summary to finish first). **Bulk form (1-25 ids in one call):** pass `node_ids` as a JSON-encoded array of node IDs (all in the same workspace; cross-workspace ids surface as per-id error 191049). Duplicates dedupe before counting against the cap. The bulk response normalizes to `{format:"multi", objects, templates, errors, object_count, template_count, error_count, requested_count}` — each entry in `objects` has the same shape as the single-id body (`instance_id`, `object_id`, `template_id`, `node_id`, `template_metadata`, `custom_metadata`, `autoextractable`), and the `templates` map (keyed by `template_id`) carries each template definition exactly once instead of repeating it inside every object. Render each row by looking up `obj.template_id` in the `templates` map. The bulk call counts as **1** throttle hit regardless of fan-out, so prefer it over a per-file loop whenever a folder/picker view needs metadata for multiple files. **Per-id error codes** (in `errors[]`): `147196` invalid id format, `196136` root sentinel supplied, `191049` node not found (also returned for cross-workspace ids), `190770` transient backend error retrieving node, `150183` node exists but is not a file or note (e.g. a folder), `157684` transient backend error retrieving metadata rows. Codes `147196/196136/150183/191049` are deterministic — do **not** retry; only `190770/157684` are worth retrying. >25 ids is rejected client-side with a clear error rather than a server round-trip.
 
 **metadata-set** -- Set or update metadata key-value pairs on a file. Values must conform to the template field definitions. Requires node_id, template_id, and key_values (JSON object of key-value pairs).
 
