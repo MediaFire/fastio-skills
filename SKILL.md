@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.194.0"
+  version: "1.197.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.194
-**Last Updated:** 2026-04-26
+**Version:** 1.197
+**Last Updated:** 2026-04-27
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -932,7 +932,7 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 - **Entries:** Regular log entries appended with `worklog` action `append`. Use for progress updates, decisions, reasoning, and status changes.
 - **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
 - **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement. Entries include an `acknowledgable` boolean -- when `true`, the entry is an unacknowledged interjection that can be acknowledged.
-- **Response fields:** Entries include `acknowledged` (boolean), `acknowledgable` (boolean), `updated` (ISO 8601 timestamp), and `created` (ISO 8601 timestamp).
+- **Response fields:** Entries include `acknowledged` (boolean), `acknowledgable` (boolean), `updated` (`YYYY-MM-DD HH:MM:SS UTC` timestamp), and `created` (`YYYY-MM-DD HH:MM:SS UTC` timestamp).
 - **Profile-level listing:** `worklog` action `profile-list` lists all worklog entries at the workspace or share level (different from `list` which is entity-scoped).
 - **Filtered lists:** `worklog` action `filtered-list` returns worklogs filtered by category -- "authored" (worklogs authored by me) or "interjections" (interjections targeted at me). Optional `type` sub-filter ("info" or "interjection").
 - **Summary:** `worklog` action `summary` returns lightweight counts -- total entries, breakdown by entry type, authored-by-me, and pending interjections.
@@ -1180,29 +1180,37 @@ Authentication, sign-in/sign-up, two-factor authentication, API key management, 
 
 ### user
 
-Retrieve and update the current user profile, search your contacts, manage invitations, upload and delete user assets (profile photos), check account eligibility, and list shares the user belongs to.
+Retrieve and update the current user profile, search your contacts, manage invitations, upload and delete user assets (profile photos), check account eligibility, list shares the user belongs to, and manage personal AI instructions (markdown guidance the platform applies to AI features).
 
-**Actions:** me, update, search-contacts, close, details-by-id, profiles, allowed, org-limits, list-shares, invitation-list, invitation-details, accept-all-invitations, asset-upload, asset-delete, asset-types, asset-list
+**Actions:** me, update, search-contacts, close, details-by-id, profiles, allowed, org-limits, list-shares, invitation-list, invitation-details, accept-all-invitations, asset-upload, asset-delete, asset-types, asset-list, instructions-get, instructions-set, instructions-clear
 
 > `search-contacts` searches your personal contact list (prior interactions) and returns `{email: name}` only — no user_id, no context scope. To find members of a specific workspace/share/org, use `org action=members`, `workspace action=members`, or `share action=members`.
 
+> AI instructions: `instructions-get` / `instructions-set` / `instructions-clear` manage a single self-scoped markdown slot at `/user/me/instructions/` (max 65536 bytes UTF-8, full replace on set, soft-clear preserves audit row). The user profile has no `me` scope variant — it's already self-only. First read returns `content: ""` with null timestamps, not a 404.
+
 ### org
 
-Organization CRUD, member management, billing and subscription operations, workspace creation, invitation workflows, asset management (upload, delete), organization discovery, ownership transfer, and custom domain management.
+Organization CRUD, member management, billing and subscription operations, workspace creation, invitation workflows, asset management (upload, delete), organization discovery, ownership transfer, custom domain management, and AI instructions (org-wide and per-user slots).
 
-**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete
+**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete, custom-domain-validate, instructions-get, instructions-set, instructions-clear
+
+> AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, org-wide slot — owner/admin only, 403 code 1680 for non-admins) or `me` (per-user slot — any member). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and AI instructions (workspace-wide and per-user slots).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow, enable-import, disable-import, instructions-get, instructions-set, instructions-clear
+
+> AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, workspace-wide slot — owner/admin only, 403 code 1680 for non-admins) or `me` (per-user slot — any member, no guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
 ### share
 
-Share CRUD, public details, archiving, password authentication, asset management, share name availability checks, and workflow toggle (enable/disable tasks, worklogs, approvals, and todos).
+Share CRUD, public details, archiving, password authentication, asset management, share name availability checks, workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and AI instructions (share-wide and per-user slots).
 
-**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, enable-workflow, disable-workflow
+**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, enable-workflow, disable-workflow, instructions-get, instructions-set, instructions-clear
+
+> AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, share-wide slot — owner/admin only, 403 code 166463 for non-admins) or `me` (per-user slot — registered members only, 403 code 185733 for anonymous/link guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
 ### storage
 
@@ -2069,6 +2077,12 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **asset-list** -- List all user assets.
 
+**instructions-get** -- Read your personal AI instructions slot at `/user/me/instructions/`. First read of an unwritten slot returns `content: ""` with null timestamps (not a 404). Self-only — there is no `me` scope variant.
+
+**instructions-set** -- Replace your personal AI instructions (full replace, max 65536 bytes UTF-8). Returns the post-write payload — no follow-up `instructions-get` needed.
+
+**instructions-clear** -- Soft-clear your personal AI instructions (audit row preserved). Idempotent.
+
 ### org
 
 **list** -- List internal organizations (orgs the user is a direct member of, `member: true`). Each org includes `web_url`. Returns member orgs with subscription status, user permission, and plan info. Non-admin members only see orgs with active subscriptions. Does not include external orgs -- use discover-external for those.
@@ -2161,6 +2175,12 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **custom-domain-validate** -- Perform live DNS validation on the org's custom domain. Returns `hostname`, `dns_valid` (boolean), `status`, `cname_target`, and `cname_found`. If DNS is correct and domain is pending, it is automatically activated. Any org member can call this.
 
+**instructions-get** -- Read AI instructions for an org. `scope: "profile"` (default) reads the org-wide slot at `/org/{org_id}/instructions/`. `scope: "me"` reads the per-user slot at `/org/{org_id}/instructions/me/`. First read of an unwritten slot returns `content: ""` with null timestamps (not a 404). Read access on each scope follows the same auth gate documented for write — see the section 5 `org` blockquote.
+
+**instructions-set** -- Replace AI instructions for an org (full replace, max 65536 bytes UTF-8). `scope: "profile"` (default) requires owner/admin (403 code 1680 for non-admins). `scope: "me"` writes the per-user slot (any member). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view.
+
+**instructions-clear** -- Soft-clear AI instructions for an org (audit row preserved). `scope: "profile"` (default) requires owner/admin; `scope: "me"` clears the per-user slot. Idempotent.
+
 ### workspace
 
 **list** -- List all workspaces the user has access to across all organizations. Each workspace includes `web_url`.
@@ -2175,7 +2195,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **unarchive** -- Restore an archived workspace to active status. Requires Admin+.
 
-**members** -- List all members of a workspace with their roles and status. Includes both active and pending members. Pending members have `status: "pending"` and an `invite` object (`{id, created, expires}` — `expires` is ISO 8601 or null if no expiration); active members have `status: "active"` and `invite: null`. Pending members are invited users who haven't signed up yet — they are valid assignment targets for tasks, approvals, and todos. Use `invite.id` with `invitation` action `delete` to cancel a pending member's invitation.
+**members** -- List all members of a workspace with their roles and status. Includes both active and pending members. Pending members have `status: "pending"` and an `invite` object (`{id, created, expires}` — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration); active members have `status: "active"` and `invite: null`. Pending members are invited users who haven't signed up yet — they are valid assignment targets for tasks, approvals, and todos. Use `invite.id` with `invitation` action `delete` to cancel a pending member's invitation.
 
 **list-shares** -- List all shares within a workspace, optionally filtered by archive status. Each share includes `web_url`.
 
@@ -2269,6 +2289,16 @@ Example `config`:
 
 **disable-workflow** -- Disable workflow features on a workspace. All workflow data is preserved but inaccessible until re-enabled.
 
+**enable-import** -- Enable cloud import features (external storage providers) on a workspace. Must be called before provisioning import identities.
+
+**disable-import** -- Disable cloud import features on a workspace. Existing import sources will stop syncing, but data is preserved.
+
+**instructions-get** -- Read AI instructions for a workspace. `scope: "profile"` (default) reads the workspace-wide slot at `/workspace/{ws_id}/instructions/`. `scope: "me"` reads the per-user slot at `/workspace/{ws_id}/instructions/me/`. First read of an unwritten slot returns `content: ""` with null timestamps (not a 404).
+
+**instructions-set** -- Replace AI instructions for a workspace (full replace, max 65536 bytes UTF-8). `scope: "profile"` (default) requires owner/admin (403 code 1680 for non-admins). `scope: "me"` writes the per-user slot (any member, no guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view.
+
+**instructions-clear** -- Soft-clear AI instructions for a workspace (audit row preserved). `scope: "profile"` (default) requires owner/admin; `scope: "me"` clears the per-user slot (no guests). Idempotent.
+
 ### share
 
 **list** -- List shares the authenticated user has access to. Each share includes `web_url`.
@@ -2300,6 +2330,12 @@ Example `config`:
 **enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a share. Must be called before using workflow tools on the share.
 
 **disable-workflow** -- Disable workflow features on a share. All workflow data is preserved but inaccessible until re-enabled.
+
+**instructions-get** -- Read AI instructions for a share. `scope: "profile"` (default) reads the share-wide slot at `/share/{share_id}/instructions/`. `scope: "me"` reads the per-user slot at `/share/{share_id}/instructions/me/`. First read of an unwritten slot returns `content: ""` with null timestamps (not a 404).
+
+**instructions-set** -- Replace AI instructions for a share (full replace, max 65536 bytes UTF-8). `scope: "profile"` (default) requires owner/admin (403 code 166463 for non-admins). `scope: "me"` writes the per-user slot — registered members only (403 code 185733 for anonymous/link guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view.
+
+**instructions-clear** -- Soft-clear AI instructions for a share (audit row preserved). `scope: "profile"` (default) requires owner/admin; `scope: "me"` clears the per-user slot (registered members only, no anonymous guests). Idempotent.
 
 ### storage
 
@@ -2469,7 +2505,7 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 All member actions require `entity_type` parameter (`workspace` or `share`) and `entity_id` (the 19-digit profile ID).
 
-Member objects include `status` (`active` or `pending`) and `invite` (null for active members, `{id, created, expires}` for pending — `expires` is ISO 8601 or null if no expiration). Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. When a pending member signs up, their status becomes `active` and all assignments are preserved. Canceling an invitation (via `invitation` action `delete` with `invite.id`) removes the pending member and unassigns their workflow items.
+Member objects include `status` (`active` or `pending`) and `invite` (null for active members, `{id, created, expires}` for pending — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration). Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. When a pending member signs up, their status becomes `active` and all assignments are preserved. Canceling an invitation (via `invitation` action `delete` with `invite.id`) removes the pending member and unassigns their workflow items.
 
 **add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`. Inviting by email creates a pending member if the user doesn't have an account. For workspaces, set access level with `permissions` (admin/member/guest). For shares, use `role` (admin/member/guest/view).
 
