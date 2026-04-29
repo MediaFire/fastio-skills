@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.198.0"
+  version: "1.200.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.198
+**Version:** 1.200
 **Last Updated:** 2026-04-29
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
@@ -1220,7 +1220,7 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 ### upload
 
-File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), bulk uploads of many small files in one round-trip (`batch`), web imports from external URLs, upload limits and file extension restrictions, and session management. Binary data flows through the `POST /blob` sidecar (100 MB cap per blob).
+File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text, base64-encoded binary, or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), bulk uploads of many small files in one round-trip (`batch`), web imports from external URLs, upload limits and file extension restrictions, and session management. Large binary data flows through the `POST /blob` sidecar (100 MB cap per blob); for small binaries when the agent cannot reach `/blob` (sandboxed environments), use `content_base64` instead — the server decodes it server-side, capped only by MCP transport message size.
 
 **Actions:** create-session, stream-upload, batch, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
@@ -1340,7 +1340,7 @@ See **Choosing the Right Approach** in section 2 for which option fits your scen
 
 ### 3. Upload a File to a Workspace
 
-**All files use the `POST /blob` sidecar.** This is the only supported upload data path — it bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size.
+**Default to the `POST /blob` sidecar for binary data.** It bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size up to 100 MB. (For inline text use `content`; for small inline binary in sandboxed environments that cannot reach `/blob`, `content_base64` is the in-band fallback — bounded by MCP transport message size.)
 
 **Option A: `web-import` (preferred for URL-accessible files)**
 If the file has a URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import`. Single call, no chunking. See Workflow 4 below.
@@ -1354,9 +1354,10 @@ If the file has a URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `u
 
 **IMPORTANT:** The `blob_upload.session_id` is the MCP session ID for this connection. You **must** use this exact session ID in the `Mcp-Session-Id` header when POSTing to `/blob`. Using a different session ID (e.g., from a separately-established MCP connection) will stage the blob in a different location, and the `chunk` action will not find it.
 
-Two options for passing chunk data (provide exactly one):
+Three options for passing chunk data (provide exactly one):
 - **`blob_id`** — blob ID from `POST /blob` response. The standard upload path for all files — no base64, no MCP transport limits. (Also accepted as `blob_ref` for backward compatibility.)
-- **`content`** — for small text strings only (code snippets, short JSON). For larger text files, use `POST /blob` + `blob_id`.
+- **`content`** — for small **text** strings only (code snippets, short JSON). Stored verbatim as UTF-8 bytes — do NOT pass base64 here, it will be saved as a base64-encoded text file. For larger text files, use `POST /blob` + `blob_id`.
+- **`content_base64`** — for small **binary** content as a base64-encoded string. The server decodes it before writing. Useful when the agent's environment can produce base64 in JSON but cannot reach the `POST /blob` sidecar (e.g., sandboxed agents without network or auth tokens). Whitespace/newlines are stripped automatically. Practical cap is bounded by the MCP transport message size (a few MB); for larger binary files, use `POST /blob` + `blob_id`.
 
 `upload` action `finalize` with `upload_id` triggers file assembly and polls until stored. Returns the final session state with `status: "stored"` or `"complete"` on success (including `new_file_id`), or throws on failure. Terminal failure states: `assembly_failed` (chunks could not be assembled) and `store_failed` (assembled file could not be stored — check `status_message` for details). The file is automatically added to the target workspace and folder specified during session creation -- no separate add-file call is needed.
 
@@ -1528,7 +1529,7 @@ MCP tools return download URLs -- they never stream binary content directly. `do
 
 ### Uploads
 
-All file uploads go through the `POST /blob` sidecar endpoint. This is the only supported upload data path — it bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size up to 100 MB.
+Most file uploads go through the `POST /blob` sidecar endpoint — the canonical large-file path. It bypasses MCP transport limits, has no base64 overhead, and works for text and binary files of any size up to 100 MB. (Inline alternatives: `content` for small text, `content_base64` for small binary when the agent cannot reach `/blob` — both bounded by MCP transport message size.)
 
 > **Prefer `web-import` for URL-accessible files.** If the file is accessible via any URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Dropbox), use `upload` action `web-import` instead of chunked upload. It's a single tool call — no chunking, no session management.
 
@@ -1574,7 +1575,7 @@ When you have multiple small files to upload (AI outputs, report bundles, export
 2. `upload` action `batch` with:
    - `profile_type` + `profile_id` — target workspace or share
    - `folder_id` (optional) — target folder OpaqueId or `"root"` (batch-level; every file in the call lands in this folder). Omit for instance root. If you need different destinations per file, issue separate batches — don't abuse `relative_path` for this.
-   - `files[]` — one entry per file: `{filename, blob_id}` or `{filename, content}` (inline text, non-empty). `filename` is 1-255 chars (the server truncates names over 100 chars while preserving the extension). Optional per-entry `relative_path` (1-8192 chars, trailing slash required and auto-normalized; no leading `/` and no `.`/`..` segments) creates sub-folders under `folder_id`. Optional per-entry `hash` (hex string) + `hash_algo` (one of `md5`, `sha1`, `sha256`, `sha384`) — caller-supplied digests are forwarded verbatim (the server validates them). By default the tool computes SHA-256 client-side for entries that don't already carry a hash; set `include_hash: false` on the call to skip.
+   - `files[]` — one entry per file: `{filename, blob_id}`, `{filename, content}` (inline text, non-empty), or `{filename, content_base64}` (small binary, decoded server-side; whitespace auto-stripped). `filename` is 1-255 chars (the server truncates names over 100 chars while preserving the extension). Optional per-entry `relative_path` (1-8192 chars, trailing slash required and auto-normalized; no leading `/` and no `.`/`..` segments) creates sub-folders under `folder_id`. Optional per-entry `hash` (hex string) + `hash_algo` (one of `md5`, `sha1`, `sha256`, `sha384`) — caller-supplied digests are forwarded verbatim (the server validates them). By default the tool computes SHA-256 client-side for entries that don't already carry a hash; set `include_hash: false` on the call to skip.
    - `creator` (optional) — echoed back in the response (1-150 chars, alphanumeric/hyphens).
 
 **Response shape:**
@@ -2393,13 +2394,13 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). When `filename` is omitted, the tool does one extra `storage` `details` round-trip to fetch the current name (the API still requires `name` in update mode); pass `filename` to skip it. Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
 
-**stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` | `blob_id`. Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set — omitting `filename` triggers the same extra `storage` `details` lookup noted under `create-session`), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
+**stream-upload** -- Create a stream session, upload the file body, and auto-finalize in a single call. Use for generated or piped content where the size isn't known upfront and you don't need the session ID between calls. Requires `profile_type`, `profile_id`, `parent_node_id`, `filename`, and exactly one of `content` (text) | `content_base64` (small binary, decoded server-side) | `blob_id` (POST /blob). Optional: `max_size` (see guidance above — omit to use the plan's file-size limit), `target_node_id` (overwrite a specific node; `parent_node_id` is ignored and `filename` is optional when set — omitting `filename` triggers the same extra `storage` `details` lookup noted under `create-session`), `hash`, `hash_algo`. If the stream POST fails after the session is created, the dangling session is canceled automatically.
 
-**batch** -- Upload up to 200 small files (≤4 MB each, ≤100 MB total) to one target folder in a single multipart round-trip. Requires `profile_type`, `profile_id`, and `files[]` (each entry: `filename` + exactly one of `blob_id` | `content`; optional `relative_path`, `hash`, `hash_algo`). Optional: `folder_id` (batch-level target, defaults to instance root), `creator` (echo-back tag), `include_hash` (default `true` — computes SHA-256 client-side for entries without a hash). Returns per-entry `results[]` with `status`, `upload_id`, and `node_id`, plus a pre-filtered `errors[]` view. **`node_id` is nullable on success** — workspaces with async storage assign the node id later; do not treat null as an error. **Partial success is normal** — `count_errored > 0` with HTTP 200 is expected; retry only the errored entries. When every entry errors, the response carries `all_failed: true`. Uses a rate-limit bucket independent of the per-file upload bucket — the tool surfaces the `x-ve-limit-expires` UTC datetime on 429. Requires authentication (anon callers get HTTP 401 code 10011 — route those through the single-file `create-session` flow).
+**batch** -- Upload up to 200 small files (≤4 MB each, ≤100 MB total) to one target folder in a single multipart round-trip. Requires `profile_type`, `profile_id`, and `files[]` (each entry: `filename` + exactly one of `blob_id` | `content` (text) | `content_base64` (small binary, decoded server-side); optional `relative_path`, `hash`, `hash_algo`). Optional: `folder_id` (batch-level target, defaults to instance root), `creator` (echo-back tag), `include_hash` (default `true` — computes SHA-256 client-side for entries without a hash). Returns per-entry `results[]` with `status`, `upload_id`, and `node_id`, plus a pre-filtered `errors[]` view. **`node_id` is nullable on success** — workspaces with async storage assign the node id later; do not treat null as an error. **Partial success is normal** — `count_errored > 0` with HTTP 200 is expected; retry only the errored entries. When every entry errors, the response carries `all_failed: true`. Uses a rate-limit bucket independent of the per-file upload bucket — the tool surfaces the `x-ve-limit-expires` UTC datetime on 429. Requires authentication (anon callers get HTTP 401 code 10011 — route those through the single-file `create-session` flow).
 
-**chunk** -- Upload a single chunk. Use `content` for text/strings or `blob_id` for binary staged via `POST /blob`. Provide exactly one.
+**chunk** -- Upload a single chunk. Use `content` for text/strings, `content_base64` for small binary (decoded server-side), or `blob_id` for binary staged via `POST /blob`. Provide exactly one. Note: `content` is stored verbatim as UTF-8 — do NOT pass base64 there.
 
-**stream** -- Upload the entire file body into an existing stream session (one created via `create-session` with `stream=true`); auto-finalizes. Prefer `stream-upload` unless you need the `upload_id` between calls. Requires `upload_id` and exactly one of `content` | `blob_id`. Optional: `hash`, `hash_algo`.
+**stream** -- Upload the entire file body into an existing stream session (one created via `create-session` with `stream=true`); auto-finalizes. Prefer `stream-upload` unless you need the `upload_id` between calls. Requires `upload_id` and exactly one of `content` (text) | `content_base64` (small binary, decoded server-side) | `blob_id`. Optional: `hash`, `hash_algo`.
 
 **finalize** -- Finalize an upload session, trigger file assembly, and poll until fully stored or failed. Returns the final session state.
 
