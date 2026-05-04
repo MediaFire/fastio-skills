@@ -15,18 +15,22 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.200.0"
+  version: "1.205.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.200
-**Last Updated:** 2026-04-29
+**Version:** 1.205
+**Last Updated:** 2026-04-30
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
+
+> **Self-introspection: every consolidated tool supports `action: "describe"`.** Tool descriptions are intentionally compact. When you are uncertain about a tool's actions or what each one requires, call `<tool> action="describe"` (no auth required, no other parameters required) — it returns a structured payload `{ tool, summary, destructive_actions, common_required?, side_effects?, guidance?, actions: { <name>: { required, optional, one_of_required?, one_of_required_body?, note? } }, param_details? }`. Treat `common_required` (when present) as fields that must accompany EVERY action's `required` set; treat `one_of_required` as "at least one of these fields must be supplied" (some tools enforce exactly-one XOR; check the `note`). `one_of_required_body` is a SECOND independent XOR group used by actions with two parallel choice constraints (e.g. asset upload: asset_id-vs-asset_type for the path AND content-vs-file_base64 for the body — both groups must be satisfied). `side_effects` is a free-form string flagging credit-consuming or otherwise stateful actions; `guidance` is a free-form object some tools (e.g. `upload`) use to capture multi-action workflow strategy. Call describe the first time you use an unfamiliar tool. Single-purpose `app-*` widget tools (MCP Apps) do NOT support `describe` — they each launch one specific widget and their full surface is in the tool description.
+
+> **Profile-context aliases.** Tools that operate on a workspace or share accept `profile_type`/`profile_id` (canonical) or `context_type`/`context_id` (alias). Either pair works; do not mix. The describe payload reports the canonical names only.
 
 > **Platform reference.** For a comprehensive overview of Fast.io's capabilities, the agent plan, key workflows, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
 
