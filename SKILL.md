@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.200.0"
+  version: "1.214.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.200
-**Last Updated:** 2026-04-29
+**Version:** 1.214
+**Last Updated:** 2026-05-04
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
@@ -587,7 +587,7 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 **Scope parameters** (REQUIRES intelligence — will error if intelligence is off):
 
 - `folders_scope` — comma-separated `nodeId:depth` pairs (depth 1-10, max 100 subfolder refs). Defines a search boundary — the RAG backend finds documents within scoped folders automatically. Just pass folder IDs with depth; do not enumerate individual files. A folder with thousands of files and few subfolders works fine.
-- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. nodeId is required; versionId is required in the pair format but will be **auto-resolved to the node's current version** if left empty (e.g., `nodeId:` with nothing after the colon). Get `versionId` from the file's `version` field in `storage` action `list` or `details` responses.
+- `files_scope` — comma-separated `nodeId:versionId` pairs (max 100). Limits RAG to specific indexed files. nodeId is required; versionId is required in the pair format but will be **auto-resolved to the node's current version** if left empty (e.g., `nodeId:` with nothing after the colon). Get `versionId` from the file's `version` field via `storage` action `details` (returned by default at `detail: "full"`); on `storage` action `list`, `version` is omitted at the default `detail: "terse"` — pass `detail: "standard"` or higher to surface it inline.
 - **If neither is specified, the default scope is the entire workspace (all indexed documents).** This is the recommended default — omit scope parameters unless you specifically need to narrow the search.
 
 **Attachment parameter** (no intelligence required):
@@ -599,6 +599,8 @@ For `chat_with_files`, choose one of these mutually exclusive approaches:
 **Scope vs attach:** `files_scope` and `folders_scope` narrow the RAG search boundary and **require workspace intelligence to be enabled** — they will error on non-intelligent workspaces. `files_attach` sends files directly to the AI without indexing and works regardless of intelligence setting, but accepts only file nodeIds (not folders).
 
 `files_scope`/`folders_scope` and `files_attach` are mutually exclusive — sending both will error.
+
+**Citations behavior:** the response `citations` array is populated only in RAG modes (`files_scope` / `folders_scope`) — when the AI selects passages from a corpus and cites which it used. In `files_attach` mode the file is force-attached, so `citations` is always an empty array; the answer text itself is the only source attribution.
 
 #### Intelligence and AI State
 
@@ -619,7 +621,7 @@ When polling for AI processing completion: if intelligence is ON, wait for `inde
 
 #### Attachability — the `ai.attach` Flag
 
-File nodes in storage list/details responses include an `ai` object with three fields:
+File nodes returned by `storage` action `details` (default `detail: "full"`) include an `ai` object with three fields. The `ai.attach` flag specifically requires `detail: "full"` — list/recent/search at the default `detail: "terse"` omit the `ai` object entirely, and `standard` exposes only `ai.state` (not `ai.attach`). Always preflight via `storage` action `details` (full by default) before calling `files_attach`.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -1194,6 +1196,8 @@ Organization CRUD, member management, billing and subscription operations, works
 
 **Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete, custom-domain-validate, instructions-get, instructions-set, instructions-clear
 
+> **Per-entity verbosity:** `list`, `discover-all`, `discover-available`, `discover-external`, `members`, `list-workspaces` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `domain`, `name`, `logo`). `details` defaults to `full` (drill-down adds `subscriber_trial_credits`, `billing_email`, social URLs, `encryption_key`, `perm_*` blocks, `dmca`, `owner_defined`, `platform`, `storage` on top of the standard surface — `description`, `plan`, `user_permission`, `user_status`, `member`, `closed`/`locked`/`suspended`, `created`/`updated`, `parent`, `capabilities`, `custom_domain`, `accent_color`, background and homepage, subscriber/billing flags). Pass an explicit `detail` to override. Per the API spec, the orgs spec enumerates `output=` for org-object endpoints — `details`, `list` (`/orgs/list/`), `discover-all`, `discover-available`, `discover-external` all fall under that scope. `list-workspaces` returns workspace objects so it falls under the workspaces spec (also enumerated). `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end. `discover-check-domain` is a boolean availability check and does not accept `detail`.
+
 > AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, org-wide slot — owner/admin only, 403 code 1680 for non-admins) or `me` (per-user slot — any member). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
 ### workspace
@@ -1201,6 +1205,8 @@ Organization CRUD, member management, billing and subscription operations, works
 Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and AI instructions (workspace-wide and per-user slots).
 
 **Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-view-export, metadata-search, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow, enable-import, disable-import, instructions-get, instructions-set, instructions-clear
+
+> **Per-entity verbosity:** `list`, `available`, `members`, `list-shares` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `name`, `folder_name`, `org_domain`, `user_status`). `details` defaults to `full` (drill-down adds `cloud_import`, `comments`, `chat`, `search`, `assets`, `workflow_permissions`, remaining branding, `perm_*` blocks, `platform`, `suspended`, `owner_defined`, `parents` on top of the standard surface — `description`, `workspace_level`, `closed`/`archived`/`locked`, `storage`, `created`/`updated`, `logo`, `accent_color`, `org_custom_hostname`, `intelligence`, `workflow`, `capabilities`). Pass an explicit `detail` to override. Per the API spec, the workspaces spec enumerates `output=` for workspace-object endpoints — `list`, `available`, `details`. `list-shares` returns share objects so it falls under the shares spec (also enumerated). `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end. Metadata sub-actions and other workspace operations do not currently accept `detail`.
 
 > AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, workspace-wide slot — owner/admin only, 403 code 1680 for non-admins) or `me` (per-user slot — any member, no guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
@@ -1210,17 +1216,27 @@ Share CRUD, public details, archiving, password authentication, asset management
 
 **Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, enable-workflow, disable-workflow, instructions-get, instructions-set, instructions-clear
 
+> **Per-entity verbosity:** `list`, `available`, `members` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `title`, `share_type`, `share_level`, `share_root_id` (members-only), `creator` scalar user id). `public-details` defaults to `standard` (adds `share_category`, `storage_mode`, `folder_node_id`, `share_link` object, parent linkage, lifecycle flags incl. `locked`, `custom_name`, `custom_url`, `description`, `download_security`, `expires`, `created`/`updated`, `guest_chat_enabled`/`anonymous_uploads_enabled`, `user_status`, `intelligence`, `workflow` — no member roster, no owner-defined data). `details` defaults to `full` (member-facing surface: `capabilities`, `perm_*` blocks, activity tracking, `comments`, `event_flow`, `filesystem`, `invite`, `member_visibility`, `multiplayer`, `chat`, `search`, `assets`, `workflow_permissions`, `access_options`, `display_type`, full branding (accent color, logo, background), `password`, `platform`, `notify`, custom links, `owner_defined`, `deleted`, `storage`, `suspended`, `parents`). Pass an explicit `detail` to override. Per the API spec, the shares spec enumerates `output=` for share-object endpoints — `details`, `public-details`, `list` (`/shares/all/`), `available`. `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
+
 > AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, share-wide slot — owner/admin only, 403 code 166463 for non-admins) or `me` (per-user slot — registered members only, 403 code 185733 for anonymous/link guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
 ### storage
 
 File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search (keyword or semantic when intelligence is enabled), add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
+> **Per-node verbosity:** `list`, `recent`, `search`, `trash-list`, and `details` accept a `detail` parameter (`terse` | `standard` | `full`). Defaults: `list`/`recent`/`search`/`trash-list` → `terse` (compact rows: id, type, name, parent, mimetype, size, modified). `details` → `full` (drill-down — keeps ai.attach, virus, hashes, file_attributes, lock_info, long-form summaries available without an extra round-trip). Search bumps default to `full` automatically when the legacy `details: "true"` flag is also set, honoring the explicit hydration intent. **Search-specific:** semantic-search hits include `content_snippet` (the matching text chunk). The platform caps the snippet per detail level — `terse` → ~200 bytes, `standard` → ~600 bytes, `full` → untruncated. UTF-8 safe (won't split multi-byte sequences); a trailing `…` indicates truncation, so a hit with `snippet.endsWith('…')` has more content available — bump `detail` to retrieve more. Pass an explicit `detail` to override any default. Not to be confused with `details` (search-only `"true"|"false"` flag).
+
+> **REPLACE-by-default on copy/move:** If a file with the same name already exists in the destination folder, the existing target is silently sent to trash for rollback. The MCP response includes a `_warnings` block flagging this on every copy/move call (whether or not a collision actually happened — the API doesn't return a `replaced` indicator). Rename the source first if you want to avoid overwriting.
+
+> **Search at terse cannot distinguish trashed nodes from live ones.** Keyword search may return trashed nodes; the terse projection from the API does not include `deleted`/`parent: trash` fields. Bump `detail` to `standard` or higher to see trash status, or check the runtime `_next` hint in the search response.
+
 **Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
 
 ### upload
 
 File upload operations. Chunked upload lifecycle (create session, upload chunks as plain text, base64-encoded binary, or blob reference, finalize, check status, cancel), single-call streaming uploads (`stream-upload` creates a stream session, streams the bytes, and auto-finalizes in one call), bulk uploads of many small files in one round-trip (`batch`), web imports from external URLs, upload limits and file extension restrictions, and session management. Large binary data flows through the `POST /blob` sidecar (100 MB cap per blob); for small binaries when the agent cannot reach `/blob` (sandboxed environments), use `content_base64` instead — the server decodes it server-side, capped only by MCP transport message size.
+
+> **`folder_id` alias for `parent_node_id`:** On `create-session`, `stream-upload`, and `web-import`, `folder_id` is accepted as an alias for `parent_node_id` — the canonical API-internal field name surfaces in finalize/status responses, so agents that read those responses and try to pass `folder_id` back will get the same behavior. Pass either name; they're equivalent. If both are passed with different values, `parent_node_id` wins. Note: `batch` action uses `folder_id` as its canonical name (target folder for the batch), NOT as an alias for `parent_node_id`.
 
 **Actions:** create-session, stream-upload, batch, chunk, stream, finalize, status, cancel, list-sessions, cancel-all, chunk-status, chunk-delete, web-import, web-list, web-cancel, web-status, limits, extensions, blob-info
 
@@ -1236,17 +1252,25 @@ AI-powered RAG chat, document analysis, and shareable summaries in workspaces an
 
 **Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
 
+> **Per-entity verbosity:** `chat-list`, `message-list` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (id, title/excerpt, created, last activity, message count). `chat-details`, `message-details` default to `full` (full chat metadata: participants, attached/scoped files, publish state; message details add full response text, citations, token usage, files_attach payload). Pass an explicit `detail` to override. Mutation actions (chat-create, chat-update, chat-delete, chat-publish, message-send, share-generate, autotitle), `transactions` (account usage), and the `message-read` polling loop do not accept `detail`. **Verification gap:** the AI API per-category spec only enumerates `output=` on metadata sub-endpoints; chat and message endpoints don't enumerate it, so passing `detail` here may currently be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
+
 ### comment
 
 Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection, text selections in markdown/notes), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks or approvals, reverse lookup). Comments use JSON request bodies.
 
 **Actions:** list, list-all, add, delete, bulk-delete, details, reaction-add, reaction-remove, link, unlink, linked
 
+> **Per-comment verbosity:** `list`, `list-all`, `linked` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (id, body excerpt, author handle, created, parent_id, node_id). `details` defaults to `full` (long-form thread context, mention expansions, linked workflow entity details, full reaction roster, extended audit metadata). Pass an explicit `detail` to override. **Verification gap:** the comments API per-category spec does not currently enumerate an `output=` section, so passing `detail` may be a silent no-op until the platform's compact-response coverage extends to comments. Wiring is preserved end-to-end so callers can opt in once the server respects it.
+
 ### event
 
 Search the audit/event log with rich filtering by category, subcategory, and event name (see **Event Filtering Reference** in section 7 for the full taxonomy). Get AI-powered summaries of activity, retrieve full details for individual events, list recent activity, and long-poll for activity changes.
 
 **Actions:** search, summarize, details, activity-list, activity-poll
+
+> **Two scope patterns by action.** `event search`, `event summarize`, and `event details` use filter-style scope params (`workspace_id`, `share_id`, `org_id`, `user_id` — combine for AND-narrowing). `event activity-list` and `event activity-poll` use the generic profile-context pattern (`profile_type` + `profile_id`, or aliases `context_type` + `context_id`). Mixing them silently drops the wrong-shape params and the platform returns error 10262.
+
+> **Per-event verbosity:** `search`, `activity-list`, `activity-poll` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `event_id`, `event`, `category`, `object_id`, `created`). `summarize` defaults to `standard` (envelope around the AI summary). `details` defaults to `full` (adds `required_params`, `requires_parent_node`, `permission` on top of the standard surface — `sub_category`, `calling_user`, `org_id`/`workspace_id`/`user_id`/`share_id`, `acknowledged`, `template` (description + params), `severity`, `visibility`, `notification`). Pass an explicit `detail` to override. Per the API spec, only `search` and `details` (event-object endpoints) currently honor `output=`; `summarize`, `activity-list`, and `activity-poll` declare fixed response shapes, so passing `detail` there is a silent no-op until the API ships verbosity for those endpoints.
 
 ### member
 
@@ -1550,14 +1574,18 @@ Call `upload` action `limits` to get your plan's upload constraints. Optional pa
 
 #### Choosing an Upload Strategy
 
-Single-file uploads are the default path. Batch is a specialized option only for the case of "multiple small files in one shot" — use the single-file paths for everything else.
+**Default to `stream-upload` unless you know the exact byte count.** Single-file uploads are the default path. Batch is a specialized option only for the case of "multiple small files in one shot" — use the single-file paths for everything else.
 
-| File Type | Size Known? | Recommended Approach |
+Read top-to-bottom and pick the FIRST row that matches:
+
+| Situation | Size Known? | Recommended Approach |
 |---|---|---|
 | Any file with a URL | N/A | `upload` action `web-import` (single step) |
-| Text or binary, no URL | Yes | `POST /blob` sidecar → `chunk` with `blob_id` → `finalize` |
-| Generated/piped content, no URL | No | `POST /blob` → `upload` action `stream-upload` with `blob_id` (single call — creates the session, streams the bytes, and auto-finalizes) |
+| Have content but DON'T know exact size, OR generating/transforming content first | No | **`upload` action `stream-upload`** (single call — creates the session, streams the bytes, and auto-finalizes; **no `filesize` required**, size auto-detected from the bytes). For larger payloads: `POST /blob` first, then pass `blob_id` to `stream-upload`. |
+| File with KNOWN exact byte count (file already on disk, pre-measured) | Yes | `POST /blob` sidecar → `upload` action `create-session` with `filesize` → `chunk` with `blob_id` → `finalize`. **`filesize` MUST match the bytes you upload exactly — mismatch fails `finalize` with code 10522 and forces a session cancel.** |
 | **Specialized:** several small files at once (≤4 MB each) | Yes | `POST /blob` per file → `upload` action `batch` with a `files[]` manifest (one round-trip, up to 200 files; not for single uploads — use the single-file paths above) |
+
+> **⚠️ Do not guess `filesize` for content you haven't yet produced.** A common failure mode is picking `create-session` with a guessed `filesize` (e.g. 8000), generating the content (4443 bytes), then having `finalize` reject the session with code 10522 (`chunks (4443) do not match size (8000)`). The session cannot recover — it must be canceled and retried. **Use `stream-upload` for any generated, transformed, or unknown-size content** — it auto-detects size from the bytes and auto-finalizes.
 
 #### Batch uploads — many small files in one round-trip
 
@@ -1870,7 +1898,7 @@ Pattern-based recovery: error messages are also matched against common patterns 
 - Intelligence ON: `files_scope`, `folders_scope`, `files_attach` (full RAG with indexed document search)
 - Intelligence OFF: `files_attach` only (max 20 files, 200 MB, no RAG indexing)
 
-**`_ai_state_legend`** is included in storage list and search responses when files have AI processing state. States: `indexed` (vector-indexed, RAG-searchable — intelligence ON), `ready` (summary available, attachable, but not vector-indexed — intelligence OFF), `pending` (queued), `inprogress` (processing), `disabled` (no AI processing), `failed` (re-upload needed). Also includes `_attach_field` explaining the `ai.attach` boolean — check this flag before using `files_attach`.
+**`_ai_state_legend`** is included in storage responses when items expose `ai.state` — that's `detail: "standard"` or `"full"` (terse omits `ai` entirely). States: `indexed` (vector-indexed, RAG-searchable — intelligence ON), `ready` (summary available, attachable, but not vector-indexed — intelligence OFF), `pending` (queued), `inprogress` (processing), `disabled` (no AI processing), `failed` (re-upload needed). Attachability (`ai.attach`) is documented separately in the **Attachability — the `ai.attach` Flag** section above and requires `detail: "full"` on `storage` action `details` — check there before calling `files_attach`.
 
 **`_context`** provides contextual metadata on specific responses. Currently used by comment add when anchoring is involved, providing `anchor_formats` with the expected format for image regions, video/audio timestamps, and PDF pages.
 
@@ -1892,22 +1920,45 @@ All tool responses are **GitHub-flavored Markdown** (CommonMark + tables). No JS
 
 For most tools, markdown is rendered client-side from the API's JSON envelope using the same rules as the platform's `?output=markdown` modifier — so passthrough and rendered responses look identical.
 
-A handful of list/activity actions additionally accept a `detail` param to trade verbosity for token cost:
+A growing set of node-/list-shaped actions accept a `detail` param to trade verbosity for token cost:
 
 | Tool | Action | Accepts `detail` | Default |
 |---|---|---|---|
-| event | search | terse \| standard \| full | standard |
-| event | activity-list | terse \| standard \| full | standard |
+| storage | list | terse \| standard \| full | terse |
+| storage | recent | terse \| standard \| full | terse |
+| storage | search | terse \| standard \| full | terse (bumps to full when the legacy `details: "true"` flag is set) |
+| storage | trash-list | terse \| standard \| full | terse |
+| storage | details | terse \| standard \| full | full |
+| event | search | terse \| standard \| full | terse |
+| event | activity-list | terse \| standard \| full | terse |
 | event | activity-poll | terse \| standard \| full | terse |
-| comment | list | terse \| standard \| full | standard |
+| event | summarize | terse \| standard \| full | standard |
+| event | details | terse \| standard \| full | full |
+| comment | list | terse \| standard \| full | terse |
+| comment | list-all | terse \| standard \| full | terse |
+| comment | linked | terse \| standard \| full | terse |
+| comment | details | terse \| standard \| full | full |
+| ai | chat-list | terse \| standard \| full | terse |
+| ai | message-list | terse \| standard \| full | terse |
+| ai | chat-details | terse \| standard \| full | full |
+| ai | message-details | terse \| standard \| full | full |
+| workspace | list, available, members, list-shares | terse \| standard \| full | terse |
+| workspace | details | terse \| standard \| full | full |
+| share | list, available, members | terse \| standard \| full | terse |
+| share | public-details | terse \| standard \| full | standard |
+| share | details | terse \| standard \| full | full |
+| org | list, discover-all, discover-available, discover-external, members, list-workspaces | terse \| standard \| full | terse |
+| org | details | terse \| standard \| full | full |
 
 What each level returns (cumulative — each adds to the previous):
 
 - **terse**: just the identifiers, primary labels, and timestamp — enough to navigate or advance a cursor.
-- **standard**: terse + the operational context most list views render (actors, descriptions, flags, counts).
-- **full**: standard + the long-form fields (full summaries, metadata, schema details). Equivalent to omitting `detail`.
+- **standard**: terse + the operational context most list views render (actors, descriptions, flags, counts; for storage nodes: `version`, `created`, `restricted`, `dmca`, `locked`, `mimecategory`, `ai.state`, `origin`, `metadata{title,short}`, link `target_*`).
+- **full**: standard + the long-form fields (full summaries, metadata, schema details; for storage nodes: full `ai` object incl. `ai.attach`, `virus`, `file_attributes`/EXIF, `hash`, `hash_algo`, `lock_info`, `import_metadata`, full previews state map). Equivalent to omitting `detail`.
 
-For **storage/share/org/workspace** list/search operations (and any other action that returns file or entity lists), responses are markdown too — rendered locally — but do not currently accept a `detail` param. These endpoints return the `full` shape by default; pass through any filtering you need via other action params (e.g. `search` query, `limit`/`offset`).
+Tool-specific field contracts are documented inline in each tool's section above (see the "Per-entity verbosity" / "Per-comment verbosity" / "Per-event verbosity" callouts).
+
+For tools without entries above (auth, upload, approval, import, member, invitation, asset, task, worklog, todo, user, download, apps, preview, lock), list-style actions do not currently accept a `detail` param — the underlying API endpoints don't yet expose `?output=` support for those domains. Filter via other action params (`search` query, `status`, `limit`/`offset`).
 
 Separate from the generic markdown output, **tasks/todo/approval/worklog** tools still accept `format: 'md'` which triggers a purpose-built domain renderer (checkbox lists, timelines, status tables) — distinct from the envelope-style markdown described here. Both produce markdown; they just have different shapes.
 
@@ -2352,7 +2403,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **details** -- Get full details for one or more nodes. Single lookup via `node_id` returns the legacy single shape with `web_url` (human-friendly link to the file preview or folder in the web UI, workspace only). Bulk lookup via `node_ids` (1-25 IDs, all in the same workspace/share) returns `{format: "multi", nodes, errors, node_count, error_count, requested_count}` — partial results are normal (a 200 with non-empty `errors` is not a failure; render the nodes you got and surface per-id errors next to their input IDs). Match results by `node.id` (case-insensitive); order is not preserved. Per-id error codes you may see: 133123 (not found / wrong workspace), 191878 (invalid OpaqueId), 146950 (physical content gone — stale cache after dedup, not retryable), 146256 (transient retrieval — safe to retry), 179961 (formatting failure, rare). >25 IDs is rejected client-side; chunk above that. The bulk endpoint accepts any node type (files, folders, notes, links).
 
-**search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs — scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 — scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result — previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 — keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource — previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool — false if gRPC failed, graceful degradation), `scoped` (bool — true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` — keyword-only behavior. Each result includes `web_url` (workspace only).
+**search** -- Unified search: keyword + automatic semantic matching when workspace intelligence is enabled. English stemming is built in ("cats" finds "cat", "running" finds "run"). Params: `query` (required), optional `files_scope` (comma-separated nodeId:versionId pairs — scope semantic search to specific files; requires intelligence, silently ignored otherwise; max 100), `folders_scope` (comma-separated nodeId:depth pairs, depth 1-10 — scope to folder trees via BFS; requires intelligence, silently ignored otherwise; max 100), `details` ("true" to return full node details per result — previews, AI state, metadata, versions; default limit drops to 10), `limit` (1-500, default 100, or 10 with details=true), `offset`. **Always present:** `name`, `parent_id` (string|null), `type` (file, folder, or note). **Added when intelligence is on:** `relevance_score` (0.0-1.0 — keyword: 0.0-0.5, semantic: 0.5-1.0), `content_snippet` (matching text chunk, null for keyword-only — platform-capped per detail level: `terse` ~200 bytes, `standard` ~600 bytes, `full` untruncated. UTF-8 safe; a trailing `…` indicates truncation, so hits where `snippet.endsWith('…')` have more content — bump `detail` to retrieve), `match_source` ("keyword", "semantic", or "both"), `media_segment` ({start_seconds, end_seconds} for audio/video deep linking, null for non-media), `page` ({start_page, end_page} for document page-level matching, null for non-document), `mimetype` (file MIME type for semantic matches). **Added when details=true:** `node` (full node resource — previews, AI state, versions, metadata; null if node can't be loaded). **Top-level `search_metadata`** (intelligence on only): `intelligence_enabled` (bool), `semantic_available` (bool — false if gRPC failed, graceful degradation), `scoped` (bool — true when files_scope or folders_scope was used). **Intelligence off:** response contains only `name`, `parent_id`, `type` — keyword-only behavior. Each result includes `web_url` (workspace only). **Indexing latency:** freshly uploaded files take ~5-30s to appear in semantic search results while RAG ingestion completes. For immediate post-upload listing, use `list` with the parent folder instead.
 
 **trash-list** -- List items currently in the trash. Each item includes `web_url` (workspace only).
 
@@ -2386,7 +2437,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **lock-release** -- Release an exclusive lock on a file.
 
-**preview-url** -- Get a preauthorized preview URL for a file (thumbnail, PDF, image, video, audio, spreadsheet). Requires `preview_type` parameter. Returns `preview_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only).
+**preview-url** -- Get a preauthorized preview URL for a file. Requires `preview_type` parameter; valid values are `thumbnail`, `image`, `pdf`, `hlsstream`, `spreadsheet`. Returns `preview_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only). For raw downloads (any file type) use `download` action `file-url` instead. For image transforms (resize, crop, format conversion) use `preview-transform`.
 
 **preview-transform** -- Request a file transformation (image resize, crop, format conversion) and get a download URL for the result. Requires `transform_name` parameter. Returns `transform_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only).
 
@@ -2442,7 +2493,7 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 All AI actions require `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) and `profile_id` (also accepted as `context_id`) (the 19-digit profile ID).
 
-**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, provide `nodeId:versionId` pairs — versionId is auto-resolved to the current version if left empty (get explicit `versionId` from storage list/details `version` field). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via storage details). Type is auto-promoted from `chat` to `chat_with_files` when file parameters are present. Returns chat ID and initial message ID -- use message-read to get the AI response.
+**chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, provide `nodeId:versionId` pairs — versionId is auto-resolved to the current version if left empty (get explicit `versionId` from `storage` action `details` — the field is omitted from `list` at the default terse detail level; pass `detail: "standard"` or higher on `list` if you want it inline). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via `storage` action `details`, which defaults to `detail: "full"`). Type is auto-promoted from `chat` to `chat_with_files` when file parameters are present. Returns chat ID and initial message ID -- use message-read to get the AI response.
 
 **chat-list** -- List AI chats.
 
