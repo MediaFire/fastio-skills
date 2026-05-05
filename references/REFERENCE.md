@@ -357,7 +357,7 @@ biggest lever you have for keeping agent payloads small without losing informati
   disappears as you move up a tier.
 - **Default:** When `output=` is absent, responses are `full` and byte-for-byte unchanged.
 - **Unknown tokens:** Silently ignored for forward compatibility.
-- **`markdown` modifier:** Add `markdown` to any request (e.g. `?output=terse,markdown` or `?output=markdown` alone) to receive the response as GitHub-flavored Markdown instead of JSON. Response `Content-Type` becomes `text/markdown; charset=UTF-8`. Homogeneous record lists render as GFM pipe tables, associative maps as bullet lists, and error envelopes as a leading `# Error` section — useful when pasting agent output into a chat or for human review of a failing call. Validation errors (HTTP 400) render as markdown too when the modifier is present. If the caller is an LLM that reasons better over markdown than JSON, prefer `?output=standard,markdown`.
+- **`markdown` modifier:** Add `markdown` to any request (e.g. `?output=terse,markdown` or `?output=markdown` alone) to receive the response as GitHub-flavored Markdown instead of JSON. Response `Content-Type` becomes `text/markdown; charset=UTF-8`. Homogeneous record lists render as GFM pipe tables, associative maps as bullet lists, and error envelopes as a leading `# Error` section — including a nested `params` table that lists every parameter that failed validation when the call was a 400. Validation errors (HTTP 400) render as markdown too when the modifier is present. If the caller is an LLM that reasons better over markdown than JSON, prefer `?output=standard,markdown`.
 
 Example markdown response body for `GET /current/user/details/?output=terse,markdown`:
 
@@ -372,8 +372,30 @@ Example markdown response body for `GET /current/user/details/?output=terse,mark
 - **profile_pic:** https://…
 ```
 
+Example markdown response body for a validation error (HTTP 400) — note the nested `params` table:
+
+```markdown
+**Result:** failure
+
+# Error
+- **code:** 10022
+- **text:** email: This value should not be blank. domain: This value should not be blank.
+- **resource:** POST /current/user/email/
+
+## params
+
+| name | kind | message | code | expected_type |
+|------|------|---------|------|---------------|
+| email | missing | This value should not be blank. | 10022 | — |
+| domain | invalid | This value is not a valid hostname. | 10023 | string |
+```
+
 Category-specific detail pages (linked from the LLM reference) list exactly which fields appear at each level
 for each resource type.
+
+### Retired per-field error codes
+
+As of 2026-05-05, error codes `136957`, `249170`, `279705`, `295625` are retired. The equivalent field-level failures now surface inside `error.params[]` with `kind: 'invalid'` (and a per-field `code` and `message` describing the specific violation). Clients that previously switched on those exact integers should switch on `params[].name` + `params[].kind` instead.
 
 ---
 

@@ -15,20 +15,27 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.214.0"
+  version: "1.217.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.214
-**Last Updated:** 2026-05-04
+**Version:** 1.217
+**Last Updated:** 2026-05-05
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
 > **Platform reference.** For a comprehensive overview of Fast.io's capabilities, the agent plan, key workflows, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
+
+> **ID parameter taxonomy.** Four canonical ID parameter names appear across tools — they are intentionally distinct, not interchangeable. Pick the one that matches the operation's domain:
+>
+> - **`workspace_id`** — workspace opaque ID. Use when only workspaces are valid (not shares or other contexts). Example: `events action workspace-stream workspace_id="..."`.
+> - **`profile_id`** — polymorphic context ID. Pair with `profile_type` = `workspace` | `share` | `org`. Use instead of `workspace_id` when the operation also accepts shares. Example: `storage action list profile_type="share" profile_id="..." node_id="root"`.
+> - **`entity_id`** — opaque ID of a specific object (file, comment, worklog entry, etc.). Pair with `entity_type` to disambiguate. Example: `worklog action list entity_type="task" entity_id="..."`.
+> - **`node_id`** — storage tree node opaque ID. Both files and folders are nodes — use this name regardless of which. Example: `storage action details profile_type="workspace" profile_id="..." node_id="..."`.
 
 ---
 
@@ -1250,9 +1257,9 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 AI-powered RAG chat, document analysis, and shareable summaries in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
-**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
+**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, chat-cancel, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
 
-> **Per-entity verbosity:** `chat-list`, `message-list` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (id, title/excerpt, created, last activity, message count). `chat-details`, `message-details` default to `full` (full chat metadata: participants, attached/scoped files, publish state; message details add full response text, citations, token usage, files_attach payload). Pass an explicit `detail` to override. Mutation actions (chat-create, chat-update, chat-delete, chat-publish, message-send, share-generate, autotitle), `transactions` (account usage), and the `message-read` polling loop do not accept `detail`. **Verification gap:** the AI API per-category spec only enumerates `output=` on metadata sub-endpoints; chat and message endpoints don't enumerate it, so passing `detail` here may currently be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
+> **Per-entity verbosity:** `chat-list`, `message-list` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (id, title/excerpt, created, last activity, message count). `chat-details`, `message-details` default to `full` (full chat metadata: participants, attached/scoped files, publish state; message details add full response text, citations, token usage, files_attach payload). Pass an explicit `detail` to override. Mutation actions (chat-create, chat-update, chat-delete, chat-publish, chat-cancel, message-send, share-generate, autotitle), `transactions` (account usage), and the `message-read` polling loop do not accept `detail`. **Verification gap:** the AI API per-category spec only enumerates `output=` on metadata sub-endpoints; chat and message endpoints don't enumerate it, so passing `detail` here may currently be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
 
 ### comment
 
@@ -1530,6 +1537,19 @@ Action names use hyphens as separators (e.g. `create-session`, `list-shares`). U
 ### Parameter Aliases
 
 Tools that operate on workspaces or shares use `profile_type` and `profile_id` as the canonical parameter names. The older names `context_type` and `context_id` are accepted as aliases across all tools -- both forms are interchangeable and produce identical behavior.
+
+### OPTIONS Schema Enrichment
+
+`describe` output now incorporates the platform's authoritative OPTIONS schema where available. When a tool action's endpoint is opted-in to OPTIONS introspection, the `param_details` block surfaces additional fields per parameter:
+
+- `source`: where the field is read from on the wire — one of `path`, `query`, `post`, `post_or_query`, or `body_json`.
+- `constraints`: the platform's validation rules normalized as a list of `{key, value}` entries. Common keys include `NotBlank`, `Length` (`{min, max}`), `Range`, `Choice` (an array of allowed values), `Regex` (`{pattern, match}`), `OpaqueId` (a taxonomy class like `StorageNode`, `Workspace`, `Share`), and `AtLeastOneOf` (a nested constraint array — at least one inner constraint must match).
+- `aliases`: when an MCP-canonical name maps to a different platform-canonical name (e.g. `target_parent_id` → `parent` on storage move), the MCP name appears here so agents can pass either name. The wire-layer translation is automatic.
+- `available_in`: for actions that operate on both workspaces and shares (profile-scoped), this lists the variants where the field applies — `["workspace"]`, `["share"]`, or `["workspace","share"]`.
+
+When an OPTIONS schema is unavailable (endpoint not opted-in, fetch failed, or platform is paused), describe falls back gracefully to the walker-only output (zod-derived structural metadata + hand-authored copy). Partial platform rollout is fine — endpoints not yet opted-in still get useful describe payloads.
+
+The platform may also auto-derive path-segment params from URL templates (e.g. `/workspace/{id}/tasks/` synthesizes a `workspace_id` entry with `source: "path"`). These appear in the merged describe output so agents can see exactly which IDs the call site needs.
 
 ### ID Format
 
@@ -2504,6 +2524,8 @@ All AI actions require `profile_type` parameter (also accepted as `context_type`
 **chat-delete** -- Delete an AI chat.
 
 **chat-publish** -- Publish a private AI chat, making it visible to all members.
+
+**chat-cancel** -- Stops the in-progress message on a chat. Idempotent; safe to call when nothing is pending. Partial tokens are billed.
 
 **message-send** -- Send a follow-up message in an existing AI chat. Returns message ID -- use message-read to get the AI response.
 
