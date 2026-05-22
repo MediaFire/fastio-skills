@@ -15,18 +15,24 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.217.0"
+  version: "1.223.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.217
-**Last Updated:** 2026-05-05
+**Version:** 1.223
+**Last Updated:** 2026-05-22
 
 The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
+
+> **Recent parameter changes (v2026.05.22 → v2026.05.23):**
+> - **`event` tool:** the `created-min` / `created-max` filter names were renamed to `created_min` / `created_max` (snake_case). The old hyphenated names are silently migrated to the new names by the server — existing agents continue to work. New agents should use snake_case directly.
+> - **`apps.extra_params`, `approval.properties`, `execute.body`, `execute.params`:** these free-form JSON parameters are now published as `{type: "string"}` in the tool schema (to satisfy strict-mode validators in OpenAI Apps SDK / Gemini API). The server still accepts either a native JSON object/array (auto-stringified) OR a pre-stringified JSON string at runtime — you can keep sending native objects from Claude Desktop and they will be auto-converted.
+> - **`/file/workspace|share` pass-through:** now accepts either `Mcp-Session-Id` (existing path) OR `Authorization: Bearer` (new — unblocks OAuth-only clients streaming large files without first establishing an MCP tool-auth session). Fresh Bearer tokens are used even when the DO session has a stale or expired session-stored token.
+> - **New `resource://status` MCP resource (v2026.05.24):** lightweight server-status resource alongside the existing `session://status` and `skill://guide` resources. Returns `{name, version, environment, transports, mcp_protocol_versions_supported, time, documentation}` — no auth, no session state. Added so MCP host UIs (ChatGPT Apps SDK in particular) that probe a well-known status URI can display server health without spending a tool call. For session-bound state continue using `session://status` (the resource) or `auth action=status` (the tool).
 
 > **Platform reference.** For a comprehensive overview of Fast.io's capabilities, the agent plan, key workflows, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
 
@@ -90,7 +96,8 @@ The server exposes static MCP resources, widget resources, and file download res
 |-----|------|-------------|-----------|
 | `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `auth_method` (`"api_key"`, `"jwt"`, or `"oauth"` -- how the session was authenticated), `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
-| `widget://*` | Widget HTML | Interactive HTML5 widgets (6 total) -- use the `apps` tool to discover and launch | `text/html` |
+| `resource://status` | server-status | Lightweight server health: `name`, `version`, `status`, `environment`, `transports` (`/mcp`, `/sse`), `mcp_protocol_versions_supported`, `time` (ISO 8601), `documentation` (skill guide + API + platform links). No auth required, no session state — for host UIs that probe a well-known status URI. For session-bound state use `session://status` or `auth` action `status`. | `application/json` |
+| `ui://fastio/*` | Widget HTML | Interactive HTML5 widgets (6 total) -- use the `apps` tool to discover and launch | `text/html` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
@@ -936,7 +943,7 @@ Tasks are organized into lists. Each workspace or share can have multiple task l
 
 #### Worklogs
 
-Worklogs are append-only chronological activity logs scoped to tasks, task lists, storage nodes, or profiles. Entries cannot be edited or deleted after creation.
+Worklogs are append-only chronological activity logs scoped to tasks, task lists, or profiles (workspaces and shares). Entries cannot be edited or deleted after creation.
 
 - **Entries:** Regular log entries appended with `worklog` action `append`. Use for progress updates, decisions, reasoning, and status changes.
 - **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
@@ -998,7 +1005,7 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
   - `entity_id: <node_id>`
   - `description` (the review request, 1-65535 chars)
   - `approver_id: <user_id>` -- the reviewer (must be a member of the profile; pending members are fine)
-- For multiple reviewers, repeat this call N times with different `approver_id` values. There is no bulk-create mode.
+- For multiple reviewers, repeat this call N times with different `approver_id` values. (A share-scoped `bulk-create` exists for "approve every file in this share" — see the **Approvals** tool reference below. There is no bulk-create for the "one node, many reviewers" pattern.)
 
 **Valid `entity_type` values:** `node` (file/folder), `task`, `worklog_entry`, `share`. Use `node` for file/folder reviews.
 
@@ -1071,7 +1078,7 @@ Several tools use permission parameters with specific allowed values. Use these 
 
 | Parameter | Allowed Values | Default |
 |-----------|----------------|---------|
-| `type` | `send`, `receive`, `exchange` | `exchange` |
+| `share_type` | `send`, `receive`, `exchange` | `exchange` |
 | `storage_mode` | `independent`, `workspace_folder` | `independent` |
 | `access_options` | `Only members of the Share or Workspace`, `Members of the Share, Workspace or Org`, `Anyone with a registered account`, `Anyone with the link` | `Only members of the Share or Workspace` |
 | `invite` | `owners`, `guests` | `owners` |
@@ -1424,14 +1431,13 @@ Use this when you have a file URL (HTTP/HTTPS, Google Drive, OneDrive, Box, Drop
 Create a branded, professional share for outbound file delivery. This replaces raw download links, email attachments, and S3 presigned URLs.
 
 1. Upload files to the workspace (see workflow 3 or 4).
-2. `share` action `create` with `workspace_id`, `name`, and `type: "send"` -- creates a Send share. Returns a `share_id`.
+2. `share` action `create` with `workspace_id`, `name`, and `share_type: "send"` -- creates a Send share. Returns a `share_id`.
 3. `share` action `update` with `share_id` to configure:
    - `password` -- require a password for access
-   - `expiry_date` -- auto-expire the share after a set period
-   - `access_level` -- Members Only, Org Members, Registered Users, or Public
+   - `expires` -- auto-expire the share (MySQL `YYYY-MM-DD HH:MM:SS` UTC format)
+   - `access_options` -- one of `Only members of the Share or Workspace`, `Members of the Share, Workspace or Org`, `Anyone with a registered account`, `Anyone with the link` (Send shares only for the last option)
    - `download_security` -- control guest downloads: `off` (unrestricted), `medium` (preview-only), `high` (blocked)
-   - Branding options: `background_color`, `accent_color`, `gradient_color`
-   - `post_download_message` and `post_download_url` -- show a message after download
+   - Branding options: `accent_color`, `background_color1`, `background_color2` (gradient stops, JSON-string-encoded color values)
 4. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` -- adds the recipient. An invitation is sent if they do not have a Fast.io account.
 5. `asset` action `upload` with `entity_type: "share"` and `entity_id` (share ID) to add a logo or background image for branding.
 6. The recipient sees a branded page with instant file preview, not a raw download link.
@@ -1440,7 +1446,7 @@ Create a branded, professional share for outbound file delivery. This replaces r
 
 Create a Receive share so humans can upload files directly to you -- no email attachments, no cloud drive links. For public collection (e.g., job applications, form submissions), enable `anonymous_uploads_enabled` so guests can upload without creating an account.
 
-1. `share` action `create` with `workspace_id`, `name` (e.g., "Upload your tax documents here"), and `type: "receive"`. Returns a `share_id`. For anonymous drops, also pass `anonymous_uploads_enabled: true` and set `access_options` to "Anyone with a registered account" or broader.
+1. `share` action `create` with `workspace_id`, `name` (e.g., "Upload your tax documents here"), and `share_type: "receive"`. Returns a `share_id`. For anonymous drops, also pass `anonymous_uploads_enabled: true` and set `access_options` to "Anyone with a registered account" or broader.
 2. `share` action `update` with `share_id` to set access level, expiration, and branding as needed.
 3. `member` action `add` with `entity_type: "share"`, `entity_id` (share ID), and `email_or_user_id` to invite the uploader (skip this step for anonymous drop shares).
 4. The human uploads files through a clean, branded interface.
@@ -1482,7 +1488,7 @@ The full agent-to-human handoff workflow. This is the primary way agents deliver
 2. `org` action `create-workspace` with `org_id` and `name` -- create workspaces for each project area.
 3. `storage` action `create-folder` with `profile_type: "workspace"` to build out folder structure (templates, deliverables, reference docs, etc.).
 4. Upload files to each workspace (see workflow 3 or 4).
-5. `share` action `create` with `type: "send"` for client deliverables, `type: "receive"` for intake/collection.
+5. `share` action `create` with `share_type: "send"` for client deliverables, `share_type: "receive"` for intake/collection.
 6. `share` action `update` to configure branding, passwords, expiration, and access levels on each share.
 7. `org` action `invite-member` or `member` action `add` with `entity_type: "workspace"` to invite team members.
 8. `org` action `transfer-token-create` with `org_id` -- generates a transfer token valid for 72 hours. Send the claim URL (`https://go.fast.io/claim?token=<token>`) to the human.
@@ -1992,12 +1998,12 @@ Fast.io MCP Server includes interactive HTML5 widgets that render rich UIs direc
 
 | Widget | Resource URI | Description |
 |--------|-------------|-------------|
-| File Picker | `widget://file-picker` | Browse and pick files to attach to your conversation — navigate folders, search, preview, select files for the agent. Also supports file management (upload, move, copy, delete) in workspace and share contexts |
-| Workspace Picker | `widget://workspace-picker` | Org/workspace/share selection with search, 4-step workspace creation wizard, 5-step share creation wizard |
-| File Viewer | `widget://file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
-| Workflow Manager | `widget://workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
-| Comments Panel | `widget://comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
-| Uploader | `widget://uploader` | Upload files to a workspace or share with drag-and-drop, chunked uploads via POST /blob sidecar, and web URL imports with real-time progress tracking |
+| File Picker | `ui://fastio/file-picker` | Browse and pick files to attach to your conversation — navigate folders, search, preview, select files for the agent. Also supports file management (upload, move, copy, delete) in workspace and share contexts |
+| Workspace Picker | `ui://fastio/workspace-picker` | Org/workspace/share selection with search, 4-step workspace creation wizard, 5-step share creation wizard |
+| File Viewer | `ui://fastio/file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
+| Workflow Manager | `ui://fastio/workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
+| Comments Panel | `ui://fastio/comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
+| Uploader | `ui://fastio/uploader` | Upload files to a workspace or share with drag-and-drop, chunked uploads via POST /blob sidecar, and web URL imports with real-time progress tracking |
 
 ### Uploader Widget
 

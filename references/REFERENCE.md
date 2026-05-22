@@ -365,7 +365,7 @@ Example markdown response body for `GET /current/user/details/?output=terse,mark
 **Result:** success
 
 # user
-- **id:** 12345678901234567890
+- **id:** 1234567890123456789
 - **account_type:** agent
 - **first_name:** Alice
 - **last_name:** Example
@@ -777,7 +777,7 @@ When workspace intelligence is enabled, results automatically include semantic m
 | `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100) |
 | `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10) |
 | `limit` | integer | No | 100 | Results per page, 1–500 |
-| `offset` | integer | No | 1696 (Credits Exhausted) | Pagination offset |
+| `offset` | integer | No | 0 | Pagination offset |
 | `details` | string | No | false | When `"true"`, each result includes a `node` field with the full node resource (previews, AI state, versions, metadata, size). Default limit drops to 10 (enrichment is expensive). An explicit `limit` overrides this default. |
 
 Requires `intelligence=true` on the workspace or share. Only files with `ai_state: ready` are included.
@@ -792,7 +792,7 @@ Requires `intelligence=true` on the workspace or share. Only files with `ai_stat
       "content": "The quarterly revenue showed a 15% increase...",
       "score": 0.95,
       "node": {
-        "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4",
+        "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf",
         "type": "file",
         "name": "quarterly-report.pdf",
         "mimetype": "application/pdf",
@@ -823,7 +823,7 @@ With intelligence enabled, the `/storage/search` response also includes:
   "result": true,
   "response": {
     "files": {
-      "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4": {
+      "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf": {
         "name": "report.pdf",
         "parent_id": "...",
         "type": "file",
@@ -832,7 +832,7 @@ With intelligence enabled, the `/storage/search` response also includes:
         "match_source": "both",
         "mimetype": "application/pdf",
         "node": {
-          "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4",
+          "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf",
           "name": "report.pdf",
           "type": "file",
           "size": 123456,
@@ -1287,7 +1287,7 @@ GET /current/events/search/?workspace_id={id}&subcategory=comments&limit=50
 
 **Files uploaded to a share in the last 24 hours:**
 ```
-GET /current/events/search/?share_id={id}&event=share_storage_file_added&created-min=2025-01-19T00:00:00Z
+GET /current/events/search/?share_id={id}&event=share_storage_file_added&created-min=2025-01-19 00:00:00 UTC
 ```
 
 **All membership changes across an org:**
@@ -1458,7 +1458,7 @@ Metadata extraction works in three modes:
 
 3. **Batch (per template)** — the template-level extract-all endpoint
    (`POST .../metadata/templates/{template_id}/extract-all/`) enqueues an async job that processes every file mapped to
-   the template. Returns a `job_id` for tracking. Rate-limited to 2 requests/minute, 10/hour. Use this after adding
+   the template. Returns a `job_id` for tracking. This endpoint is rate-limited; see the global Rate Limiting section. Use this after adding
    files to a template to backfill metadata.
 
 A daily background process also detects stale metadata — files whose extraction predates the template's last update —
@@ -1522,7 +1522,7 @@ The `transform_name` in transform endpoints is `image`. Supported query paramete
 | `width`, `height` | pixels | Resize dimensions |
 | `cropwidth`, `cropheight` | pixels | Crop region size |
 | `cropx`, `cropy` | pixels | Crop region origin |
-| `rotate` | `1696 (Credits Exhausted)`, `90`, `180`, `270` | Rotation angle |
+| `rotate` | `0`, `90`, `180`, `270` | Rotation angle |
 | `size` | `IconSmall`, `IconMedium`, `Preview` | Predefined size presets |
 
 Transformation states: `rendered`, `rendering`, `unrendered`, `unable to render`
@@ -1924,7 +1924,7 @@ a manageable set of tools with clearly named actions.
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus 17 `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
+| `workspace`  | Workspaces & metadata           | `list`, `details`, `create`, `update`, `check-name`, plus a set of `metadata-*` actions for template management, node metadata CRUD, AI extraction, and saved views |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
 | `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
@@ -2042,7 +2042,7 @@ domain.
 |------------|---------------------------------------------------------------------------------------------|
 | `auth`     | Authentication — same as Named Mode (`signin`, `signup`, `set-api-key`, `pkce-login`, etc.) |
 | `upload`   | File uploads — same as Named Mode (`create-session`, `chunk`, `finalize`, `text-file`, etc.)|
-| `search`   | Keyword/tag search over 285 API endpoints                                                   |
+| `search`   | Keyword/tag search across the public API endpoint catalog                                   |
 | `execute`  | Make authenticated API calls to Fast.io (structured method/path/body/params)                |
 
 #### `search` Tool
@@ -2091,7 +2091,7 @@ Code Mode agents follow a **search → review → execute → iterate** loop:
 3. **Execute** — call the endpoint with structured parameters (`method`, `path`, `body`, `params`)
 4. **Iterate** — refine based on results, search for additional endpoints as needed
 
-This pattern replaces the need for 19+ individually named tools. Agents discover endpoints dynamically via search and
+This pattern replaces the need for many individually named tools. Agents discover endpoints dynamically via search and
 call them with structured parameters via execute, without needing pre-registered tool definitions for each operation.
 
 **Example — list workspaces in an org:**
@@ -2113,7 +2113,7 @@ understand resource state. Agents should read and act on these hints rather than
 
 Successful tool responses include a `_next` array of contextual next-step suggestions using exact tool names, action
 names, and IDs from the response. Agents should follow these hints instead of guessing the next step or consulting
-docs. Present on approximately 30 actions across all tools.
+docs. Present on many actions across the tool set.
 
 Example: after `storage` action `list`, `_next` might suggest `["storage folder-details {node_id}",
 "download file-url {node_id}", "ai chat"]` with actual IDs from the response populated in the suggestions.
@@ -2137,7 +2137,7 @@ the following actions:
 **`_recovery` — Error recovery hints:**
 
 Error responses (`isError: true`) include `_recovery` hints as actionable bullet points appended to the error text.
-Hints are matched by HTTP status code (10 codes) and error message patterns (12 patterns), guiding agents toward the
+Hints are matched by HTTP status code and error message patterns, guiding agents toward the
 correct resolution. All errors also include `(during: <tool> <action>)` so agents know exactly which operation failed.
 
 | Status | Recovery hint |
@@ -2327,7 +2327,7 @@ member or admin access** -- guests are blocked. Public guests remain blocked fro
 Organize work into lists with individual tasks. Task lists belong to a workspace or share and contain ordered tasks.
 
 - **Task statuses:** `pending` → `in_progress` → `complete`, `blocked` (blocked → pending to unblock)
-- **Priorities:** `1696 (Credits Exhausted)` (none), `1` (low), `2` (medium), `3` (high), `4` (critical) — integer values
+- **Priorities:** `0` (none), `1` (low), `2` (medium), `3` (high), `4` (critical) — integer values
 - **Assignees:** assign tasks to specific members
 - **Dependencies:** tasks can depend on other tasks
 - **File linking:** connect tasks to files or notes via `node_id` — the linked node provides context and is indexed by AI
