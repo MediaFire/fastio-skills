@@ -6,7 +6,8 @@ description: >-
   constraints. Use this skill when agents need shared workspaces to collaborate
   with other agents and humans, create branded shares (Send/Receive/Exchange),
   or query documents using built-in AI. Supports ownership transfer to humans,
-  workspace management, workflow primitives (tasks, worklogs, approvals, todos),
+  workspace management, workflow orchestration (durable multi-step workflows,
+  content review, e-signature) plus a lightweight in-workspace task primitive,
   and real-time collaboration.
   Free agent plan with 50 GB storage and 5,000 monthly credits.
 license: Proprietary
@@ -15,32 +16,47 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "1.223.0"
+  version: "1.232.0"
 homepage: "https://fast.io"
 ---
 
 # Fast.io MCP Server -- AI Agent Guide
 
-**Version:** 1.223
-**Last Updated:** 2026-05-22
+**Version:** 1.232
+**Last Updated:** 2026-06-13
 
-The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, the free agent plan, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, workflow, ownership transfer), 12 end-to-end workflows, interactive MCP App widgets, and all 19 consolidated tools with action-based routing.
+The definitive guide for AI agents using the Fast.io MCP server. Covers why and how to use the platform: product capabilities, plans and billing, authentication, core concepts (workspaces, shares, intelligence, previews, comments, URL import, metadata, unified search, workflow orchestration, ownership transfer), 12 end-to-end workflows, and all 19 consolidated tools (named mode) with action-based routing.
 
 > **Versioned guide.** This guide is versioned and updated with each server release. The version number at the top of this document tracks tool parameters, ID formats, and API behavior changes. If you encounter unexpected errors, the guide version may have changed since you last read it.
 
+> **MCP Apps widgets disabled (v2026.06.42):** the `apps` discovery tool, the 6 `app-*` widget tools, the `ui://fastio/*` widget HTML resources, and the `App:` launcher prompts are no longer registered.
+
+> **Tracking primitives trimmed (v2026.06.44):** the `worklog`, `approval`, and `todo` tools were removed from the MCP — only the `task` primitive remains for lightweight in-workspace tracking (still toggled by `workspace`/`share` action `enable-workflow`). Their REST endpoints are also dropped from the code-mode API catalog. Named mode now exposes 19 core domain tools.
+
+> **Major surface change (→ v2026.06.13 — NL-workflow retool):**
+> - **NEW `workflow` tool (109 actions):** durable multi-step workflow ORCHESTRATION + native content-review (`review-*`) + e-signature (`sign-*`), scoped to a workspace. This is **separate from** the in-workspace `task` primitive and from `workspace action=enable-workflow` (which toggles ONLY task tracking). Write/lifecycle actions are fire-and-forget (return ids + state + a `_next` poll hint; poll with `action=state`); destructive actions are confirm-gated (`confirm='true'`); large downloads stream through the dedicated `GET /workflow-download/...` route.
+> - **NEW `find` tool:** unified search across a workspace or share — one query, results grouped into buckets (files, metadata [workspace only], comments, workflows), each independently paginated and health-reported.
+> - **NEW `metadata` tool:** AI metadata templates + the unstructured-data extraction pipeline (template CRUD/assign/resolve, eligible → preview-match → suggest-fields → nodes-add/-list → auto-match → extract-all, saved views, lexical metadata search). Moved OUT of `workspace`. Node-level metadata (get/set/delete/extract/versions/list-files on a single file) now lives on the `storage` tool. The `workspace metadata-*` actions remain only as one-release execute-and-warn deprecation shims and will be removed next release.
+> - **`ai` tool is now "Ripley"** — a READ-ONLY delegation surface over the platform RAG agent (`/ai/agent/`). Use `ai action ask` (one NL question, cited answer) or `status` (workspace summary); it never does content CRUD. `autotitle` moved from `ai` to the `share` tool.
+> - **Billing → paid-plan model:** new orgs require a paid plan (free/agent plans are legacy, closed to new subscriptions). `org` billing actions: removed `billing-activate`/`billing-reset`; added `billing-reactivate` (reverses a scheduled cancel) and `billing-invoices`.
+>
 > **Recent parameter changes (v2026.05.22 → v2026.05.23):**
 > - **`event` tool:** the `created-min` / `created-max` filter names were renamed to `created_min` / `created_max` (snake_case). The old hyphenated names are silently migrated to the new names by the server — existing agents continue to work. New agents should use snake_case directly.
-> - **`apps.extra_params`, `approval.properties`, `execute.body`, `execute.params`:** these free-form JSON parameters are now published as `{type: "string"}` in the tool schema (to satisfy strict-mode validators in OpenAI Apps SDK / Gemini API). The server still accepts either a native JSON object/array (auto-stringified) OR a pre-stringified JSON string at runtime — you can keep sending native objects from Claude Desktop and they will be auto-converted.
+> - **`execute.body`, `execute.params`:** these free-form JSON parameters are now published as `{type: "string"}` in the tool schema (to satisfy strict-mode validators in OpenAI Apps SDK / Gemini API). The server still accepts either a native JSON object/array (auto-stringified) OR a pre-stringified JSON string at runtime — you can keep sending native objects from Claude Desktop and they will be auto-converted.
 > - **`/file/workspace|share` pass-through:** now accepts either `Mcp-Session-Id` (existing path) OR `Authorization: Bearer` (new — unblocks OAuth-only clients streaming large files without first establishing an MCP tool-auth session). Fresh Bearer tokens are used even when the DO session has a stale or expired session-stored token.
 > - **New `resource://status` MCP resource (v2026.05.24):** lightweight server-status resource alongside the existing `session://status` and `skill://guide` resources. Returns `{name, version, environment, transports, mcp_protocol_versions_supported, time, documentation}` — no auth, no session state. Added so MCP host UIs (ChatGPT Apps SDK in particular) that probe a well-known status URI can display server health without spending a tool call. For session-bound state continue using `session://status` (the resource) or `auth action=status` (the tool).
 
 > **Platform reference.** For a comprehensive overview of Fast.io's capabilities, the agent plan, key workflows, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
 
+> **Self-introspection: every consolidated tool supports `action: "describe"`.** Tool descriptions are intentionally compact. When you are uncertain about a tool's actions or what each one requires, call `<tool> action="describe"` (no auth required, no other parameters required) — it returns a structured payload `{ tool, summary, destructive_actions, common_required?, side_effects?, guidance?, actions: { <name>: { required, optional, one_of_required?, one_of_required_body?, note? } }, param_details? }`. Treat `common_required` (when present) as fields that must accompany EVERY action's `required` set; treat `one_of_required` as "at least one of these fields must be supplied" (some tools enforce exactly-one XOR; check the `note`). `one_of_required_body` is a SECOND independent XOR group used by actions with two parallel choice constraints (e.g. asset upload: asset_id-vs-asset_type for the path AND content-vs-file_base64 for the body — both groups must be satisfied). `side_effects` is a free-form string flagging credit-consuming or otherwise stateful actions; `guidance` is a free-form object some tools (e.g. `upload`) use to capture multi-action workflow strategy. Call describe the first time you use an unfamiliar tool.
+
+> **Profile-context aliases.** Tools that operate on a workspace or share accept `profile_type`/`profile_id` (canonical) or `context_type`/`context_id` (alias). Either pair works; do not mix. The describe payload reports the canonical names only.
+
 > **ID parameter taxonomy.** Four canonical ID parameter names appear across tools — they are intentionally distinct, not interchangeable. Pick the one that matches the operation's domain:
 >
 > - **`workspace_id`** — workspace opaque ID. Use when only workspaces are valid (not shares or other contexts). Example: `events action workspace-stream workspace_id="..."`.
 > - **`profile_id`** — polymorphic context ID. Pair with `profile_type` = `workspace` | `share` | `org`. Use instead of `workspace_id` when the operation also accepts shares. Example: `storage action list profile_type="share" profile_id="..." node_id="root"`.
-> - **`entity_id`** — opaque ID of a specific object (file, comment, worklog entry, etc.). Pair with `entity_type` to disambiguate. Example: `worklog action list entity_type="task" entity_id="..."`.
+> - **`entity_id`** — opaque ID of a specific object (file, comment, member, etc.). Pair with `entity_type` to disambiguate. Example: `member action details entity_type="workspace" entity_id="..."`.
 > - **`node_id`** — storage tree node opaque ID. Both files and folders are nodes — use this name regardless of which. Example: `storage action details profile_type="workspace" profile_id="..." node_id="..."`.
 
 ---
@@ -49,7 +65,7 @@ The definitive guide for AI agents using the Fast.io MCP server. Covers why and 
 
 **Workspaces for Agentic Teams. Collaborate, share, and query with AI -- all through one API, free.**
 
-Fast.io provides workspaces for agentic teams -- where agents collaborate with other agents and with humans. Upload outputs, create branded shares, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No infrastructure to manage, no subscriptions to set up, no credit card required.
+Fast.io provides workspaces for agentic teams -- where agents collaborate with other agents and with humans. Upload outputs, create branded shares, ask questions about documents using built-in AI, and hand everything off to a human when the job is done. No infrastructure to manage. New orgs run on a paid plan (see Section 4 — Plans & Billing).
 
 ### The Problem Fast.io Solves
 
@@ -68,11 +84,11 @@ When agents need to *understand* documents -- not just store them -- they have t
 | Finding the right file in a large collection | Storage search finds documents by keyword or meaning (semantic search when intelligence is enabled) |
 | Handing a project off to a human | One-click ownership transfer -- human gets the org, agent keeps admin access |
 | Tracking what happened | Full audit trail with AI-powered activity summaries |
-| Cost | Free. 50 GB storage, 5,000 monthly credits, no credit card |
+| Cost | Paid plan per org -- the plan sets storage, credits, workspace and share limits (call `org billing-plans`) |
 
 ### MCP Server
 
-This MCP server exposes 19 consolidated tools that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically.
+This MCP server exposes 19 consolidated tools (named mode) that cover the full Fast.io REST API surface. Every authenticated API endpoint has a corresponding tool action, and the server handles session management automatically. Headless agents instead receive a 4-tool Code Mode set (see section 10).
 
 **All API access goes through the MCP tools.** Do not make direct HTTP calls to `api.fast.io` or the MCP server -- the tools handle authentication, session management, error recovery, and response formatting automatically. The only exceptions are binary transfers: `POST /blob` on the MCP server for uploads (the tool provides the curl command), download URLs returned by tools (which are pre-authenticated), and `GET /file/` pass-through endpoints on the MCP server for large file streaming. Everything else must use the tools.
 
@@ -90,14 +106,13 @@ Two transports are available on each:
 
 ### MCP Resources
 
-The server exposes static MCP resources, widget resources, and file download resource templates. Clients can read them via `resources/list` and `resources/read`:
+The server exposes static MCP resources and file download resource templates. Clients can read them via `resources/list` and `resources/read`:
 
 | URI | Name | Description | MIME Type |
 |-----|------|-------------|-----------|
-| `skill://guide` | skill-guide | Full agent guide (this document) with all 19 tools, workflows, and platform documentation | `text/markdown` |
+| `skill://guide` | skill-guide | Full agent guide (this document) with all 19 named-mode tools, workflows, and platform documentation | `text/markdown` |
 | `session://status` | session-status | Current authentication state: `authenticated` boolean, `user_id`, `user_email`, `auth_method` (`"api_key"`, `"jwt"`, or `"oauth"` -- how the session was authenticated), `token_expires_at` (Unix epoch), `token_expires_at_iso` (ISO 8601), `scopes` (raw scope string or null), `scopes_detail` (array of hydrated scope objects with entity names/domains/parents, or null), `agent_name` (string or null) | `application/json` |
 | `resource://status` | server-status | Lightweight server health: `name`, `version`, `status`, `environment`, `transports` (`/mcp`, `/sse`), `mcp_protocol_versions_supported`, `time` (ISO 8601), `documentation` (skill guide + API + platform links). No auth required, no session state — for host UIs that probe a well-known status URI. For session-bound state use `session://status` or `auth` action `status`. | `application/json` |
-| `ui://fastio/*` | Widget HTML | Interactive HTML5 widgets (6 total) -- use the `apps` tool to discover and launch | `text/html` |
 
 **File download resource templates** -- read file content directly through MCP without needing external HTTP access:
 
@@ -105,7 +120,8 @@ The server exposes static MCP resources, widget resources, and file download res
 |---|---|---|---|---|
 | `download://workspace/{workspace_id}/{node_id}` | download-workspace-file | Session token | Yes | Download a file from a workspace |
 | `download://share/{share_id}/{node_id}` | download-share-file | Session token | Yes | Download a file from a share |
-| `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | No | Download a quickshare file |
+| `download://quickshare/{quickshare_id}` | download-quickshare-file | None (public) | No | Download a quickshare file (drain — QuickShare creation deprecated) |
+| `download://fileshare/{fileshare_id}` | download-fileshare-file | Tier-gated (anonymous for `anyone_with_link`) | No | Download a File Share's bound file. **Password-protected shares are not retrievable inline** (no header channel) — use the `fileshare` `download-url` action or the `/file/fileshare/{id}` route with the `x-ve-password` header instead. |
 
 Files up to 50 MB are returned inline as base64-encoded blob content. Larger files return a text fallback with a URL to the HTTP pass-through endpoint (see below). The `download` tool responses include a `resource_uri` field with the appropriate URI for each file.
 
@@ -113,15 +129,7 @@ Files up to 50 MB are returned inline as base64-encoded blob content. Larger fil
 
 ### MCP Prompts
 
-The server registers MCP prompts that appear in the client's "Add From" / "+" menu as user-clickable app launchers. These are primarily for desktop MCP clients (e.g., Claude Desktop); code-mode clients (Claude Code, Cursor) do not surface prompts.
-
-| Prompt Name | Description |
-|---|---|
-| `App: Choose Workspace or Org` | Launch the Workspace Picker to browse orgs, select workspaces, and manage shares |
-| `App: Pick a File` | Launch the File Picker with built-in workspace navigator for browsing, searching, and selecting files |
-| `App: Open Workflow` | Launch the Workflow Manager (auto-selects workspace if only one, otherwise opens Workspace Picker first) |
-| `App: Upload Files` | Launch the Uploader to upload files with drag-and-drop, progress tracking, and text file creation |
-| `App: Available Apps` | List all available MCP App widgets with descriptions and launch instructions |
+No prompts are currently registered. (The `App:` widget-launcher prompts were disabled along with the MCP Apps widgets in v2026.06.42.)
 
 ### HTTP File Pass-Through
 
@@ -131,15 +139,16 @@ For files larger than 50 MB or when raw binary streaming is needed, the server p
 |---|---|---|
 | `GET /file/workspace/{workspace_id}/{node_id}` | `Mcp-Session-Id` header | Stream a workspace file |
 | `GET /file/share/{share_id}/{node_id}` | `Mcp-Session-Id` header | Stream a share file |
-| `GET /file/quickshare/{quickshare_id}` | None (public) | Stream a quickshare file |
+| `GET /file/quickshare/{quickshare_id}` | None (public) | Stream a quickshare file (drain — QuickShare creation deprecated) |
+| `GET /file/fileshare/{fileshare_id}` | Tier-gated; caller `Authorization` wins; `x-ve-password` header | Stream a File Share's bound file. `anyone_with_link` passes through anonymously; a caller-supplied `Authorization` Bearer takes precedence over the session token (recipient identity ≠ owner); password forwarded only via the `x-ve-password` header (never `?password=`); `Cache-Control: no-store`. |
 
 The response includes proper `Content-Type`, `Content-Length`, and `Content-Disposition` headers from the upstream API. Errors are returned as HTML pages. The `Mcp-Session-Id` header is the same session identifier used for MCP protocol communication.
 
 ### Workflow Overview
 
-The server includes workflow features for project tracking: **tasks** (structured work items with priorities and assignees), **worklogs** (append-only activity logs), **approvals** (formal sign-off requests — see **Workflow Approvals -- Quick Start** below), and **todos** (simple checklists). Enable workflow on a workspace with `workspace` action `enable-workflow` before using these tools. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
+The server includes a lightweight **in-workspace task primitive** for project tracking: **tasks** (structured work items with priorities, assignees, dependencies, and statuses). Enable it on a workspace with `workspace` action `enable-workflow` before using the `task` tool. See the **Full Agent Workflow** recipe in section 6 for the complete pattern.
 
-**Best practice (IMPORTANT):** After state-changing actions (uploading files, creating shares, changing task status, member changes, file moves/deletes), append a worklog entry describing what you did and why. Without worklog entries, agent work is invisible to humans reviewing the workspace. For multiple related actions (e.g., uploading several files), you may log once after the batch completes rather than after each individual action. Worklog entries are append-only and permanent.
+> Task tracking is SEPARATE from the **`workflow` orchestration tool** (durable multi-step orchestration + native review + e-signature, 109 actions — see Section 3 "Workflow Orchestration" and the Section 5 `workflow` entry). `enable-workflow` toggles ONLY task tracking, not that tool.
 
 ### Additional References
 
@@ -162,7 +171,7 @@ There are three ways to use Fast.io as an agent, depending on whether you are op
 
 **Option 1: Autonomous Agent -- Create an Agent Account**
 
-If you are operating independently (storing files, running workflows, building workspaces for users), create your own agent account with `auth` action `signup`. Agent accounts get the free agent plan (50 GB, 5,000 monthly credits) and can transfer orgs to humans when ready. This is the recommended path for autonomous agents. See **Agent Account Creation** below for steps.
+If you are operating independently (storing files, running workflows, building workspaces for users), create your own agent account with `auth` action `signup`. Agent accounts can transfer orgs to humans when ready. This is the recommended path for autonomous agents. Note: creating an org still requires selecting a paid plan via `org` action `billing-create` (see Section 4). See **Agent Account Creation** below for steps.
 
 **Option 2: Assisting a Human -- Use Their API Key**
 
@@ -228,8 +237,7 @@ The MCP server defaults to `scope_type="user"` for backward compatibility.
 
 When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` action `signup` which automatically registers with `agent=true`. Never sign up as a human account. Agent accounts provide:
 
-- `account_type` set to `"agent"`
-- Free agent plan assigned automatically
+- `account_type` set to `"agent"` (an identity tag — it does NOT change the plan or the signup/billing requirements; agent accounts follow the same paid-plan flow as everyone else)
 - Transfer/claim workflow enabled for handing orgs off to humans
 
 **Steps:**
@@ -238,7 +246,7 @@ When creating a new account (Options 1 and 3 above), agents **MUST** use `auth` 
 2. Call `auth` action `signup` with `first_name`, `last_name`, `email`, and `password`. The `agent=true` flag is sent automatically by the MCP server.
 3. The account is created and a session is established automatically -- the agent is signed in immediately.
 4. **Verify your email** (required before using most endpoints): Call `auth` action `email-verify` with `email` to send a verification code, then call `auth` action `email-verify` again with `email` and `email_token` to validate the code.
-5. No credit card is required. No trial period. No expiration. The account persists indefinitely.
+5. The account persists indefinitely. Note: a new **org** still requires a paid plan (select one via `org` action `billing-create`) before it can consume resources — see Section 4.
 
 ### Two-Factor Authentication Flow
 
@@ -309,7 +317,7 @@ Organizations are top-level containers that collect workspaces. An organization 
 
 Organizations are identified by a 19-digit numeric profile ID or a domain string.
 
-**IMPORTANT:** When creating orgs, agents MUST use `org` action `create` which automatically assigns `billing_plan: "agent"`. This ensures the org gets the free agent plan (50 GB, 5,000 credits/month). Do not use any other billing plan for agent-created organizations.
+**IMPORTANT:** New orgs require a **paid plan**. After `org` action `create` the org is in an upgrade-only state and cannot consume resources until a plan is selected via `org` action `billing-create` (call `org` action `billing-plans` for the offered plan IDs). Free and agent plans are legacy and closed to new subscriptions. See Section 4 (Plans & Billing).
 
 #### Custom Domains
 
@@ -349,12 +357,12 @@ To discover all available orgs, agents **must call both actions**:
 
 Workspaces are file storage containers within organizations. Each workspace has:
 
-- Its own set of **members** with roles (owner, admin, member, guest). Members have a `status` of `active` or `pending`. Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. Notifications for pending members are suppressed until they sign up. When they sign up, their status becomes `active` and all assignments are preserved.
+- Its own set of **members** with roles (owner, admin, member, guest). Members have a `status` of `active` or `pending`. Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks. Notifications for pending members are suppressed until they sign up. When they sign up, their status becomes `active` and all assignments are preserved.
 - A **storage tree** of files and folders (storage nodes).
 - Optional **AI features** for RAG-powered chat.
 - **Shares** that can be created within the workspace.
 - **Archive/unarchive** lifecycle management.
-- **50 GB included storage** on the free agent plan, with files up to 1 GB per upload.
+- **Storage and max upload size** are set by the org's paid plan (see Section 4).
 - **File versioning** -- every edit creates a new version, old versions are recoverable.
 - **Keyword and semantic search** -- find files by name or content; with intelligence enabled, search by meaning.
 
@@ -430,7 +438,7 @@ Shares are identified by a 19-digit numeric profile ID.
 
 ### Storage Nodes
 
-Files and folders are represented as storage nodes. Each node has an opaque ID (a 30-character alphanumeric string, displayed with hyphens, e.g. `f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm4`). The special value `root` refers to the root folder of a workspace or share, and `trash` refers to the trash folder.
+Files and folders are represented as storage nodes. Each node has an opaque ID (a 29- or 30-character alphanumeric string, displayed with hyphens, e.g. `f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjfm`). The special value `root` refers to the root folder of a workspace or share, and `trash` refers to the trash folder.
 
 Key operations on storage nodes: list, create-folder, move, copy, rename, delete (moves to trash), purge (permanently deletes), restore (recovers from trash), search, add-file (link an upload), and add-link (create a share reference).
 
@@ -438,7 +446,7 @@ Nodes have versions. Each file modification creates a new version. Version histo
 
 #### Overwriting files (REPLACE by default, versioned in place)
 
-**Do NOT delete and re-upload to "update" a file.** Same-name uploads to the same parent folder **overwrite the existing node in place, preserving the `node_id`**. The prior content is kept as a version and is recoverable at any time. Deleting the old node first is wasted work, breaks any `node_id` references held by other entities (comments, tasks, approvals, metadata, links), and can leak the file into trash — it is never the right pattern for editing a file's bytes.
+**Do NOT delete and re-upload to "update" a file.** Same-name uploads to the same parent folder **overwrite the existing node in place, preserving the `node_id`**. The prior content is kept as a version and is recoverable at any time. Deleting the old node first is wasted work, breaks any `node_id` references held by other entities (comments, tasks, metadata, links), and can leak the file into trash — it is never the right pattern for editing a file's bytes.
 
 **The correct update-a-file pattern:**
 
@@ -741,9 +749,11 @@ Most endpoints also accept custom names as identifiers:
 | Organization | 19-digit ID | Domain name (e.g., `acme`) |
 | User | 19-digit ID | Email address (e.g., `user@example.com`) |
 
-### QuickShares
+### QuickShares (DEPRECATED — use File Shares)
 
-QuickShares are temporary public download links for individual files in workspaces (not available for shares). They can be accessed without authentication. Expires in seconds from creation (default 10,800 = 3 hours, max 604,800 = 7 days) or as an ISO 8601 datetime via `expires_at`. Max file size: 1 GB. Each quickshare has an opaque identifier used to retrieve metadata and download the file.
+> **DEPRECATED.** QuickShare **creation** is closed (the API now returns `403` / error `10756`); use the **`fileshare`** tool's `create` action instead (see the `fileshare` tool in Section 5). Existing QuickShare links keep serving and the read/revoke/list/drain surface (`workspace quickshare-get`/`quickshare-delete`/`quickshares-list`, `download quickshare-details`, the `download://quickshare/{id}` resource, the `/file/quickshare/{id}` route) stays fully functional until removal is announced.
+
+QuickShares were temporary public download links for individual files in workspaces (not available for shares). They can be accessed without authentication. Expired in seconds from creation (default 10,800 = 3 hours, max 604,800 = 7 days) or as an ISO 8601 datetime via `expires_at`. Max file size: 1 GB. Each quickshare has an opaque identifier used to retrieve metadata and download the file. **File Shares** supersede them with access tiers, optional passwords, named-people grants (incl. by-email invites), version history, and content write-back.
 
 ### File Preview
 
@@ -779,11 +789,11 @@ Comments use JSON request bodies (`Content-Type: application/json`), unlike most
 
 **Listing comments:** Use `comment` action `list` for per-file comments and `comment` action `list-all` for all comments across a workspace or share. Both support `sort`, `limit` (2-200), `offset`, `include_deleted`, `reference_type` filter, and `include_total`.
 
-**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 500 chars. Optionally include `linked_entity_type` and `linked_entity_id` to link the comment to a task or approval at creation time.
+**Adding comments:** Use `comment` action `add` with `profile_type`, `profile_id`, `node_id`, and `text`. Optionally include `parent_comment_id` for replies and `reference` to anchor to a specific position. Supports mention tags in the body. Two character limits apply: total body including tags max 8,192 chars, display text (body with `@[...]` tags stripped) max 500 chars. Optionally include `linked_entity_type` and `linked_entity_id` to link the comment to a task at creation time.
 
 **Deleting comments:** `comment` action `delete` is recursive -- deleting a parent also removes all replies. `comment` action `bulk-delete` is NOT recursive -- replies to deleted comments are preserved.
 
-**Comment Linking:** Comments can be linked to workflow entities (tasks or approvals). Each comment supports one link at a time (nullable). Use `comment` action `link` to associate an existing comment with a task or approval, `comment` action `unlink` to remove the association, and `comment` action `linked` to reverse-lookup all comments linked to a given entity. You can also link at creation time by passing `linked_entity_type` and `linked_entity_id` to the `add` action. Comment responses include `linked_entity_type` and `linked_entity_id` fields (null when unlinked).
+**Comment Linking:** Comments can be linked to workflow entities (tasks). Each comment supports one link at a time (nullable). Use `comment` action `link` to associate an existing comment with a task, `comment` action `unlink` to remove the association, and `comment` action `linked` to reverse-lookup all comments linked to a given entity. You can also link at creation time by passing `linked_entity_type` and `linked_entity_id` to the `add` action. Comment responses include `linked_entity_type` and `linked_entity_id` fields (null when unlinked).
 
 **Linking users to comments:** The preview URL opens the comments sidebar automatically. Deep link query parameters let you target a specific comment or position:
 
@@ -864,7 +874,10 @@ Key points:
 - **`metadata-template-suggest-fields` concurrency** -- the server rate-limits concurrent calls per user+workspace and returns **409 Conflict** when another suggest-fields call is in flight. Wait a few seconds and retry. (Earlier internal notes incorrectly said 406; live docs are authoritative — it is 409.)
 - **`nodes/add/` cap-exceeded** (REST endpoint, not exposed as an MCP action) -- returns **400 (Fast.io error code 1605, "Invalid Input")** with a structured "would exceed cap" message. Concurrent calls cannot collectively exceed the cap. To pre-flight, read the per-template nodes listing endpoint and compute remaining slots from `plan_node_limit - total_count_unfiltered`.
 - **Auto-match silently caps** -- the server-side `auto-match` endpoint (not currently exposed as an MCP action) caps at `plan_node_limit` even when more files are matchable (saves credits and LLM cost). Because neither `auto-match` nor the per-template `nodes/` listing is currently driveable from the MCP tool, agents needing to know exactly how many files were mapped after auto-match must call those REST endpoints directly or surface the gap to the user.
-- **MCP tool coverage** -- the `workspace` MCP tool exposes template CRUD (`metadata-template-{create,delete,list,details,update,clone}`), workspace assignment (`metadata-template-{assign,unassign,resolve,assignments}`), the view-creation flow (`metadata-template-{preview-match,suggest-fields}`), per-user saved views (`metadata-view-{get,save,delete}`, `metadata-views-list`), saved-view TSV export (`metadata-view-export`), keyword search across metadata values (`metadata-search`), and file-level metadata (`metadata-{get,set,delete,extract}`, `metadata-list-files`, `metadata-list-templates-in-use`, `metadata-versions`). It does **not** currently expose `nodes/add`, `nodes/remove`, the per-template `nodes/` listing, `auto-match`, `extract-all`, or `/metadata/eligible/`. Agents needing those workflows must surface the gap to the user.
+- **MCP tool coverage (two tools as of v2026.06.13)** -- metadata is now split across two dedicated tools (it was previously folded into `workspace`):
+  - **`metadata` tool** -- template + AI-extraction pipeline at the workspace level: template CRUD/settings/clone (`template-{create,list,details,update,clone,settings,delete}`), assignment (`template-{assign,unassign,resolve,assignments}`), the AI classification pipeline (`eligible` → `preview-match` → `suggest-fields` → `nodes-add`/`nodes-list`/`nodes-remove` → `auto-match` → `extract-all`), saved views (`view-{get,save,delete,export}`, `views-list`), and lexical `search` across metadata field values. (`auto-match`/`extract-all` are async — they return a `job_id`; poll via `workspace action jobs-status`. AI actions `preview-match`/`suggest-fields`/`auto-match`/`extract-all` spend credits.)
+  - **`storage` tool** -- node-level metadata on a single file: `metadata-{get,set,delete,extract,versions,list-files,list-templates-in-use}` (pass `profile_type=workspace`, `profile_id=<workspace_id>`, `node_id`).
+  - **`workspace metadata-*` actions** still exist but are **one-release execute-and-warn deprecation shims** — they perform the operation and return a `_warnings` pointing at the new `metadata`/`storage` action. They will be removed next release; migrate to `metadata`/`storage`.
 - **Template categories** -- legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr.
 - **Field types** -- string, int, float, bool, json, url, datetime -- each with optional constraints (min, max, default, fixed_list, can_be_null).
 - **Two metadata types** -- template metadata conforms to template field definitions; custom metadata is freeform key-value pairs not tied to any template.
@@ -902,8 +915,7 @@ The primary way agents deliver value: build something, then give it to a human. 
 
 - Human becomes the owner of the org and all workspaces
 - Agent retains admin access (can still manage files and shares)
-- Human gets a free plan (credit-based, no trial period)
-- Human can upgrade to Pro or Business at any time
+- Human takes over billing — they manage the org's paid plan (`org` action `billing-details` / `billing-create`)
 
 **Agent use case:** A user says "Set up a project workspace for my team." You create the org, build out the workspace structure, upload templates, configure shares for client deliverables, invite team members -- then transfer ownership. The human walks into a fully configured platform. You stay on as admin to keep managing things.
 
@@ -911,18 +923,20 @@ The primary way agents deliver value: build something, then give it to a human. 
 
 **402 Payment Required use case (human account):** The agent cannot transfer the org. Instead, inform the user that their org has run out of credits and they need to upgrade their billing plan. Direct them to the Fast.io dashboard or use `org` action `billing-create` to update to a paid plan.
 
-### Workflow (Tasks, Worklogs, Approvals, Todos)
+### In-Workspace Task Tracking (the `task` tool)
 
-Workspaces and shares support an optional workflow layer that adds structured task management, activity logging, approval gates, and simple checklists. Workflow features are controlled by a toggle -- they must be explicitly enabled before use. On shares, workflow access requires admin or named member role -- guests and view-only users cannot access workflow features.
+> **Two unrelated "workflow" surfaces.** This section covers the lightweight in-workspace **task** primitive toggled by `workspace`/`share` action `enable-workflow`. It is simple, ad-hoc tracking. For durable multi-step orchestration, formal multi-reviewer review, or e-signature, use the separate **`workflow` orchestration tool** (next section) — it shares no endpoints, IDs, or state with task tracking, and `enable-workflow` does NOT enable it.
 
-#### Enabling Workflow
+Workspaces and shares support an optional task-tracking layer that adds structured task management. It is controlled by a toggle -- it must be explicitly enabled before use. On shares, access requires admin or named member role -- guests and view-only users cannot access it.
+
+#### Enabling Task Tracking
 
 - **Workspaces:** `workspace` action `enable-workflow` with `workspace_id`
 - **Shares:** `share` action `enable-workflow` with `share_id`
 
-Check whether workflow is enabled via `workspace` action `details` or `share` action `details` -- look for `workflow: true` in the response.
+Check whether task tracking is enabled via `workspace` action `details` or `share` action `details` -- look for `workflow: true` in the response. (This flag toggles ONLY task tracking, NOT the `workflow` orchestration tool.)
 
-Disabling workflow (`workspace` action `disable-workflow` or `share` action `disable-workflow`) makes all workflow data inaccessible but preserves it. Re-enabling restores access.
+Disabling (`workspace` action `disable-workflow` or `share` action `disable-workflow`) makes task data inaccessible but preserves it. Re-enabling restores access.
 
 #### Task Lists and Tasks
 
@@ -941,22 +955,51 @@ Tasks are organized into lists. Each workspace or share can have multiple task l
 - **Summary:** `task` action `summary` returns lightweight counts -- total tasks, breakdown by status, assigned-to-me, and created-by-me.
 - **Markdown output:** Pass `format: "md"` to get human-readable markdown instead of JSON.
 
-#### Worklogs
+### Workflow Orchestration (the `workflow` tool)
 
-Worklogs are append-only chronological activity logs scoped to tasks, task lists, or profiles (workspaces and shares). Entries cannot be edited or deleted after creation.
+The `workflow` tool is the durable, multi-step workflow **orchestration runtime**, scoped to a workspace, plus native content-**review** and **e-signature**. It is **separate from** the in-workspace `task` primitive above — no shared endpoints, IDs, or state — and `workspace action=enable-workflow` does NOT enable it. Orchestration features require the workspace's **workflow feature** to be enabled (check `workspace action settings-get` before issuing workflow-creating calls); native review is separately gated by `workflow_approval_native_enabled` (review endpoints 404 when disabled).
 
-- **Entries:** Regular log entries appended with `worklog` action `append`. Use for progress updates, decisions, reasoning, and status changes.
-- **Interjections:** Priority corrections created with `worklog` action `interject`. Interjections are always urgent and require acknowledgement from other participants.
-- **Acknowledgement:** `worklog` action `acknowledge` marks an interjection as seen. `worklog` action `unacknowledged` lists interjections that still need acknowledgement. Entries include an `acknowledgable` boolean -- when `true`, the entry is an unacknowledged interjection that can be acknowledged.
-- **Response fields:** Entries include `acknowledged` (boolean), `acknowledgable` (boolean), `updated` (`YYYY-MM-DD HH:MM:SS UTC` timestamp), and `created` (`YYYY-MM-DD HH:MM:SS UTC` timestamp).
-- **Profile-level listing:** `worklog` action `profile-list` lists all worklog entries at the workspace or share level (different from `list` which is entity-scoped).
-- **Filtered lists:** `worklog` action `filtered-list` returns worklogs filtered by category -- "authored" (worklogs authored by me) or "interjections" (interjections targeted at me). Optional `type` sub-filter ("info" or "interjection").
-- **Summary:** `worklog` action `summary` returns lightweight counts -- total entries, breakdown by entry type, authored-by-me, and pending interjections.
-- **Markdown output:** Pass `format: "md"` for human-readable output.
+**New to authoring? Call `workflow action=guide`** — a no-auth playbook covering the full lifecycle, the System Gallery fast-path, step types, edge gates, schemas, trust classes, triggers, and pools.
+
+**Lifecycle (hand-author):** `create` a workflow profile → `template-create` an immutable, validated template revision → `template-publish` it → `instantiate` the runtime (needs an `idempotency_key`) → poll `state` → resolve `obligation-*` (human steps write inbox obligations) → the run reaches a terminal state (`completed`/`cancelled`/`archived`/`deleted`) → read the signed `audit-events`. **System Gallery fast-path:** `template-system-list` → `template-system-get` (read its `setup` inputs) → **`template-from-system`** does create-revision + publish + bind in ONE call **when `publish=true` (the default)**; `publish=false` leaves the revision `validated` and unbound (publish later), and even a `publish=true` call can return `bound=false` if a concurrent instantiation won the bound-revision pointer. Then `instantiate`. Use the gallery when a catalog entry fits; hand-author for anything custom.
+
+**Dynamic features (per-plan / per-workspace).** Several capabilities gate on plan tier or workspace settings — surface a clear message rather than retrying blindly: AI-`agent` steps and a gallery template's `required_features: ["agent"]` need the AI-agent capability (403 otherwise); native review needs `workflow_approval_native_enabled`; mid-run modifications need `workflow_mid_run_edit`; e-signature needs the org plan's signing capability. `extraction-schema-derive` and `trigger-fire` spend resources (AI credits / a real run).
+
+**Conventions (apply across the tool):**
+
+- **Fire-and-forget writes.** Write/lifecycle actions (`create`/`update`/`instantiate`/`pause`/`resume`/`cancel`/`transfer`/`step-*`/`trigger-fire`/`audit-export-start`/`sign-send`) return ids + state + a `_next` poll hint — they do NOT block to completion. Poll with `action=state` (or `audit-export-poll`), which is a **bounded single-shot** snapshot. Do not busy-loop; re-issue the poll when the `_next` hint indicates.
+- **Confirm-gated destructive actions.** Destructive actions refuse unless re-issued with `confirm='true'`: `delete`, `cancel`, `step-cancel`, `template-deprecate`, `trigger-delete`, `pool-delete`, `grant-revoke`, `agent-template-delete`, `outbound-webhook-delete`, `review-admin-resolve`, `review-link-token-revoke`, `review-link-token-opt-out`, `sign-send`, `sign-void`. `delete` defaults to soft-archive (`hard='true'` for permanent owner-only delete).
+- **Streaming downloads.** Download URLs (`audit-export-download`, the three `sign-document-*` downloads, `sign-audit-download`, `review-preview-read`) are pre-authenticated **streaming pass-throughs** served via the dedicated `GET /workflow-download/...` route (fetch with Authorization or `Mcp-Session-Id`) — not bare shareable links.
+- **Credit side-effects.** `extraction-schema-derive` spends AI credits; `trigger-fire` instantiates a real run; `sign-send` reserves signing credits.
+
+**Action groups (109 actions — call `workflow action=describe` for the full per-action reference, or `action=guide` for the authoring playbook; both are callable without auth):**
+
+- **Orchestration lifecycle:** `create`, `list`, `get`, `update`, `delete`, `transfer`, `instantiate` (optional `pool_key` admits the run against a concurrency pool), `state`, `pause`, `resume`, `cancel`.
+- **Steps:** `step-get`, `step-advance`, `step-cancel`, `step-output`, `step-occurrences`, `step-reassign`, `step-agent-trace`, `step-agent-activity`.
+- **Obligations:** `obligation-{list,get,claim,release,resolve}`, plus inboxes `inbox`, `inbox-workspace`, `inbox-pool`.
+- **Immutable templates:** `template-{create,list,get,publish,withdraw,deprecate}`.
+- **System Template Gallery (built-in catalog):** `template-system-list` (browse), `template-system-get` (read one in full, incl. its `setup` inputs), `template-from-system` (instantiate into a workspace as a new revision — one call does create-revision + publish + bind). `inputs` (not `setup`) fills setup role slots; omitted inputs with `default_to_creator` resolve to the caller (a zero-input call always succeeds). `expected_version` is a compare-and-set vs the catalog version (409 on mismatch); `publish='false'` leaves the revision validated/unbound.
+- **Triggers:** `trigger-{create,list,get,update,delete,fire,dry-run,dry-run-draft,rotate-key}`.
+- **Concurrency pools:** `pool-{create,list,get,delete}`.
+- **Extraction schema:** `extraction-schema-{get,set,derive}`.
+- **Audit:** `audit-events`, `audit-export-{start,jobs,poll,download}`, `audit-redact`, `audit-redaction-get`.
+- **Grants & external subjects:** `grant`, `grant-list`, `grant-revoke`, `external-subject-workflows`.
+- **Agent templates:** `agent-template-{create,list,get,update,delete}`.
+- **Outbound webhooks:** `outbound-webhook-{create,list,get,update,delete,rotate-secret}` — HMAC-signed delivery subscriptions; secret returned one time (on create and rotate).
+- **Inbound key mgmt:** `inbound-key-{get,enable}`, `rotate-inbound-key` — enable/rotate the workspace and per-workflow HMAC signing keys for inbound trigger URLs.
+- **Mid-run modifications:** `modification-{propose,list,get,apply,cancel}` — propose skip/reassign/patch ops against a running workflow (auto-pauses the run); requires `workflow_mid_run_edit` plan capability.
+- **Review (`review-*`, native multi-reviewer approval):** `review-surface-create`, `review-list-active`, `review-surface-get`, `review-asset-get`, `review-decision`, `review-admin-resolve`, `review-reviewer-add-external`, `review-reviewer-remove`, `review-send-for-review`, `review-preview-states`, `review-preview-read`, `review-comment-{add,update,delete}`, `review-link-token-{revoke,opt-out}`. `review-list-active` is the workspace-scoped hydration read — it lists ACTIVE (`arming`/`open`) review surfaces with their asset rows (`assets[].node_id` is the under-review badge join key) so an agent can discover what's under review without already holding a `surface_id`; it always succeeds for a workspace member (a flag-off workspace just returns an empty list). Several review actions accept an external reviewer JWT (`external_jwt`) so an external reviewer can act without an agent session.
+- **E-signature (`sign-*`, envelopes scoped to a workspace):** `sign-{list,create,get,update,send,void}`, plus document downloads `sign-document-source-download`, `sign-document-source-preview`, `sign-document-signed-download`, `sign-audit-download`. (There is no `sign-delete` — void a draft instead.) Every `sign-*` action takes a numeric `workspace_id` (the 19-digit workspace ID — custom workspace names are not accepted by the download stream route, so use the numeric ID for both list/create and downloads); there is no `parent_type`/`parent_id`. Envelopes are workspace-parented only — the former org-parented sign routes are removed (a `404` with code `9992` means an old `/org/{org_id}/sign_envelopes/...` path).
+
+**E-signature access (two gates).** A `sign-*` call clears two independent gates:
+  1. **Workspace membership** on the named `workspace_id` — `sign-list` needs only workspace **view**; `sign-get`, all three `sign-document-*` downloads, and `sign-audit-download` need **member** (envelope visibility = workspace membership); `sign-create`, `sign-update`, and `sign-send` need **member**; **`sign-void` needs admin** (voiding is destructive — denials `125323`/`286811`). There is no separate "edit" tier — create/update/send all gate on workspace membership. (Bearer/OAuth tokens additionally need sign-envelope scope coverage.)
+  2. **Signing capability** of the workspace's **org billing plan** — resolved by the platform from the workspace, so you never pass an org id. Optionally pre-check `org` action `details` → `capabilities.signing` (boolean) to show/hide the signing path, but always handle a denial on the call itself.
+  Both gate failures surface as **HTTP 401** with a sign-surface error code (membership/visibility denials such as `10545` "access not granted to this Workspace" and `115069` "no access to this envelope"; plan/feature-capability denials such as the `177577` "signing not enabled for this organization" family). Note the platform brief calls the plan gate a `403`, but the live API returns it as `401` — the MCP treats these sign-surface denial codes as permission/capability failures (NOT auth-expiry), so it **preserves your session** (no token refresh / re-login) and returns a recovery hint. `404` with code `9992` is the removed-route signal, not a denial.
+  One-liners: `sign-list`'s `total` is now an accurate upstream count (the platform no longer inflates it with ghost rows that never hydrate — so `total` matches the real envelope set on the API side, no client-side reconciliation of the count needed). Note the MCP still applies its own `display_limit` (default 10) to the returned `envelopes` array, so `envelopes.length` may be smaller than `total` by default — raise `display_limit` (max 500) or page via `offset` for more. Poll envelope status with `sign-get` — the platform's realtime/WebSocket envelope channels are for web/SDK clients, not the MCP.
 
 ### Comments & Discussions -- Quick Start
 
-**When to use:** leave feedback on a file, start a container-level discussion, or attach a note to a workflow approval/task.
+**When to use:** leave feedback on a file, start a container-level discussion, or attach a note to a workflow task.
 
 **Comments are JSON** -- always use JSON request bodies (`Content-Type: application/json`). This is the #1 source of 406 errors on the comment API.
 
@@ -969,80 +1012,25 @@ Worklogs are append-only chronological activity logs scoped to tasks, task lists
 **2. Workspace/share-attached (top-level container thread):**
 - Not exposed by `comment` action `add` (which requires `node_id`). For container-level comments, call the underlying endpoint via `execute`: `POST /comments/{entity_type}/{parent_id}/` with JSON body `{body, parent_id?}`. List via `comment` action `list-all`.
 
-**3. Workflow-linked (attach existing comment to an approval or task):**
+**3. Workflow-linked (attach existing comment to a task):**
 - Step A: create a comment via mode 1 or 2.
-- Step B: `comment` action `link` with `comment_id`, `linked_entity_type: "task" | "approval"`, `linked_entity_id`.
+- Step B: `comment` action `link` with `comment_id`, `linked_entity_type: "task"`, `linked_entity_id`.
 - Reverse-lookup with `comment` action `linked`. Detach with `comment` action `unlink`. A comment can have at most one workflow link at a time.
 
 **Valid `entity_type` / `profile_type` values:**
 - Create/list endpoints: `"workspace"` or `"share"` ONLY.
-- Link/unlink/linked endpoints: `"task"` or `"approval"` ONLY (not `worklog_entry`, not `node`, not `share`).
+- Link/unlink/linked endpoints: `"task"` ONLY (not `worklog_entry`, not `node`, not `share`).
 
 **Threading:** single-level only. Set `parent_comment_id` (body field: `parent_id`) to the top-level comment id. Replies to replies auto-flatten as siblings.
 
 **Reactions:** `comment` action `reaction-add` with `comment_id` + `emoji`. One reaction per user per comment -- new ones replace the previous.
 
 **Anti-patterns:**
-- Don't pass `entity_type: "approval"` (or `"task"`) to a create endpoint -- they only accept `"workspace"` or `"share"`. To comment on an approval, create on the parent workspace/share first, then LINK.
-- Don't hand-roll `/approvals/{id}/comments/` or `/tasks/{id}/comments/` -- no such paths exist.
+- Don't pass `entity_type: "task"` to a create endpoint -- they only accept `"workspace"` or `"share"`. To link a comment to a task, create on the parent workspace/share first, then LINK.
+- Don't hand-roll `/tasks/{id}/comments/` -- no such path exists.
 - Don't use form-encoded bodies -- comments are JSON everywhere. In code-mode, that's `fastio.postJson()`, not `fastio.post()`.
 - Don't mix a `node_id` with a `parent_id` from a different workspace/share -- the node must live under the parent you name. 404 usually means wrong parent.
-- Don't try to link to `worklog_entry` -- only `task` and `approval` are link targets.
-
-### Workflow Approvals -- Quick Start
-
-**When to use:** a file, folder, or task needs formal sign-off from one or more reviewers.
-
-**Approvals attach to entities directly** -- not to shares. Common mistake: creating a share to hold approvals. Don't. Shares are for distribution (Send/Receive/Exchange); approvals are review gates that live on the entity itself.
-
-**Step 1 -- Enable workflow on the workspace (one time, per workspace):**
-- `workspace` action `enable-workflow` with `workspace_id`.
-
-**Step 2 -- Create one approval per reviewer on the target node:**
-- `approval` action `create` with:
-  - `profile_type: "workspace"` (or `"share"`), `profile_id: <workspace_id_or_share_id>`
-  - `entity_type: "node"` (for a file or folder)
-  - `entity_id: <node_id>`
-  - `description` (the review request, 1-65535 chars)
-  - `approver_id: <user_id>` -- the reviewer (must be a member of the profile; pending members are fine)
-- For multiple reviewers, repeat this call N times with different `approver_id` values. (A share-scoped `bulk-create` exists for "approve every file in this share" — see the **Approvals** tool reference below. There is no bulk-create for the "one node, many reviewers" pattern.)
-
-**Valid `entity_type` values:** `node` (file/folder), `task`, `worklog_entry`, `share`. Use `node` for file/folder reviews.
-
-**Resolve:** `approval` action `resolve` with `approval_id` and `resolve_action: "approve" | "reject"` (optional `comment`).
-
-**Anti-patterns to avoid:**
-- Don't create a share of the file -- approvals go on the node directly.
-- Don't create a task just to hold an approval on a file -- use `entity_type: "node"`.
-- Don't create todos -- todos are checklists, not review gates.
-- `approver_id` is a single user, not a group. For 3 reviewers, make 3 calls.
-
-#### Approvals
-
-Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. Use when a decision requires explicit sign-off.
-
-- **Create:** `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, `description` (1-65535 chars), and optionally `approver_id` (a single profile ID, must be an entity member — can be a pending member).
-- **Resolve:** `approval` action `resolve` with `profile_type`, `profile_id`, `approval_id`, and `resolve_action: "approve"` or `"reject"` plus an optional comment. Only designated approvers can resolve.
-- **Bulk operations:** `approval` action `bulk-create` creates approval requests for every file and note in a share (max 50 nodes). `approval` action `bulk-approve` resolves all pending approvals in a share (skips stale approvals where version_match=false). `approval` action `bulk-reject` rejects all pending approvals in a share.
-- **Version tracking:** Approvals track `version_id` and `version_match`. If a node is modified after an approval is created, `version_match` becomes false (stale). Bulk operations skip stale approvals to prevent resolving outdated content.
-- **Filtered lists:** `approval` action `filtered-list` returns approvals filtered by category -- "pending", "created", "assigned", or "resolved". Scope to a workspace or share with `profile_type`/`profile_id`, or omit both for a cross-profile user-level view.
-- **Summary:** `approval` action `summary` returns lightweight counts -- created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts.
-- **Update:** `approval` action `update` with `profile_type`, `profile_id`, and `approval_id` modifies a pending approval -- change description, approver, deadline, node reference, or metadata. Only pending approvals can be updated.
-- **Delete:** `approval` action `delete` with `profile_type`, `profile_id`, and `approval_id` permanently removes an approval (any status). `approval` action `bulk-delete` permanently removes all approvals in a share (up to 500).
-- **Statuses:** `pending`, `approved`, `rejected`
-- **Markdown output:** Pass `format: "md"` for human-readable output.
-
-#### Todos
-
-Simple flat checklists scoped to workspaces and shares. No nesting -- just a list of items that can be checked off.
-
-- **Create:** `todo` action `create` with a title. Optional `assignee_id` — can be a pending member.
-- **Toggle:** `todo` action `toggle` flips the done state of a single todo. `todo` action `bulk-toggle` sets done state on up to 100 todos at once.
-- **Update/Delete:** `todo` action `update` changes title or assignee. `todo` action `delete` soft-deletes a todo.
-- **Creator tracking:** Todos include a `created_by` field (profile ID of the creator).
-- **Filtered lists:** `todo` action `filtered-list` returns todos filtered by category -- "assigned" (assigned to me), "created" (created by me), "done" (completed), or "pending" (incomplete).
-- **Summary:** `todo` action `summary` returns lightweight counts -- total, done, pending, assigned-to-me, and created-by-me.
-- **Markdown output:** Pass `format: "md"` for human-readable output.
+- Don't try to link to `worklog_entry` -- only `task` is a link target.
 
 #### Notes as Agent Knowledge Layer
 
@@ -1050,10 +1038,9 @@ Notes (`type: "note"`) are markdown files stored in workspace storage (see **Not
 
 - **Automatic AI indexing:** When workspace intelligence is enabled, notes are ingested and indexed for RAG just like uploaded files.
 - **Link tasks to notes:** Tasks can reference storage nodes, including notes. Create context notes for project background, requirements, or reference material, then create tasks that link to those notes for full context.
-- **Worklogs for reasoning:** Use worklog entries to record decisions, progress, and reasoning over time. The chronological log builds a narrative that complements the structured task list.
-- **AI can search all context:** With intelligence enabled, AI chat can search across notes, worklogs, task descriptions, and uploaded files -- giving comprehensive answers grounded in the project's full history.
+- **AI can search all context:** With intelligence enabled, AI chat can search across notes, task descriptions, and uploaded files -- giving comprehensive answers grounded in the project's full history.
 
-**Recommended pattern:** Create notes for project context and requirements. Create task lists for work phases. Link tasks to relevant notes. Log progress with worklogs. Request approvals for decisions. The AI can then answer questions like "Why did we choose this approach?" by searching across all of these artifacts.
+**Recommended pattern:** Create notes for project context and requirements. Create task lists for work phases. Link tasks to relevant notes. The AI can then answer questions like "Why did we choose this approach?" by searching across all of these artifacts.
 
 ### Permission Parameter Values
 
@@ -1128,27 +1115,15 @@ All profile fields are validated server-side. Requests that violate these constr
 
 ---
 
-## 4. Agent Plan -- Free Tier
+## 4. Plans & Billing -- Paid-Plan Model
 
-The agent plan is a free tier designed for AI agents. No credit card, no trial period, no expiration. Enough resources to build and demonstrate value, with room to grow when the org transfers to a human on a paid plan.
+New organizations require a **paid plan**. Free and agent plans are legacy and closed to new subscriptions (existing orgs on them are unaffected). After `org` action `create`, the org is in an upgrade-only state and **cannot consume resources** until a plan is selected via `org` action `billing-create`. Call `org` action `billing-plans` for the currently-offered plan IDs (e.g. `solo_monthly`, `business_v2_monthly`, `growth_monthly`, plus annual variants) and their storage / credit / workspace / share limits. Each plan provides a monthly credit budget covering storage, bandwidth, AI tokens, and document ingestion; the plan determines all limits.
 
-### Resource Limits
-
-| Resource | Included |
-|----------|----------|
-| **Price** | $0 -- no credit card, no trial period, no expiration |
-| **Storage** | 50 GB |
-| **Max file size** | 1 GB |
-| **Monthly credits** | 5,000 (resets every 30 days) |
-| **Workspaces** | 5 |
-| **Shares** | 50 |
-| **Members per workspace** | 5 |
-| **Share invitations** | 10 per share |
-| **Account auto-deletion** | Never |
+Manage the subscription with `org` action `billing-details` / `billing-invoices` (cursor-paginated, surfaces hosted invoice URLs). `billing-cancel` schedules cancellation at period end; `billing-reactivate` reverses it before `cancel_at`. (The earlier `billing-activate` / `billing-reset` actions were removed.)
 
 ### Credit Costs
 
-All platform activity consumes credits from the monthly 5,000 allowance:
+All platform activity consumes credits from the org's monthly plan allowance:
 
 | Resource | Cost |
 |----------|------|
@@ -1161,32 +1136,24 @@ All platform activity consumes credits from the monthly 5,000 allowance:
 | Images ingested | 5 credits/image |
 | File conversions | 25 credits/conversion |
 
-When credits run out, the org enters a reduced-capability state and API calls return 402 Payment Required. The org is never deleted. Use `org` action `limits` to check current credit usage and remaining balance.
+When the plan's monthly credit budget is exhausted, the org enters a reduced-capability state and API calls return 402 Payment Required. The org is never deleted. Use `org` action `limits` to check current credit usage and remaining balance, and `org` action `billing-meters` for per-meter consumption.
 
 **When you hit 402 or run low on credits:**
 
-- **Agent account (created via `auth` action `signup`):** Transfer the org to the human. Call `org` action `transfer-token-create` to generate a transfer token, then send the human the claim URL: `https://go.fast.io/claim?token=<token>`. Once they claim the org they can upgrade to a paid plan with unlimited credits. You retain admin access and can resume work immediately after the upgrade. This is the expected workflow -- agents build on the free plan, then hand off to humans who pay when they are ready.
-- **Human account (signed in via `auth` action `signin`):** You cannot use the transfer/claim API. Tell the user they need to upgrade the org's billing plan directly. They can do this from the Fast.io dashboard or by calling `org` action `billing-create` to update their subscription to a paid plan.
+- **Agent account (created via `auth` action `signup`):** Transfer the org to the human. Call `org` action `transfer-token-create` to generate a transfer token, then send the human the claim URL: `https://go.fast.io/claim?token=<token>`. The human takes over billing and can adjust the plan; you retain admin access and can resume work immediately. This is the expected workflow -- agents build the org out, then hand off billing to the human.
+- **Human account (signed in via `auth` action `signin`):** You cannot use the transfer/claim API. Tell the user they need to manage the org's billing plan directly. They can do this from the Fast.io dashboard or by calling `org` action `billing-create` / `billing-details` to select or review a plan.
 
-### After Transfer -- Human Plan Options
+### Plan Limits
 
-Once an agent transfers an org to a human, the human gets a free plan (credit-based, no trial period) and can upgrade:
+Each plan sets its own storage / max-file-size / monthly-credit / workspace / share / member limits. Call `org` action `billing-plans` for the currently-offered plan IDs and their limits, and `org` action `limits` for the org's effective caps and current usage. (Legacy free and agent plans remain in force for orgs already on them but are closed to new subscriptions.)
 
-| Feature | Agent (Free) | Free (Human) | Pro | Business |
-|---------|-------------|--------------|-----|----------|
-| Monthly credits | 5,000 | 5,000 | Unlimited | Unlimited |
-| Storage | 50 GB | 50 GB | 1 TB | 5 TB |
-| Max file size | 1 GB | 1 GB | 25 GB | 50 GB |
-| Workspaces | 5 | 5 | 10 | 1,000 |
-| Shares | 50 | 50 | 1,000 | 50,000 |
-
-The transfer flow is the primary way agents deliver value: set everything up on the free agent plan, then hand it off. The human upgrades when they are ready, and the agent retains admin access to keep managing things.
+Ownership transfer is the primary way agents deliver value: set everything up, then hand off billing to a human. The human manages the subscription when they are ready, and the agent retains admin access to keep managing things.
 
 ---
 
 ## 5. Tool Categories
 
-The 19 tools use action-based routing. Each tool covers a specific area of the Fast.io platform and exposes multiple actions.
+Named mode exposes 19 core domain tools (below). They use action-based routing — each tool covers a specific area of the Fast.io platform and exposes multiple actions.
 
 ### auth
 
@@ -1208,7 +1175,9 @@ Retrieve and update the current user profile, search your contacts, manage invit
 
 Organization CRUD, member management, billing and subscription operations, workspace creation, invitation workflows, asset management (upload, delete), organization discovery, ownership transfer, custom domain management, and AI instructions (org-wide and per-user slots).
 
-**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-details, billing-activate, billing-reset, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete, custom-domain-validate, instructions-get, instructions-set, instructions-clear
+**Actions:** list, details, create, update, close, public-details, limits, list-workspaces, list-shares, create-workspace, billing-plans, billing-create, billing-cancel, billing-reactivate, billing-details, billing-invoices, billing-members, billing-meters, members, invite-member, remove-member, update-member-role, member-details, leave, transfer-ownership, join, invitations-list, invitation-update, invitation-delete, transfer-token-create, transfer-token-list, transfer-token-delete, transfer-claim, discover-all, discover-available, discover-check-domain, discover-external, asset-upload, asset-delete, asset-types, asset-list, custom-domain-get, custom-domain-create, custom-domain-delete, custom-domain-validate, instructions-get, instructions-set, instructions-clear
+
+> **Paid-plan model:** new orgs require a paid plan — after `create`, select one via `billing-create` before the org can consume resources (`billing-plans` lists the offered plan IDs). `billing-cancel` schedules cancellation at period end; `billing-reactivate` reverses it. `billing-invoices` is cursor-paginated and surfaces hosted invoice URLs. (`billing-activate` / `billing-reset` were removed.) See Section 4.
 
 > **Per-entity verbosity:** `list`, `discover-all`, `discover-available`, `discover-external`, `members`, `list-workspaces` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `domain`, `name`, `logo`). `details` defaults to `full` (drill-down adds `subscriber_trial_credits`, `billing_email`, social URLs, `encryption_key`, `perm_*` blocks, `dmca`, `owner_defined`, `platform`, `storage` on top of the standard surface — `description`, `plan`, `user_permission`, `user_status`, `member`, `closed`/`locked`/`suspended`, `created`/`updated`, `parent`, `capabilities`, `custom_domain`, `accent_color`, background and homepage, subscriber/billing flags). Pass an explicit `detail` to override. Per the API spec, the orgs spec enumerates `output=` for org-object endpoints — `details`, `list` (`/orgs/list/`), `discover-all`, `discover-available`, `discover-external` all fall under that scope. `list-workspaces` returns workspace objects so it falls under the workspaces spec (also enumerated). `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end. `discover-check-domain` is a boolean availability check and does not accept `detail`.
 
@@ -1216,9 +1185,9 @@ Organization CRUD, member management, billing and subscription operations, works
 
 ### workspace
 
-Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, metadata operations (template CRUD, assignment, file metadata get/set/delete, AI extraction), workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and AI instructions (workspace-wide and per-user slots).
+Workspace-level settings, lifecycle operations (update, delete, archive, unarchive), listing and importing shares, managing workspace assets, workspace discovery, notes (create, read, update), quickshare management, async-job status (`jobs-status`), the task-tracking toggle (`enable-workflow`/`disable-workflow` — tasks), and AI instructions (workspace-wide and per-user slots). **Metadata MOVED (v2026.06.13):** templates + AI extraction are now on the `metadata` tool; node-level metadata (get/set/delete/extract) is on the `storage` tool. The `metadata-*` actions listed below remain only as **one-release execute-and-warn deprecation shims** (they execute and return a `_warnings` redirect; removed next release).
 
-**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-view-export, metadata-search, metadata-get, metadata-set, metadata-delete, metadata-extract, jobs-status, metadata-list-files, metadata-list-templates-in-use, metadata-versions, enable-workflow, disable-workflow, enable-import, disable-import, instructions-get, instructions-set, instructions-clear
+**Actions:** list, details, update, delete, archive, unarchive, members, list-shares, import-share, available, check-name, create-note, read-note, update-note, quickshare-get, quickshare-delete, quickshares-list, jobs-status, enable-workflow, disable-workflow, enable-import, disable-import, instructions-get, instructions-set, instructions-clear, *(deprecated shims → `metadata`/`storage`)* metadata-template-create, metadata-template-delete, metadata-template-list, metadata-template-details, metadata-template-update, metadata-template-clone, metadata-template-preview-match, metadata-template-suggest-fields, metadata-template-assign, metadata-template-unassign, metadata-template-resolve, metadata-template-assignments, metadata-view-get, metadata-view-save, metadata-view-delete, metadata-views-list, metadata-view-export, metadata-search, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-list-files, metadata-list-templates-in-use, metadata-versions
 
 > **Per-entity verbosity:** `list`, `available`, `members`, `list-shares` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `name`, `folder_name`, `org_domain`, `user_status`). `details` defaults to `full` (drill-down adds `cloud_import`, `comments`, `chat`, `search`, `assets`, `workflow_permissions`, remaining branding, `perm_*` blocks, `platform`, `suspended`, `owner_defined`, `parents` on top of the standard surface — `description`, `workspace_level`, `closed`/`archived`/`locked`, `storage`, `created`/`updated`, `logo`, `accent_color`, `org_custom_hostname`, `intelligence`, `workflow`, `capabilities`). Pass an explicit `detail` to override. Per the API spec, the workspaces spec enumerates `output=` for workspace-object endpoints — `list`, `available`, `details`. `list-shares` returns share objects so it falls under the shares spec (also enumerated). `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end. Metadata sub-actions and other workspace operations do not currently accept `detail`.
 
@@ -1226,17 +1195,37 @@ Workspace-level settings, lifecycle operations (update, delete, archive, unarchi
 
 ### share
 
-Share CRUD, public details, archiving, password authentication, asset management, share name availability checks, workflow toggle (enable/disable tasks, worklogs, approvals, and todos), and AI instructions (share-wide and per-user slots).
+Share CRUD, public details, archiving, password authentication, asset management, share name availability checks, AI-generated title/description (`autotitle` — moved here from the `ai` tool in v2026.06.13; consumes credits and mutates share metadata), the task-tracking toggle (`enable-workflow`/`disable-workflow` — tasks), and AI instructions (share-wide and per-user slots).
 
-**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, enable-workflow, disable-workflow, instructions-get, instructions-set, instructions-clear
+**Actions:** list, details, create, update, delete, public-details, archive, unarchive, password-auth, members, available, check-name, quickshare-create, autotitle, enable-workflow, disable-workflow, instructions-get, instructions-set, instructions-clear
 
 > **Per-entity verbosity:** `list`, `available`, `members` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (terse fields per the API spec: `id`, `title`, `share_type`, `share_level`, `share_root_id` (members-only), `creator` scalar user id). `public-details` defaults to `standard` (adds `share_category`, `storage_mode`, `folder_node_id`, `share_link` object, parent linkage, lifecycle flags incl. `locked`, `custom_name`, `custom_url`, `description`, `download_security`, `expires`, `created`/`updated`, `guest_chat_enabled`/`anonymous_uploads_enabled`, `user_status`, `intelligence`, `workflow` — no member roster, no owner-defined data). `details` defaults to `full` (member-facing surface: `capabilities`, `perm_*` blocks, activity tracking, `comments`, `event_flow`, `filesystem`, `invite`, `member_visibility`, `multiplayer`, `chat`, `search`, `assets`, `workflow_permissions`, `access_options`, `display_type`, full branding (accent color, logo, background), `password`, `platform`, `notify`, custom links, `owner_defined`, `deleted`, `storage`, `suspended`, `parents`). Pass an explicit `detail` to override. Per the API spec, the shares spec enumerates `output=` for share-object endpoints — `details`, `public-details`, `list` (`/shares/all/`), `available`. `members` returns member rows and is NOT enumerated for `output=` in any per-category spec, so passing `detail` there may be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
 
 > AI instructions: `instructions-get`/`instructions-set`/`instructions-clear` accept an optional `scope` param: `profile` (default, share-wide slot — owner/admin only, 403 code 166463 for non-admins) or `me` (per-user slot — registered members only, 403 code 185733 for anonymous/link guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view. content max 65536 bytes UTF-8, full replace on set, soft-clear preserves the audit row.
 
+### fileshare
+
+**File Shares** — durable, single-file share links and the replacement for the deprecated QuickShare (see the QuickShares note in Section 3). A File Share binds to **exactly one** workspace file (the binding is immutable; share a different file by creating a new share). Deleting a File Share never touches the bound file. Supports access tiers, optional password, optional expiry, per-user capability grants (including grant-by-email with pending invitations), version history, and external-editor content write-back. Management actions require workspace membership; consumption actions are gated by the access tier + optional password + any grant. Requires `workspace_id` for `create`/`list` and `fileshare_id` for every other action.
+
+> **Access tiers (`access_option`) — who can reach the link:** `anyone_with_link` (anyone, including anonymous), `any_registered` (any authenticated Fast.io user), `named_people` (only users holding an explicit grant). **Capabilities (per-user grants, ordered):** `view` < `download` < `edit`. Content write-back requires an `edit` grant. The tier gates reachability; grants set the per-user capability on top.
+
+> **Password (`x-ve-password`).** A share may be password-protected. On consumer actions (`details`, `download-url`, `preview-url`, `versions-list`, `version-download-url`) pass the optional `password` parameter — it is forwarded ONLY as the `x-ve-password` request header, **never** in the URL, logs, output, or error messages. On `create`/`update` the password is a body field. A wrong/missing password yields a 401 that is mapped to a password-required hint and does **not** clear your session. `download-url`/`preview-url`/`version-download-url` return a **direct API URL** (not a `/requestread/` signed URL) — for a gated share, attach the `Authorization` and/or `x-ve-password` **HEADERS** on the GET (the URL itself never carries the password). For password-protected content the inline `download://fileshare/{id}` resource is intentionally unavailable (resources have no header channel) — use the `download-url` action (or the `/file/fileshare/{id}` worker route) with the `x-ve-password` header instead.
+
+> **Expiry.** `expires` (relative seconds, range `1`..`3155760000`) **XOR** `expires_at` (datetime) — supply at most one; passing both is rejected client-side with a clear error. To CLEAR a nullable field on `update` (expiry, password, title), send an **empty string** (`''`) — the API drops `null`/undefined form values, so the empty string is the clear signal. An expired share can be rescued (extend or clear the expiry) until the hourly cleanup job reaps it (which fires a `file_share_deleted` event); the bound file is never affected.
+
+> **Grants — by user or by email, with pending invites.** `grant-add` takes **exactly one** of `user` (numeric id) or `email`, plus `capability`. A registered email is granted directly (active); an unregistered email creates a **pending** grant row and sends an invitation — it auto-activates at the same capability when the invitee signs up (the pending grant is capped to the share's expiry). `grant-list` returns the resolved people list (each row: user/name/email/capability/`state` = `active`|`pending`/created/expires; no pagination, first 1000). `grant-revoke` selects by `user` **or** `email` via **query parameter** (DELETE bodies are not parsed); revoking a non-existent grant succeeds quietly. There is no invite-message/note parameter today.
+
+> **Content write-back (external editor).** A holder of an `edit` grant can replace the bound file's content through the `upload` tool: `create-session` with `profile_type=fileshare`, `profile_id={fileshare_id}`, `target_node_id={bound file node id}` (write-back is **update-only** against the bound node — create-style `parent_node_id`/`filename` inputs are rejected), forwarding `x-ve-password` if the share has one. Pass `if_version_id` (from `details` or `versions-list`) for a compare-and-swap guard — a stale id surfaces `CONFLICT_VERSION_MISMATCH:<current_version_id>` with a rebase hint (re-fetch `details` → re-apply → retry with the embedded id). A new version is recorded and a `file_share_content_updated` event fires.
+
+> **Activity & events.** Six event types: `file_share_created`, `file_share_updated` (settings change; no-op updates emit nothing), `file_share_access_granted`, `file_share_access_revoked`, `file_share_content_updated` (write-back landed; failed/conflicted writes emit nothing), `file_share_deleted` (manual, cascade, or expiry cleanup). Workspace members can watch a share via `event` action `activity-poll` (`entity_id={fileshare_id}`) or `activity-list` (`profile_type=fileshare`, `profile_id={fileshare_id}`); recipients get no feed.
+
+> **Uniform 404.** A recipient-facing not-found / revoked / expired share is reported identically by design — do not speculate which; treat any of them as "no longer available."
+
+**Actions:** create, list, details, update, delete, grant-list, grant-add, grant-revoke, download-url, preview-url, versions-list, version-download-url
+
 ### storage
 
-File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search (keyword or semantic when intelligence is enabled), add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, and preview/transform URL generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
+File and folder operations within workspaces and shares. List, list recently modified files across all folders, create folders, move, copy, delete, rename, purge, restore, search (keyword or semantic when intelligence is enabled), add files from uploads, add share links, transfer nodes, manage trash, version operations, file locking, preview/transform URL generation, and **node-level metadata** (`metadata-{get,set,delete,extract,versions,list-files,list-templates-in-use}` — moved here from `workspace` in v2026.06.13; template + AI-extraction management lives on the `metadata` tool). Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
 > **Per-node verbosity:** `list`, `recent`, `search`, `trash-list`, and `details` accept a `detail` parameter (`terse` | `standard` | `full`). Defaults: `list`/`recent`/`search`/`trash-list` → `terse` (compact rows: id, type, name, parent, mimetype, size, modified). `details` → `full` (drill-down — keeps ai.attach, virus, hashes, file_attributes, lock_info, long-form summaries available without an extra round-trip). Search bumps default to `full` automatically when the legacy `details: "true"` flag is also set, honoring the explicit hydration intent. **Search-specific:** semantic-search hits include `content_snippet` (the matching text chunk). The platform caps the snippet per detail level — `terse` → ~200 bytes, `standard` → ~600 bytes, `full` → untruncated. UTF-8 safe (won't split multi-byte sequences); a trailing `…` indicates truncation, so a hit with `snippet.endsWith('…')` has more content available — bump `detail` to retrieve more. Pass an explicit `detail` to override any default. Not to be confused with `details` (search-only `"true"|"false"` flag).
 
@@ -1244,7 +1233,19 @@ File and folder operations within workspaces and shares. List, list recently mod
 
 > **Search at terse cannot distinguish trashed nodes from live ones.** Keyword search may return trashed nodes; the terse projection from the API does not include `deleted`/`parent: trash` fields. Bump `detail` to `standard` or higher to see trash status, or check the runtime `_next` hint in the search response.
 
-**Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform
+**Actions:** list, recent, details, search, trash-list, create-folder, copy, move, delete, rename, purge, restore, add-file, add-link, transfer, version-list, version-restore, lock-acquire, lock-status, lock-release, preview-url, preview-transform, read-content, metadata-get, metadata-set, metadata-delete, metadata-extract, metadata-versions, metadata-list-files, metadata-list-templates-in-use
+
+### metadata
+
+AI metadata **templates** + the unstructured-data **extraction pipeline**, at the workspace level (new in v2026.06.13; previously folded into `workspace`). Template CRUD/settings/clone, assign/resolve, the AI classification pipeline (`eligible` → `preview-match` → `suggest-fields` → `nodes-add`/`nodes-list` → `auto-match` → `extract-all`), per-template node mapping, saved views, and lexical `search` across metadata field values. **Node-level** metadata (get/set/delete/extract on a single file) lives on the `storage` tool. `preview-match`/`suggest-fields`/`auto-match`/`extract-all` spend AI credits; `auto-match`/`extract-all` are async (return `job_id` — poll via `workspace action jobs-status`). Destructive: `template-delete`, `view-delete`, `nodes-remove`.
+
+**Actions:** template-create, template-list, template-details, template-update, template-clone, template-settings, template-delete, template-assign, template-unassign, template-resolve, template-assignments, preview-match, suggest-fields, eligible, nodes-add, nodes-remove, nodes-list, auto-match, extract-all, view-get, view-save, view-delete, views-list, view-export, search
+
+### find
+
+**Unified search** across a workspace or share (new in v2026.06.13) — ONE query, results GROUPED BY TYPE into independently-paginated, independently-health-reported buckets: `files`, `metadata` (workspace only), `comments`, `workflows`. Each bucket has its own `*_offset`/`*_limit` pair (default offset 0, limit 25) and reports `status` (`ok`/`degraded`), `total` + `total_relation` (`eq` exact / `gte` lower-bound), and `has_more`. Read-only. This is the grouped SUPERSET; for a single result type prefer the narrower tools: `storage action=search` (files only), `metadata action=search` (lexical metadata fields only). The code-mode `search` tool searches the API endpoint catalog, NOT your content.
+
+**Actions:** search
 
 ### upload
 
@@ -1260,17 +1261,17 @@ Generate download URLs and ZIP archive URLs for workspace files, share files, an
 
 **Actions:** file-url, zip-url, quickshare-details
 
-### ai
+### ai (Ripley)
 
-AI-powered RAG chat, document analysis, and shareable summaries in workspaces and shares. Create chats, send messages, read AI responses (with polling), list and manage chats, publish private chats, generate AI share markdown, track AI token usage, and auto-title generation. Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
+**Ripley** — the MCP **read-only delegation** surface over Fast.io's RAG agent (`/ai/agent/`). Ask a natural-language question about workspace/share content and get a synthesized, **cited** answer — cheaper than issuing many primitive reads. Ripley NEVER does content CRUD; writes stay as primitive MCP tool calls (storage/share/comment/task/…). Use `ask` for a one-shot question (bounded auto-wait on a workspace, returns a `_next` poll hint if not ready; on a share it returns immediately with a poll continuation) or `status` for a whole-workspace summary. For multi-turn control use `chat-create` → `message-read`. `ask`/`status`/`chat-create`/`message-send` consume AI credits — do NOT re-call `ask`/`status` to "retry"; the chat already exists, so poll the existing message via `message-read`. (Note: `autotitle` MOVED to the `share` tool. The `/ai/chat` endpoint was retired in favor of `/ai/agent/`.) Requires `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`).
 
-**Actions:** chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, chat-cancel, message-send, message-list, message-details, message-read, share-generate, transactions, autotitle
+**Actions:** ask, status, chat-create, chat-list, chat-details, chat-update, chat-delete, chat-publish, chat-cancel, message-send, message-list, message-details, message-read, share-generate, transactions
 
 > **Per-entity verbosity:** `chat-list`, `message-list` accept a `detail` parameter (`terse` | `standard` | `full`) and default to `terse` (id, title/excerpt, created, last activity, message count). `chat-details`, `message-details` default to `full` (full chat metadata: participants, attached/scoped files, publish state; message details add full response text, citations, token usage, files_attach payload). Pass an explicit `detail` to override. Mutation actions (chat-create, chat-update, chat-delete, chat-publish, chat-cancel, message-send, share-generate, autotitle), `transactions` (account usage), and the `message-read` polling loop do not accept `detail`. **Verification gap:** the AI API per-category spec only enumerates `output=` on metadata sub-endpoints; chat and message endpoints don't enumerate it, so passing `detail` here may currently be a silent no-op until the platform's compact-response coverage extends. Wiring is preserved end-to-end so callers can opt in once the server respects it.
 
 ### comment
 
-Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection, text selections in markdown/notes), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks or approvals, reverse lookup). Comments use JSON request bodies.
+Comments are scoped to `{entity_type}/{parent_id}/{node_id}` where entity_type is `workspace` or `share`, parent_id is the 19-digit profile ID, and node_id is the storage node opaque ID. List comments on files (per-node and profile-wide with sort/limit/offset/filter params), add comments with optional reference anchoring (image regions, video/audio timestamps, PDF pages with text selection, text selections in markdown/notes), single-level threaded replies, recursive single delete, non-recursive bulk delete, get comment details, emoji reactions (one per user per comment), and workflow linking (link/unlink comments to tasks, reverse lookup). Comments use JSON request bodies.
 
 **Actions:** list, list-all, add, delete, bulk-delete, details, reaction-add, reaction-remove, link, unlink, linked
 
@@ -1294,7 +1295,7 @@ Member management for workspaces and shares. Add, remove, update roles, transfer
 
 ### invitation
 
-Invitation management for workspaces and shares. List invitations, list by state, update, and delete/revoke. Deleting a pending member's invitation also removes them from the member list and unassigns their workflow items (tasks, approvals, todos). Requires `entity_type` parameter (`workspace` or `share`).
+Invitation management for workspaces and shares. List invitations, list by state, update, and delete/revoke. Deleting a pending member's invitation also removes them from the member list and unassigns their workflow items (tasks). Requires `entity_type` parameter (`workspace` or `share`).
 
 **Actions:** list, list-by-state, update, delete
 
@@ -1310,29 +1311,13 @@ Task list and task management for workspaces and shares. Create and manage task 
 
 **Actions:** list-lists, create-list, list-details, update-list, delete-list, list-tasks, create-task, task-details, update-task, delete-task, change-status, assign-task, bulk-status, move-task, reorder-tasks, reorder-lists, filtered-list, summary
 
-### worklog
+> **In-workspace task tracking.** `task` is the lightweight in-workspace tracking primitive, gated by `workspace`/`share` action `enable-workflow`. It is unrelated to the `workflow` orchestration tool below — separate platform domain, no shared endpoints, IDs, or state.
 
-Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. Also create urgent interjections that require acknowledgement. Entries are append-only and permanent. Requires workflow to be enabled on the target entity.
+### workflow
 
-**Actions:** append, list, interject, details, acknowledge, unacknowledged, profile-list, filtered-list, summary
+Durable, multi-step workflow **ORCHESTRATION** runtime scoped to a workspace, plus native content-**review** (`review-*`) and **e-signature** (`sign-*`; envelopes scoped to a workspace). New in v2026.06.13 — **109 actions**. NOT the in-workspace `task` primitive and NOT `workspace action=enable-workflow`; orchestration requires the workspace's workflow feature enabled, and native review is separately gated by `workflow_approval_native_enabled`. **Conventions:** write/lifecycle actions are **fire-and-forget** (return ids + state + a `_next` poll hint — poll with `action=state`, a bounded single-shot snapshot); destructive actions are **confirm-gated** (`confirm='true'`); download URLs are pre-authenticated **streaming pass-throughs** via the dedicated `GET /workflow-download/...` route. Call `workflow action=describe` for the full per-action reference. See the **Workflow Orchestration** concept in Section 3 for the action groups.
 
-### approval
-
-Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. Create approval requests with designated approvers, then resolve them with approve or reject decisions. Requires workflow to be enabled on the target entity.
-
-**Actions:** list, create, details, resolve, bulk-create, bulk-approve, bulk-reject, filtered-list, summary, update, delete, bulk-delete
-
-### todo
-
-Simple flat checklists scoped to workspaces and shares. Create, update, delete, toggle todos individually or in bulk. Todos include `created_by` (creator profile ID). No nesting. Requires workflow to be enabled on the target entity.
-
-**Actions:** list, create, details, update, delete, toggle, bulk-toggle, filtered-list, summary
-
-### apps
-
-Interactive MCP App widget discovery and launching. List available widgets, get details for a specific widget, launch a widget with workspace or share context, and find widgets associated with a specific tool domain.
-
-**Actions:** list, details, launch, get-tool-apps
+**Action groups:** lifecycle (`create`/`list`/`get`/`update`/`delete`/`transfer`/`instantiate`/`state`/`pause`/`resume`/`cancel`), steps (`step-*`), obligations + inboxes (`obligation-*`, `inbox*`), templates (`template-*`), triggers (`trigger-*`), pools (`pool-*`), extraction schema (`extraction-schema-*`), audit (`audit-*`), grants + external subjects (`grant`/`grant-list`/`grant-revoke`/`external-subject-workflows`), agent templates (`agent-template-*`), review (`review-*`, 16 actions, several accept an external reviewer `external_jwt`), and e-signature (`sign-*`, incl. three `sign-document-*` downloads + `sign-audit-download`; no `sign-delete` — void a draft instead).
 
 ---
 
@@ -1414,7 +1399,7 @@ Three options for passing chunk data (provide exactly one):
 
 **Note:** `storage` action `add-file` is only needed if you want to link the upload to a *different* location than the one specified during session creation.
 
-**Same-name uploads (REPLACE in place, versioned):** If a file with the same name already exists in the target folder, the upload **overwrites the existing node in place**. The `node_id` is preserved and the prior content is kept as a version. **This is how you "edit" a file — do not delete and re-upload.** After any same-name overwrite, the previous content is recoverable via `storage` action `version-list` (list versions) and `version-restore` (restore by `version_id`). The `node_id` is stable across versions, so references from comments, tasks, approvals, metadata, etc. keep working. To keep both files instead of overwriting, rename before uploading. See **Overwriting files** in section 4 for the full pattern and a worked example.
+**Same-name uploads (REPLACE in place, versioned):** If a file with the same name already exists in the target folder, the upload **overwrites the existing node in place**. The `node_id` is preserved and the prior content is kept as a version. **This is how you "edit" a file — do not delete and re-upload.** After any same-name overwrite, the previous content is recoverable via `storage` action `version-list` (list versions) and `version-restore` (restore by `version_id`). The `node_id` is stable across versions, so references from comments, tasks, metadata, etc. keep working. To keep both files instead of overwriting, rename before uploading. See **Overwriting files** in section 4 for the full pattern and a worked example.
 
 **Deterministic overwrite by node_id:** If the filename may have drifted, or you want to avoid re-resolving the parent folder, pass `target_node_id` on `create-session` to pin the overwrite to a specific node. When set, `parent_node_id` is ignored and `filename` is optional (omit to keep the existing name, or pass a new one to rename-on-replace). Omitting `filename` triggers one extra `storage` `details` lookup so the tool can forward the existing name to the API (update mode still requires `name`); pass `filename` to skip that round-trip. The server uses `action=update` + `file_id=<target_node_id>` under the hood. `node_id` is preserved; the new version shows up in `storage` action `version-list`. Typical sequence: find the node via `storage` action `list`/`details` → `upload` action `create-session` with `target_node_id` → `POST /blob` → `chunk`/`stream` → `finalize`.
 
@@ -1492,7 +1477,7 @@ The full agent-to-human handoff workflow. This is the primary way agents deliver
 6. `share` action `update` to configure branding, passwords, expiration, and access levels on each share.
 7. `org` action `invite-member` or `member` action `add` with `entity_type: "workspace"` to invite team members.
 8. `org` action `transfer-token-create` with `org_id` -- generates a transfer token valid for 72 hours. Send the claim URL (`https://go.fast.io/claim?token=<token>`) to the human.
-9. Human clicks the link and claims the org. They become owner, agent retains admin access. Human gets a free plan.
+9. Human clicks the link and claims the org. They become owner, agent retains admin access. The human takes over billing (managing the org's paid plan).
 
 ### 10. Manage Organization Billing
 
@@ -1505,7 +1490,7 @@ The full agent-to-human handoff workflow. This is the primary way agents deliver
 
 Track work with structured task lists and tasks.
 
-1. `workspace` action `enable-workflow` with `workspace_id` -- enable workflow features (required before using task, worklog, approval, or todo tools).
+1. `workspace` action `enable-workflow` with `workspace_id` -- enable task tracking (required before using the task tool).
 2. `task` action `create-list` with `profile_type: "workspace"`, `profile_id` (workspace ID), and `name` -- create a task list. Returns `list_id`.
 3. `task` action `create-task` with `list_id`, `title`, and optionally `description`, `priority` (0-4), `assignee_id`, `dependencies`, `node_id`, and `status` -- add tasks to the list.
 4. `task` action `list-tasks` with `list_id` -- view all tasks, optionally filtered by `status` or `assignee`.
@@ -1513,24 +1498,21 @@ Track work with structured task lists and tasks.
 6. `task` action `assign-task` with `list_id`, `task_id`, and `assignee_id` -- assign work to team members.
 7. `task` action `bulk-status` with `list_id`, `task_ids`, and `status` -- batch-update up to 100 tasks at once.
 
-### 12. Full Agent Workflow (Tasks + Worklogs + Approvals)
+### 12. Full Agent Workflow (Tasks)
 
-The complete agentic workflow pattern: plan work, execute with logging, and gate decisions with approvals.
+The complete agentic workflow pattern: plan work with notes and task lists, execute, and track progress with task statuses.
 
-1. `workspace` action `enable-workflow` with `workspace_id` -- enable workflow features on the workspace.
+1. `workspace` action `enable-workflow` with `workspace_id` -- enable task tracking on the workspace.
 2. `workspace` action `create-note` -- create context notes with project background, requirements, and reference material.
 3. `task` action `create-list` -- create task lists for each work phase (e.g., "Research", "Implementation", "Review").
 4. `task` action `create-task` -- add tasks linked to context. Include descriptive titles and reference note node_ids in descriptions.
 5. `task` action `change-status` with `status: "in_progress"` -- mark a task as started.
-6. `worklog` action `append` with `entity_type` ("task", "task_list", or "profile"), `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"), and `content` -- log progress, decisions, and reasoning as you work. Build a chronological narrative.
-7. If a priority correction is needed: `worklog` action `interject` -- creates an urgent entry that requires acknowledgement from other participants.
-8. `worklog` action `unacknowledged` -- check for unacknowledged interjections before proceeding.
-9. `worklog` action `acknowledge` -- mark interjections as seen.
-10. When a decision needs sign-off: `approval` action `create` with `profile_type`, `profile_id`, `entity_type` ("task", "node", or "worklog_entry"), `entity_id`, `description`, and optionally `approver_id` -- request formal approval.
-11. `approval` action `resolve` with `resolve_action: "approve"` or `"reject"` and optional `comment` -- approvers resolve the request.
-12. `task` action `change-status` with `status: "complete"` -- mark completed tasks.
-13. `todo` action `create` -- track simple checklist items alongside the main task flow.
-14. With intelligence enabled, `ai` action `chat-create` -- the AI can search across notes, task descriptions, and worklogs to answer questions about the project.
+6. `task` action `assign-task` -- assign tasks to workspace or share members (including pending members).
+7. `task` action `bulk-status` -- batch-update status across many tasks as a phase completes.
+8. `task` action `change-status` with `status: "complete"` -- mark completed tasks.
+9. With intelligence enabled, `ai` action `chat-create` -- the AI can search across notes and task descriptions to answer questions about the project.
+
+For durable multi-step orchestration, formal multi-reviewer sign-off, or e-signature, use the separate `workflow` tool (see **Workflow Orchestration**, Section 3).
 
 ---
 
@@ -1561,7 +1543,7 @@ The platform may also auto-derive path-segment params from URL templates (e.g. `
 
 Profile IDs (org, workspace, share, user) are 19-digit numeric strings. Most endpoints also accept custom names as identifiers -- workspace folder names, share URL names, org domain names, or user email addresses. Both formats are interchangeable in URL path parameters.
 
-All other IDs (node IDs, upload IDs, chat IDs, comment IDs, invitation IDs, etc.) are 30-character alphanumeric opaque IDs (displayed with hyphens). Do not apply numeric validation to these.
+All other IDs (node IDs, upload IDs, chat IDs, comment IDs, invitation IDs, workflow/approval/review IDs, etc.) are alphanumeric opaque IDs of **29 or 30 characters** (displayed with hyphens). Most IDs are 29 characters; **workflow-family IDs -- workflows, approvals, reviews, and workspace policies -- are 30 characters** (they carry a 2-character type prefix, all under master prefix `w`). Treat the length as variable: do not assume a fixed length, do not reject an ID on length, and do not slice by a fixed offset. Do not apply numeric validation to these.
 
 ### Pagination
 
@@ -1721,7 +1703,8 @@ The `event` tool's `search` and `summarize` actions accept `category`, `subcateg
 | `assets` | Avatar/asset updates |
 | `upload` | Upload session management |
 | `transfer` | Cross-profile file transfers |
-| `quickshare` | Quick share operations |
+| `quickshare` | Quick share operations (drain — creation deprecated) |
+| `fileshare` | File Share operations (create/update/grants/content/delete) |
 | `metadata` | Metadata operations |
 
 #### Common Event Names
@@ -1742,7 +1725,9 @@ The `event` tool's `search` and `summarize` actions accept `category`, `subcateg
 
 **Metadata:** `metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`, `metadata_template_update`, `metadata_template_delete`, `metadata_template_settings_update`, `metadata_view_update`, `metadata_view_delete`, `metadata_template_select`
 
-**Quick shares:** `workspace_quickshare_created`, `workspace_quickshare_updated`, `workspace_quickshare_deleted`, `workspace_quickshare_file_downloaded`, `workspace_quickshare_file_previewed`
+**Quick shares (drain — creation deprecated):** `workspace_quickshare_created`, `workspace_quickshare_updated`, `workspace_quickshare_deleted`, `workspace_quickshare_file_downloaded`, `workspace_quickshare_file_previewed`
+
+**File Shares:** `file_share_created`, `file_share_updated`, `file_share_access_granted`, `file_share_access_revoked`, `file_share_content_updated`, `file_share_deleted`
 
 **Invitations:** `invitation_email_sent`, `invitation_accepted`, `invitation_declined`
 
@@ -1799,7 +1784,7 @@ Storage nodes can be files, folders, notes, or links. The type is indicated in t
 
 ### Text Content and Newlines
 
-All text content (notes, comments, worklogs, file uploads, descriptions) must use Unix-style line feeds (`\n`, U+000A) for newlines. The frontend normalizes all line endings to `\n` before saving -- Windows-style `\r\n` (CRLF) and legacy Mac `\r` (CR) are converted automatically. Agents should use `\n` exclusively to avoid mismatches in content comparison and display.
+All text content (notes, comments, file uploads, descriptions) must use Unix-style line feeds (`\n`, U+000A) for newlines. The frontend normalizes all line endings to `\n` before saving -- Windows-style `\r\n` (CRLF) and legacy Mac `\r` (CR) are converted automatically. Agents should use `\n` exclusively to avoid mismatches in content comparison and display.
 
 **Encoding rules:**
 
@@ -1808,7 +1793,7 @@ All text content (notes, comments, worklogs, file uploads, descriptions) must us
 - **Empty lines in markdown:** Use two consecutive `\n` characters (`\n\n`) for paragraph breaks. Do not use non-breaking spaces (U+00A0) or other whitespace characters as line placeholders.
 - **Trailing newlines:** Content may or may not end with a trailing `\n`. Do not assume either convention -- both are valid.
 
-This applies to: `workspace` actions `create-note` and `update-note`, `upload` action `chunk` (with `content` parameter), `comment` action `add`, `worklog` actions `append` and `interject`, and any other tool that accepts free-text or markdown content.
+This applies to: `workspace` actions `create-note` and `update-note`, `upload` action `chunk` (with `content` parameter), `comment` action `add`, and any other tool that accepts free-text or markdown content.
 
 ### Error Pattern
 
@@ -1826,7 +1811,7 @@ The auth token, user ID, email, token expiry, and refresh token are persisted in
 
 MCP tools manage data via the API, but humans access Fast.io through a web browser. **Always use the `web_url` field from tool responses** -- it is a ready-to-use, clickable URL for the resource. Include it in your responses whenever you create or reference a workspace, share, file, note, or transfer. The human cannot see API responses directly -- the URL you provide is how they get to their content. Fall back to the URL patterns below only when `web_url` is absent (e.g., share-context storage operations):
 
-> **Automatic `web_url` field.** All entity-returning tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **NEVER construct URLs manually — always use the `web_url` field from tool responses.** It appears on: org list/details/create/update/public-details/discover-*, org list-workspaces/list-shares, workspace list/details/update/available/list-shares, share list/details/create/update/public-details/available, storage list/details/search/trash-list/copy/move/rename/restore/add-file/create-folder/version-list/version-restore/preview-url/preview-transform, quickshare create/get/list, upload finalize, download file-url/quickshare-details, AI chat-create/chat-details/chat-list, transfer-token create/list, and notes create/update. Fall back to the URL patterns below only when `web_url` is absent (e.g., share context storage operations).
+> **Automatic `web_url` field.** All entity-returning tool responses include a `web_url` field — a ready-to-use, human-friendly URL for the resource. **NEVER construct URLs manually — always use the `web_url` field from tool responses.** It appears on: org list/details/create/update/public-details/discover-*, org list-workspaces/list-shares, workspace list/details/update/available/list-shares, share list/details/create/update/public-details/available, storage list/details/search/trash-list/copy/move/rename/restore/add-file/create-folder/version-list/version-restore/preview-url/preview-transform, quickshare get/list (drain — creation deprecated, use `fileshare` create), upload finalize, download file-url/quickshare-details, AI chat-create/chat-details/chat-list, transfer-token create/list, notes create/update, and **fileshare create** (the durable replacement for QuickShare). Fall back to the URL patterns below only when `web_url` is absent (e.g., share context storage operations).
 
 Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.io/`. The base domain `go.fast.io` handles public routes that do not require org context.
 
@@ -1868,7 +1853,7 @@ Organization `domain` values become subdomains: `"acme"` → `https://acme.fast.
 | `folder_name` | `org` action `create-workspace` or `workspace` action `details` response |
 | `node_id` | `storage` action `list`, `create-folder`, or `add-file` response |
 | `custom_name` | `share` action `create` or `details` response (the `{title-slug}` is cosmetic -- the share resolves on `custom_name` alone) |
-| `quickshare_id` | `workspace` action `quickshare-create` response |
+| `quickshare_id` | `workspace` action `quickshare-get`/`quickshares-list` response (drain — `quickshare-create` is deprecated; use the `fileshare` tool's `create` action for new links) |
 | `transfer_token` | `org` action `transfer-token-create` response |
 | `chat_id` | `ai` action `chat-create` or `chat-list` response |
 | `note_id` | `workspace` action `create-note` or `storage` action `list` response (node opaque ID) |
@@ -1984,84 +1969,21 @@ What each level returns (cumulative — each adds to the previous):
 
 Tool-specific field contracts are documented inline in each tool's section above (see the "Per-entity verbosity" / "Per-comment verbosity" / "Per-event verbosity" callouts).
 
-For tools without entries above (auth, upload, approval, import, member, invitation, asset, task, worklog, todo, user, download, apps, preview, lock), list-style actions do not currently accept a `detail` param — the underlying API endpoints don't yet expose `?output=` support for those domains. Filter via other action params (`search` query, `status`, `limit`/`offset`).
+For tools without entries above (auth, upload, import, member, invitation, asset, task, user, download, preview, lock), list-style actions do not currently accept a `detail` param — the underlying API endpoints don't yet expose `?output=` support for those domains. Filter via other action params (`search` query, `status`, `limit`/`offset`).
 
-Separate from the generic markdown output, **tasks/todo/approval/worklog** tools still accept `format: 'md'` which triggers a purpose-built domain renderer (checkbox lists, timelines, status tables) — distinct from the envelope-style markdown described here. Both produce markdown; they just have different shapes.
+Separate from the generic markdown output, the **task** tool still accepts `format: 'md'` which triggers a purpose-built domain renderer (checkbox lists, status tables) — distinct from the envelope-style markdown described here. Both produce markdown; they just have different shapes.
 
 ---
 
 ## 8. MCP Apps (Interactive UI Widgets)
 
-Fast.io MCP Server includes interactive HTML5 widgets that render rich UIs directly in agent conversations. Widgets communicate with the MCP server through tool calls and display file browsers, dashboards, workflow managers, and more.
-
-### Available Widgets
-
-| Widget | Resource URI | Description |
-|--------|-------------|-------------|
-| File Picker | `ui://fastio/file-picker` | Browse and pick files to attach to your conversation — navigate folders, search, preview, select files for the agent. Also supports file management (upload, move, copy, delete) in workspace and share contexts |
-| Workspace Picker | `ui://fastio/workspace-picker` | Org/workspace/share selection with search, 4-step workspace creation wizard, 5-step share creation wizard |
-| File Viewer | `ui://fastio/file-viewer` | Unified file preview (image, PDF, video, audio, code, spreadsheet) with info panel (details, versions, AI summary, metadata) |
-| Workflow Manager | `ui://fastio/workflow` | Task board, task detail, approvals panel, todos checklist, worklog viewer |
-| Comments Panel | `ui://fastio/comments` | Threaded comments, reactions, anchored comments (image regions, timestamps) |
-| Uploader | `ui://fastio/uploader` | Upload files to a workspace or share with drag-and-drop, chunked uploads via POST /blob sidecar, and web URL imports with real-time progress tracking |
-
-### Uploader Widget
-
-The Uploader widget provides a 4-step file upload flow:
-
-1. **Choose destination** -- select an organization, then a workspace or share, then optionally navigate to a subfolder
-2. **Select files** -- drag-and-drop files onto the widget or use the file picker button to browse local files
-3. **Upload with progress** -- files upload automatically with real-time progress bars. All files use chunked uploads (create-session, POST /blob, chunk with blob_id, finalize). Web URLs use web-import
-4. **Reference in chat** -- after upload completes, click "Reference in Chat" to attach the uploaded files to the agent conversation for further discussion or AI analysis
-
-The widget uses the `upload` tool (actions: create-session, chunk, finalize, web-import, status, cancel, limits, extensions) and the `storage` tool (action: list) via the MCP bridge.
-
-**Launch via prompt:** Use the `App: Upload Files` prompt in desktop MCP clients.
-
-**Launch via tool:**
-```
-apps action launch app_id uploader profile_type workspace profile_id <workspace_id>
-```
-
-### Using the Apps Tool
-
-The `apps` tool provides widget discovery and launching:
-
-1. **List apps:** `apps` action `list` -- returns all available widgets with metadata
-2. **App details:** `apps` action `details` with `app_id` -- full metadata for a specific widget
-3. **Launch app:** `apps` action `launch` with `app_id`, `profile_type` (or `context_type`), `profile_id` (or `context_id`) -- opens widget with context
-4. **Find apps for a tool:** `apps` action `get-tool-apps` with `tool_name` -- maps tools to their widgets
-
-### Widget Context
-
-All widgets accept workspace or share context:
-- `profile_type: "workspace"` + `profile_id: "<workspace_id>"`
-- `profile_type: "share"` + `profile_id: "<share_id>"`
-
-### Design System
-
-Widgets use a shared design system matching the Fast.io frontend:
-- Light and dark mode support (follows system preference or explicit `data-theme` attribute)
-- Consistent typography, spacing, colors, and icons derived from the frontend theme
-- Responsive layout (desktop, tablet, mobile breakpoints)
-
-### Example: Launch File Picker
-
-```
-apps action launch app_id file-picker profile_type workspace profile_id <workspace_id>
-```
-
-### Example: Find Widgets for Storage Operations
-
-```
-apps action get-tool-apps tool_name storage
-```
+**Disabled as of v2026.06.42.** The interactive MCP App widgets (`apps` discovery tool, the 6 `app-*` widget tools, the `ui://fastio/*` widget HTML resources, and the `App:` launcher prompts) are no longer registered. This section is retained as a placeholder to keep section numbering stable.
 
 ---
 
 ## 9. Complete Tool Reference
 
-All 19 tools with their actions organized by functional area. Each entry shows the action name and its description. Workflow tools (task, worklog, approval, todo) require workflow to be enabled on the target workspace or share.
+All 19 core tools with their actions organized by functional area. Each entry shows the action name and its description. The in-workspace `task` primitive requires `enable-workflow` on the target workspace or share — it is unrelated to the `workflow` orchestration tool. For the high-traffic new/changed tools (`workflow`, `find`, `metadata`, `ai`/Ripley), see also their Section 5 entries and call `<tool> action=describe` for the authoritative per-action reference.
 
 ### auth
 
@@ -2069,7 +1991,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **set-api-key** -- Authenticate using a Fast.io API key. The key is validated against the API and stored in the MCP session -- all subsequent tool calls are authenticated automatically. By default, keys have the same permissions as the account owner. Scoped keys restrict access to specific entities (same scope system as OAuth tokens) -- operations outside the granted scope return 403. When a scoped key is detected, the response includes `scopes_detail` showing which entities are accessible. Unscoped keys do not expire unless revoked; scoped keys may have an optional expiration.
 
-**signup** -- Create a new Fast.io agent account (agent=true), then automatically sign in. Sets account_type to "agent" and assigns the free agent plan. Email verification is required after signup -- call email-verify to send a code, then call it again with the code to verify. Most endpoints require a verified email. No authentication required for signup itself.
+**signup** -- Create a new Fast.io agent account (agent=true), then automatically sign in. Sets account_type to "agent" (an identity tag — it does NOT change the plan or billing requirements). Email verification is required after signup -- call email-verify to send a code, then call it again with the code to verify. Most endpoints require a verified email. No authentication required for signup itself. (A new org still requires a paid plan — see Section 4.)
 
 **check** -- Check whether the current session token is still valid. Returns the user ID associated with the token.
 
@@ -2181,7 +2103,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **list-shares** -- List shares accessible to the current user. Each share includes `web_url`. Returns all shares including parent org and workspace info. Use parent_org in the response to identify shares belonging to a specific organization.
 
-**create** -- Create a new organization on the "agent" billing plan. Requires `domain` (2-63 chars, lowercase alphanumeric + hyphens) and `name` (3-100 chars, no control characters). The authenticated user becomes the owner. A storage instance and agent-plan subscription (free, 50 GB, 5,000 credits/month) are created automatically. Returns the new org and trial status.
+**create** -- Create a new organization. Requires `domain` (2-63 chars, lowercase alphanumeric + hyphens) and `name` (3-100 chars, no control characters). The authenticated user becomes the owner. The org starts in an **upgrade-only state and cannot consume resources until a paid plan is selected** via `billing-create` (free/agent plans are legacy and closed to new subscriptions). Returns the new org. Call `billing-plans` then `billing-create` next.
 
 **update** -- Update organization details. Returns `web_url`. Only provided fields are changed. Supports identity, branding, social links, permissions, and billing email. Requires admin or owner role.
 
@@ -2195,13 +2117,13 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **billing-create** -- Create a new subscription or update an existing one. For new subscriptions, creates a Stripe Setup Intent. For existing subscriptions, updates the plan. Requires admin or owner.
 
-**billing-cancel** -- Cancel the organization's subscription. Requires owner role. Some plans may cause the org to be closed on cancellation.
+**billing-cancel** -- Schedule cancellation of the organization's subscription at period end (sets `cancel_at`). Requires owner role. Reverse with `billing-reactivate` before `cancel_at`.
+
+**billing-reactivate** -- Reverse a scheduled cancellation (clears `cancel_at`) before the period ends, keeping the subscription active. Requires owner role.
 
 **billing-details** -- Get comprehensive billing and subscription details including Stripe customer info, subscription status, setup intents, payment intents, and plan info. Requires admin or owner.
 
-**billing-activate** -- Activate a billing plan (development environment only). Simulates Stripe payment setup and activates the subscription using a test payment method.
-
-**billing-reset** -- Reset billing status (development environment only). Deletes the Stripe customer and removes the subscriber flag.
+**billing-invoices** -- List the organization's invoices (cursor-paginated — pass a prior invoice's `id` to fetch the next page). Surfaces hosted invoice URLs. Requires admin or owner.
 
 **billing-members** -- List billable members with their workspace memberships. Shows who the org is being billed for. Requires admin or owner role.
 
@@ -2213,7 +2135,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **transfer-ownership** -- Transfer organization ownership to another member. The current owner is demoted to admin. Requires owner role.
 
-**transfer-token-create** -- Create a transfer token (valid 72 hours) for an organization. Send the claim URL `https://go.fast.io/claim?token=<token>` to a human. Use when handing off an org or when hitting 402 Payment Required on the agent plan. Requires owner role.
+**transfer-token-create** -- Create a transfer token (valid 72 hours) for an organization. Send the claim URL `https://go.fast.io/claim?token=<token>` to a human. Use when handing off an org or when hitting 402 Payment Required (so the human can take over billing). Requires owner role.
 
 **transfer-token-list** -- List all active transfer tokens for an organization. Each token includes `web_url` (claim URL). Requires owner role.
 
@@ -2273,7 +2195,7 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **unarchive** -- Restore an archived workspace to active status. Requires Admin+.
 
-**members** -- List all members of a workspace with their roles and status. Includes both active and pending members. Pending members have `status: "pending"` and an `invite` object (`{id, created, expires}` — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration); active members have `status: "active"` and `invite: null`. Pending members are invited users who haven't signed up yet — they are valid assignment targets for tasks, approvals, and todos. Use `invite.id` with `invitation` action `delete` to cancel a pending member's invitation.
+**members** -- List all members of a workspace with their roles and status. Includes both active and pending members. Pending members have `status: "pending"` and an `invite` object (`{id, created, expires}` — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration); active members have `status: "active"` and `invite: null`. Pending members are invited users who haven't signed up yet — they are valid assignment targets for tasks. Use `invite.id` with `invitation` action `delete` to cancel a pending member's invitation.
 
 **list-shares** -- List all shares within a workspace, optionally filtered by archive status. Each share includes `web_url`.
 
@@ -2289,11 +2211,13 @@ All 19 tools with their actions organized by functional area. Each entry shows t
 
 **read-note** -- Read a note's markdown content and metadata. Returns the note content and `web_url` (note preview link).
 
-**quickshare-get** -- Get existing quickshare details for a node. Returns `web_url`.
+**quickshare-get** -- Get existing quickshare details for a node. Returns `web_url`. (QuickShare creation is deprecated — use the `fileshare` tool's `create` action for new links; this read path drains existing links.)
 
-**quickshare-delete** -- Revoke and delete a quickshare link for a node.
+**quickshare-delete** -- Revoke and delete a quickshare link for a node. (Drain path — QuickShare creation is deprecated in favor of the `fileshare` tool.)
 
-**quickshares-list** -- List all active quickshares in the workspace. Each quickshare includes `web_url`.
+**quickshares-list** -- List all active quickshares in the workspace. Each quickshare includes `web_url`. (Lists existing links only — QuickShare creation is deprecated in favor of the `fileshare` tool's `create` action.)
+
+> **DEPRECATED metadata shims (removed next release).** All `workspace metadata-*` actions below are **one-release execute-and-warn shims**: they still perform the operation and return a `_warnings` pointing at the replacement. Migrate to the dedicated tools — **templates + AI extraction → the `metadata` tool**; **node-level metadata (get/set/delete/extract/versions/list-files/list-templates-in-use) → the `storage` tool** (pass `profile_type=workspace`, `profile_id=<workspace_id>`). The field-level semantics documented below (categories, field types, `autoextract`, plan node caps, preview-match heuristics, saved-view `config` schema, 409-on-concurrent-suggest-fields) are unchanged and now apply on the `metadata` tool.
 
 **metadata-template-create** -- Create a new metadata template in the workspace. Available on all plans (Agent/Free can create their first template; Pro allows 2 per workspace; Business allows 10). Requires name, description, category (legal, financial, business, medical, technical, engineering, insurance, educational, multimedia, hr), and fields (JSON-encoded array of field definitions). Each field has name, description, type (string, int, float, bool, json, url, datetime), and optional constraints (min, max, default, fixed_list, can_be_null, autoextract). `autoextract` defaults to `true`; set it to `false` on fields that should be managed manually (user-entered notes, reviewer flags, etc.) — those fields are skipped by full-row AI extraction but still accept writes via `metadata-set`. **Every template must have at least one field with `autoextract:true`** or the API returns 1605 (Invalid Input). Per-plan node caps (10 for Agent/Free/Pro, 1,000 for Business) apply to the file mappings, not to the template itself.
 
@@ -2367,9 +2291,9 @@ Example `config`:
 
 **metadata-versions** -- Get metadata version history for a file. Returns snapshots of metadata changes over time. Requires node_id.
 
-**enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a workspace. Must be called before using workflow tools on the workspace.
+**enable-workflow** -- Enable in-workspace task tracking (the `task` tool) on a workspace. Must be called before using the task tool on the workspace. (Does NOT enable or relate to the `workflow` orchestration tool — that is gated by the workspace's separate workflow feature.)
 
-**disable-workflow** -- Disable workflow features on a workspace. All workflow data is preserved but inaccessible until re-enabled.
+**disable-workflow** -- Disable in-workspace task tracking on a workspace. All primitive data is preserved but inaccessible until re-enabled.
 
 **enable-import** -- Enable cloud import features (external storage providers) on a workspace. Must be called before provisioning import identities.
 
@@ -2407,17 +2331,47 @@ Example `config`:
 
 **check-name** -- Check if a share custom name (URL name) is available.
 
-**quickshare-create** -- Create a temporary QuickShare link for a file in a workspace. Optional `expires` (seconds, default 10,800, max 604,800 = 7 days) or `expires_at` (ISO 8601 datetime).
+**quickshare-create** -- **DEPRECATED — use the `fileshare` tool's `create` action.** QuickShare creation is closed server-side (returns `403` / error `10756`); this action now throws and returns the migration hint rather than a link. File Shares replace QuickShare with access tiers, optional passwords, named-people grants (incl. by-email invites), version history, and content write-back; map forced expiry → optional `expires`, anonymous link → `access_option=anyone_with_link`. (Legacy params, no longer effective: optional `expires` (seconds, default 10,800, max 604,800 = 7 days) or `expires_at` (ISO 8601 datetime).)
 
-**enable-workflow** -- Enable workflow features (tasks, worklogs, approvals, todos) on a share. Must be called before using workflow tools on the share.
+**autotitle** -- AI-generate and apply a title and description for the share based on its contents (POST `/share/{id}/ai/autotitle/`). Moved here from the `ai` tool in v2026.06.13. Optional context to guide the generated title/description. Consumes credits and mutates share metadata.
 
-**disable-workflow** -- Disable workflow features on a share. All workflow data is preserved but inaccessible until re-enabled.
+**enable-workflow** -- Enable in-workspace task tracking (the `task` tool) on a share. Must be called before using the task tool on the share. (Does NOT enable or relate to the `workflow` orchestration tool.)
+
+**disable-workflow** -- Disable in-workspace task tracking on a share. All primitive data is preserved but inaccessible until re-enabled.
 
 **instructions-get** -- Read AI instructions for a share. `scope: "profile"` (default) reads the share-wide slot at `/share/{share_id}/instructions/`. `scope: "me"` reads the per-user slot at `/share/{share_id}/instructions/me/`. First read of an unwritten slot returns `content: ""` with null timestamps (not a 404).
 
 **instructions-set** -- Replace AI instructions for a share (full replace, max 65536 bytes UTF-8). `scope: "profile"` (default) requires owner/admin (403 code 166463 for non-admins). `scope: "me"` writes the per-user slot — registered members only (403 code 185733 for anonymous/link guests). The two scopes are independent and do NOT merge server-side; concat client-side if you want a combined view.
 
 **instructions-clear** -- Soft-clear AI instructions for a share (audit row preserved). `scope: "profile"` (default) requires owner/admin; `scope: "me"` clears the per-user slot (registered members only, no anonymous guests). Idempotent.
+
+### fileshare
+
+**create** -- Create a File Share bound to one workspace file. Requires `workspace_id` and `node` (the FILE node opaque ID to bind — immutable). Optional `title`, `access_option` (`anyone_with_link` | `any_registered` | `named_people`), `password`, and `expires` (relative seconds, 1..3155760000) XOR `expires_at` (datetime). Returns the share object with `web_url`.
+
+**list** -- List File Shares in a workspace. Requires `workspace_id`. Offset/limit pagination.
+
+**details** -- Get a File Share's settings and bound-file metadata. Requires `fileshare_id`. Optional `password` (sent as the `x-ve-password` header). Surfaces the current version id (use it as `if_version_id` on write-back) and, when present, `effective_capability` (absent = unknown → attempt the action).
+
+**update** -- Update a File Share's settings (any subset of `title`, `access_option`, `password`, expiry). Requires `fileshare_id`. To CLEAR a nullable field send an empty string (`''`). `expires` XOR `expires_at`. The bound file is never touched.
+
+**delete** -- Delete a File Share. Requires `fileshare_id`. The bound file is never touched; recipient-facing 404 becomes uniform.
+
+**grant-list** -- List the named-people access list (each row: user/name/email/capability/`state` = `active`|`pending`/created/expires). Requires `fileshare_id`. No pagination (first 1000).
+
+**grant-add** -- Grant or raise a user's capability. Requires `fileshare_id`, `capability` (`view` | `download` | `edit`), and EXACTLY ONE of `user` (numeric id) or `email`. A registered email grants directly; an unregistered email creates a pending grant + invite that auto-activates on signup. No invite-note parameter.
+
+**grant-revoke** -- Revoke a user's grant. Requires `fileshare_id` and EXACTLY ONE of `user` or `email` (sent as a query parameter — DELETE bodies are not parsed). Revoking a non-existent grant succeeds quietly.
+
+**download-url** -- Get a DIRECT download URL for the bound file. Requires `fileshare_id`. Optional `password` (sent as the `x-ve-password` header). The returned URL is a direct API URL (not a `/requestread/` signed URL) — for a gated share attach the `Authorization` and/or `x-ve-password` HEADERS on the GET; the password is never embedded in the URL.
+
+**preview-url** -- Get a preview URL for the bound file. Requires `fileshare_id` and `preview_type`. Optional `password` (`x-ve-password` header). Note the 307 redirect + embedded download_token for multi-file previews.
+
+**versions-list** -- List the bound file's version history. Requires `fileshare_id`. Optional `password` (`x-ve-password` header).
+
+**version-download-url** -- Get a direct download URL for a specific version. Requires `fileshare_id` and `version_id`. Optional `password` (`x-ve-password` header). Same direct-URL + header semantics as `download-url`.
+
+> **Content write-back** (replacing the bound file's content) is done through the `upload` tool, not this tool — see the `fileshare` tool in Section 5 and the `upload` tool. Use `profile_type=fileshare`, `profile_id={fileshare_id}`, `target_node_id={bound file node id}`, optional `if_version_id` (CAS), and forward `x-ve-password` if the share has one. Requires an `edit` grant.
 
 ### storage
 
@@ -2467,6 +2421,36 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **preview-transform** -- Request a file transformation (image resize, crop, format conversion) and get a download URL for the result. Requires `transform_name` parameter. Returns `transform_url` (ready-to-use URL) and `web_url` (human-friendly link to the file in the web UI, workspace only).
 
+**read-content** -- Read a file's text/markdown content inline (for small text/markdown nodes). Requires `node_id`.
+
+> **Node-level metadata** (moved here from `workspace` in v2026.06.13). Each requires `node_id` (and `metadata-get` accepts `node_id` OR `node_ids`). For workspace nodes pass `profile_type=workspace`, `profile_id=<workspace_id>`. Template + AI-extraction *management* is on the `metadata` tool.
+
+**metadata-get** -- Read a node's metadata (key/values + which template applies). Accepts `node_id` OR `node_ids` (bulk).
+
+**metadata-set** -- Set a node's metadata key/values against an assigned template. Requires `node_id`, `template_id`, `key_values`.
+
+**metadata-delete** -- Delete metadata keys on a node (or clear all if no keys supplied). Requires `node_id`.
+
+**metadata-extract** -- Run AI extraction to populate a single node's metadata fields (consumes credits; extracted values flagged `is_auto: true`). Requires `node_id`.
+
+**metadata-versions** -- Get metadata version history (snapshots) for a node. Requires `node_id`.
+
+**metadata-list-files** -- List files carrying metadata for a template within a folder. Requires `node_id`, `template_id`.
+
+**metadata-list-templates-in-use** -- List which templates are in use within a folder, with per-template usage counts. Requires `node_id`.
+
+### metadata
+
+AI metadata templates + the unstructured-data extraction pipeline, scoped to a workspace (most actions require `workspace_id`). See the Section 5 `metadata` entry for the full action list; call `metadata action=describe` for the authoritative per-action parameters. The field-level semantics (categories, field types, `autoextract`, plan node caps, preview-match heuristics, saved-view `config` schema, 409-on-concurrent-`suggest-fields`) are identical to those previously documented under `workspace metadata-*` (above) and now live here. **AI/credit actions:** `preview-match`, `suggest-fields`, `auto-match`, `extract-all` (the last two are async — return a `job_id`; poll `workspace action jobs-status`). **Destructive:** `template-delete`, `view-delete`, `nodes-remove`.
+
+### find
+
+**search** -- Unified search across a workspace or share. Requires `profile_type` (`workspace`|`share`, alias `context_type`), `profile_id` (alias `workspace_id`/`share_id`/`context_id`), and `search` (1-1024 chars; empty/blank rejected → 1605). Returns results grouped into buckets — `files`, `metadata` (workspace only), `comments`, `workflows` — each with its own `*_offset`/`*_limit` pagination (default offset 0, limit 25) and its own health header (`status` `ok`/`degraded`, `total` + `total_relation` `eq`/`gte`, `has_more`). A `gte` total is a lower bound. Read-only. Prefer `storage action=search` (files only) or `metadata action=search` (lexical metadata only) when you need a single type; the code-mode `search` tool is the API endpoint catalog, not your content. A workspace-backed (folder) share has no unified-search endpoint — use `storage action=search` on the share instead.
+
+### workflow
+
+Durable workflow ORCHESTRATION + native review (`review-*`) + e-signature (`sign-*`), scoped to a workspace (109 actions). Distinct from the in-workspace `task` primitive and from `workspace action=enable-workflow`. Write/lifecycle actions are fire-and-forget (return ids + state + a `_next` poll hint — poll with `action=state`); destructive actions require `confirm='true'`; downloads stream via `GET /workflow-download/...`. The action groups are enumerated in the **Workflow Orchestration** concept (Section 3) and the Section 5 `workflow` entry; call `workflow action=describe` for the authoritative per-action reference (required/optional params, confirm gates, side-effects). Orchestration features require the workspace's workflow feature enabled; native review is separately gated by `workflow_approval_native_enabled`.
+
 ### upload
 
 **create-session** -- Create a chunked upload session for a file. Accepts optional `target_node_id` to deterministically overwrite a specific existing node (`action=update` + `file_id=<target_node_id>`): when set, `parent_node_id` is ignored and `filename` is optional (keeps existing name unless a new one is provided — enables rename-on-replace). When `filename` is omitted, the tool does one extra `storage` `details` round-trip to fetch the current name (the API still requires `name` in update mode); pass `filename` to skip it. Preserves `node_id`; new version is visible via `storage` action `version-list`. Use this instead of delete+reupload when you need to update a file's bytes. Without `target_node_id`, same-name + same-parent uploads still overwrite in place (the standard REPLACE behavior). After any overwrite, prior content is recoverable via `storage` action `version-list` / `version-restore`.
@@ -2513,11 +2497,15 @@ All storage actions require `profile_type` parameter (also accepted as `context_
 
 **zip-url** -- Get a ZIP download URL for a folder or entire workspace/share. Returns the URL with auth instructions. Requires `profile_type`, `profile_id`, and `node_id` (use `root` for entire storage tree).
 
-**quickshare-details** -- Get metadata and download info for a quickshare link. No authentication required.
+**quickshare-details** -- Get metadata and download info for an existing quickshare link. No authentication required. (QuickShare creation is deprecated — use the `fileshare` tool's `create` action for new links; this read path drains existing links until removal is announced.)
 
-### ai
+### ai (Ripley)
 
-All AI actions require `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) and `profile_id` (also accepted as `context_id`) (the 19-digit profile ID).
+Ripley is the MCP read-only delegation surface over Fast.io's RAG agent (`/ai/agent/`). All AI actions require `profile_type` parameter (also accepted as `context_type`) (`workspace` or `share`) and `profile_id` (also accepted as `context_id`) (the 19-digit profile ID). `ask`/`status`/`chat-create`/`message-send` consume AI credits.
+
+**ask** -- Ripley convenience: ask ONE natural-language question and get a synthesized, cited answer. Creates an agent chat with the question. On a **workspace** it bounded-waits via the activity long-poll and returns `{answer_text, citations, state, chat_id, message_id, web_url}`. On a **share** (no activity long-poll) it returns immediately with `chat_id`/`message_id` and a `_next` poll continuation. If the answer isn't ready within the bounded wait, the chat ALREADY exists — re-poll the existing message via `message-read`; do NOT re-call `ask` (it creates a duplicate chat + re-spends credits).
+
+**status** -- Ripley convenience: asks an engineered whole-workspace status question and bounded-waits for the answer (same shape as `ask`). Workspace only; requires workspace intelligence ON for whole-workspace RAG (degrades to a non-RAG summary or an enable-intelligence hint when OFF). Same no-re-call rule as `ask`.
 
 **chat-create** -- Create a new AI chat with an initial question. Default scope is the entire workspace (all indexed documents) — omit `files_scope` and `folders_scope` unless you need to narrow the search. When using scope or attachments, provide `nodeId:versionId` pairs — versionId is auto-resolved to the current version if left empty (get explicit `versionId` from `storage` action `details` — the field is omitted from `list` at the default terse detail level; pass `detail: "standard"` or higher on `list` if you want it inline). When using `files_attach`, verify `ai.attach` is `true` for each file first (check via `storage` action `details`, which defaults to `detail: "full"`). Type is auto-promoted from `chat` to `chat_with_files` when file parameters are present. Returns chat ID and initial message ID -- use message-read to get the AI response.
 
@@ -2545,8 +2533,6 @@ All AI actions require `profile_type` parameter (also accepted as `context_type`
 
 **transactions** -- List AI token usage transactions for billing tracking.
 
-**autotitle** -- Generate AI-powered title and description based on contents (share context only).
-
 ### comment
 
 All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/` or `/comments/{entity_type}/{parent_id}/{node_id}/` where `entity_type` is `workspace` or `share`, `parent_id` is the 19-digit profile ID, and `node_id` is the file's opaque ID.
@@ -2555,7 +2541,7 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 **list-all** -- List all comments across a workspace or share (not node-specific). Same listing params as list.
 
-**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 500 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring; exact, prefix, suffix, start_offset, end_offset for text anchoring on markdown/notes -- use type `"document"` or `"text"`), optional linked_entity_type (`task` or `approval`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
+**add** -- Add a comment to a specific file. Body: text (max 8,192 chars total, max 500 chars display text with `@[...]` mention tags stripped). Supports mention tags: `@[profile:id]`, `@[user:opaqueId:Name]`, `@[file:fileId:name.ext]`. Optional parent_comment_id (single-level threading, replies to replies auto-flatten), optional reference (type, timestamp, page, region, text_snippet for content anchoring; exact, prefix, suffix, start_offset, end_offset for text anchoring on markdown/notes -- use type `"document"` or `"text"`), optional linked_entity_type (`task`) and linked_entity_id to link the comment to a workflow entity at creation time. Uses JSON body.
 
 **delete** -- Delete a comment. Recursive: deleting a parent also removes all its replies.
 
@@ -2567,11 +2553,11 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 **reaction-remove** -- Remove your emoji reaction from a comment.
 
-**link** -- Link an existing comment to a workflow entity. Params: comment_id, linked_entity_type (`task` or `approval`), linked_entity_id. One link per comment; linking replaces any existing link. Returns the updated comment with linked fields populated.
+**link** -- Link an existing comment to a workflow entity. Params: comment_id, linked_entity_type (`task`), linked_entity_id. One link per comment; linking replaces any existing link. Returns the updated comment with linked fields populated.
 
 **unlink** -- Remove the workflow link from a comment. Params: comment_id. Returns the updated comment with linked fields set to null.
 
-**linked** -- Reverse lookup: find all comments linked to a given workflow entity. Params: linked_entity_type (`task` or `approval`), linked_entity_id. Returns a list of comments linked to the specified entity.
+**linked** -- Reverse lookup: find all comments linked to a given workflow entity. Params: linked_entity_type (`task`), linked_entity_id. Returns a list of comments linked to the specified entity.
 
 ### event
 
@@ -2589,7 +2575,7 @@ All comment endpoints use the path pattern `/comments/{entity_type}/{parent_id}/
 
 All member actions require `entity_type` parameter (`workspace` or `share`) and `entity_id` (the 19-digit profile ID).
 
-Member objects include `status` (`active` or `pending`) and `invite` (null for active members, `{id, created, expires}` for pending — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration). Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks, approvals, and todos. When a pending member signs up, their status becomes `active` and all assignments are preserved. Canceling an invitation (via `invitation` action `delete` with `invite.id`) removes the pending member and unassigns their workflow items.
+Member objects include `status` (`active` or `pending`) and `invite` (null for active members, `{id, created, expires}` for pending — `expires` is `YYYY-MM-DD HH:MM:SS UTC` or null if no expiration). Pending members are invited users who haven't signed up yet — they appear in member lists immediately and can be assigned tasks. When a pending member signs up, their status becomes `active` and all assignments are preserved. Canceling an invitation (via `invitation` action `delete` with `invite.id`) removes the pending member and unassigns their workflow items.
 
 **add** -- Add an existing user by user ID, or invite by email. Pass the email address or user ID as `email_or_user_id`. Inviting by email creates a pending member if the user doesn't have an account. For workspaces, set access level with `permissions` (admin/member/guest). For shares, use `role` (admin/member/guest/view).
 
@@ -2617,7 +2603,7 @@ All invitation actions require `entity_type` parameter (`workspace` or `share`) 
 
 **update** -- Resend or update an invitation (by ID or invitee email).
 
-**delete** -- Revoke and delete a pending invitation. This also removes the corresponding pending member from the member list and unassigns any workflow items (tasks, approvals, todos) assigned to them. Use the `invite.id` from the member object as the `invitation_id`.
+**delete** -- Revoke and delete a pending invitation. This also removes the corresponding pending member from the member list and unassigns any workflow items (tasks) assigned to them. Use the `invite.id` from the member object as the `invitation_id`.
 
 ### asset
 
@@ -2673,95 +2659,11 @@ Task list and task management for workspaces and shares. All task actions requir
 
 **summary** -- Lightweight task counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total tasks, breakdown by status, assigned-to-me, and created-by-me counts. Supports `format`.
 
-### worklog
-
-Activity log for tracking agent work. After uploads, task changes, share creation, or any significant action, log what you did and why — builds a searchable audit trail for humans and AI. All worklog actions require workflow to be enabled on the target entity.
-
-**append** -- Append a new entry to the worklog. Requires `entity_type` ("task", "task_list", or "profile"), `entity_id`, and `content` (1-10000 chars). Use after making changes to record what was done and why. Entries are immutable after creation.
-
-**list** -- List worklog entries. Requires `entity_type` ("task", "task_list", or "profile") and `entity_id` (the corresponding entity's opaque ID, or profile 19-digit ID for entity_type "profile"). Supports `type` filter ("info" or "interjection"), `sort_dir` ("asc" or "desc", default "desc"), `limit` (1-200), `offset`, and `format` ("md" for markdown).
-
-**interject** -- Create an urgent interjection entry that requires acknowledgement. Requires `entity_type` ("task", "task_list", or "profile"), `entity_id`, and `content` (1-10000 chars). Interjections are priority corrections -- always treated as urgent.
-
-**details** -- Get full details of a specific worklog entry. Requires `entry_id`. Supports `format`.
-
-**acknowledge** -- Acknowledge an interjection entry, marking it as seen. Requires `entry_id`. Only entries with `acknowledgable: true` can be acknowledged.
-
-**unacknowledged** -- List unacknowledged interjections (entries where `acknowledgable` is `true`). Requires `entity_type` ("task", "task_list", or "profile") and `entity_id`. Supports `limit`, `offset`, and `format`. Always check for unacknowledged interjections before proceeding with work.
-
-**profile-list** -- List all worklog entries at the profile level. Requires `profile_type` and `profile_id`. Supports `limit`, `offset`, and `format`. Different from `list` which is entity-scoped.
-
-**filtered-list** -- List worklogs filtered by category. Requires `profile_type`, `profile_id`, and `filter` ("authored" or "interjections"). Optional `type` ("info" or "interjection") as entry-type sub-filter. Supports `limit`, `offset`, and `format`.
-
-**summary** -- Lightweight worklog counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total entries, breakdown by entry type, authored-by-me, and pending interjections counts. Supports `format`.
-
-### approval
-
-Formal approval requests scoped to tasks, storage nodes, worklog entries, or shares. All approval actions require workflow to be enabled on the target entity.
-
-**list** -- List approval requests for a workspace or share. Requires `profile_type` and `profile_id`. Supports `status` filter (pending, approved, rejected), `limit` (1-200, default 50), `offset`, and `format`.
-
-**create** -- Create a new approval request. Requires `profile_type`, `profile_id`, `entity_type` ("task", "node", "worklog_entry", or "share"), `entity_id`, and `description` (1-65535 chars). Optional `approver_id` (profile ID of designated approver — can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601), `node_id` (artifact reference).
-
-**details** -- Get full details of an approval request including approver list and resolution. Requires `profile_type`, `profile_id`, and `approval_id` (opaque alphanumeric). Supports `format`.
-
-**resolve** -- Resolve an approval request. Requires `profile_type`, `profile_id`, `approval_id`, and `resolve_action` ("approve" or "reject"). Optional `comment` (max 5000 chars). Only designated approvers can resolve.
-
-**bulk-create** -- Bulk-create node approvals for every file and note in a share (max 50 nodes). Requires `profile_id` and `description` (1-65535 chars). Optional `approver_id` (can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601). Share-only, members/admins only.
-
-**bulk-approve** -- Bulk-approve all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can approve their assigned approvals.
-
-**bulk-reject** -- Bulk-reject all pending approvals in a share. Requires `profile_id`. Optional `comment` (max 5000 chars). Skips stale approvals (version_match=false). Guests can reject their assigned approvals.
-
-**filtered-list** -- List approvals filtered by category. Requires `filter` ("pending", "created", "assigned", or "resolved"). Optional `profile_type` and `profile_id` for workspace/share scope; omit both for cross-profile user-level view (`/user/approvals/list/{filter}`). Note: the `assigned` filter is only available with `profile_type`/`profile_id`; it is not supported for cross-profile user-level queries. Supports `status` sub-filter, `limit`, `offset`, and `format`.
-
-**summary** -- Lightweight approval counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns created-by-me and assigned-to-me breakdowns with pending/approved/rejected counts. Supports `format`.
-
-**update** -- Update a pending approval. Requires `profile_type`, `profile_id`, and `approval_id`. At least one of: `description` (1-65535 chars), `approver_id` (can be a pending member), `deadline` (`YYYY-MM-DD HH:MM:SS` — NOT ISO-8601), `node_id`, `properties` (JSON object). Only pending approvals can be updated. Status, entity_type, entity_id, and profile_id are immutable.
-
-**delete** -- Permanently delete an approval (any status). Requires `profile_type`, `profile_id`, and `approval_id`. Irreversible. Members and admins only; guests blocked.
-
-**bulk-delete** -- Permanently delete all approvals in a share (up to 500). Requires `profile_id`. Deletes both pending and resolved approvals. Members and admins only; guests blocked.
-
-### todo
-
-Simple flat checklists scoped to workspaces and shares. No nesting. All todo actions require workflow to be enabled on the target entity.
-
-**list** -- List todos for a workspace or share. Requires `profile_type` and `profile_id`. Supports `filter_done` (boolean), `sort_by` (created, updated, title), `sort_dir`, `limit` (1-200, default 100), `offset`, and `format`.
-
-**create** -- Create a new todo item. Requires `profile_type`, `profile_id`, and `title` (1-500 chars). Optional `assignee_id` (can be a pending member).
-
-**details** -- Get full details of a todo. Requires `todo_id` (opaque alphanumeric). Supports `format`.
-
-**update** -- Update a todo. Requires `todo_id`. Supports `title`, `assignee_id` (can be a pending member), `done`.
-
-**delete** -- Soft-delete a todo. Requires `todo_id`. Destructive.
-
-**toggle** -- Toggle the done state of a todo. Requires `todo_id`. Flips between done and not done.
-
-**bulk-toggle** -- Set done state on multiple todos at once. Requires `profile_type`, `profile_id`, `todo_ids` (array of todo IDs, max 100), and `done` (boolean: true to mark done, false to mark not done).
-
-**filtered-list** -- List todos filtered by category. Requires `profile_type`, `profile_id`, and `filter` ("assigned", "created", "done", or "pending"). Supports `limit`, `offset`, and `format`.
-
-**summary** -- Lightweight todo counts for a workspace or share. Requires `profile_type` and `profile_id`. Returns total, done, pending, assigned-to-me, and created-by-me counts. Supports `format`.
-
-### apps
-
-Interactive MCP App widget discovery and launching. Widgets are interactive HTML5 UIs that render in agent conversations.
-
-**list** -- List all available MCP App widgets with their metadata (title, description, supported tools, supported actions, resource URI).
-
-**details** -- Get full metadata for a specific widget. Requires `app_id` (the widget name, e.g., "file-picker").
-
-**launch** -- Launch a widget with workspace or share context. Requires `app_id`, `profile_type` ("workspace" or "share") (also accepted as `context_type`), and `profile_id` (the 19-digit profile ID) (also accepted as `context_id`). Returns the widget HTML content ready for rendering.
-
-**get-tool-apps** -- Find widgets associated with a specific tool domain. Requires `tool_name` (e.g., "storage", "ai", "comment"). Returns widgets that provide UI for that tool's operations.
-
 ---
 
 ## 10. Code Mode (Headless Agents)
 
-When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the server automatically enables Code Mode -- a lightweight alternative to the full 19-tool set. Code Mode exposes 4 tools total:
+When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the server automatically enables Code Mode -- a lightweight alternative to the full named-mode tool set. Code Mode exposes 4 tools total:
 
 | Tool | Purpose |
 |------|---------|
@@ -2770,7 +2672,7 @@ When connecting from a headless agent (Claude Code, Cursor, Continue, etc.), the
 | `search` | Find content (files, notes, folders) OR discover API endpoints |
 | `execute` | Make authenticated API calls to Fast.io |
 
-Clients with MCP Apps support (Claude Desktop, Cline) continue to receive the full 19-tool set plus 6 app-* widget tools (one per widget in the registry). Unknown clients default to the full tool set.
+Named-mode clients (Claude Desktop, Cline) continue to receive the full named-mode set — 19 core domain tools. Unknown clients default to the named tool set.
 
 ### Finding Content (USE THIS FIRST)
 
