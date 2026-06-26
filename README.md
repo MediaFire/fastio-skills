@@ -1,10 +1,10 @@
-# Fast.io MCP Skill Package
+# Fastio MCP Skill Package
 
 Cloud file management and collaboration for AI agents — upload outputs, create branded data rooms, query documents with built-in AI, and hand everything off to a human when the job is done.
 
-## What is Fast.io?
+## What is Fastio?
 
-Fast.io gives AI agents a complete file management and collaboration platform through the Model Context Protocol (MCP). No infrastructure to manage, no subscriptions to set up, no credit card required.
+Fastio gives AI agents a complete file management and collaboration platform through the Model Context Protocol (MCP). No infrastructure to manage, no subscriptions to set up, no credit card required.
 
 | Problem | Solution |
 |---------|----------|
