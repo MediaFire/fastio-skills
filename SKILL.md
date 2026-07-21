@@ -1,14 +1,13 @@
 ---
 name: fast-io
 description: >-
-  Workspaces for agentic teams. Essential agent guide: the 20 consolidated tools
+  Workspaces for agentic teams. Essential agent guide: the 18 consolidated tools
   (action-based routing), authentication, the MCP-server mechanics specific to this
   server, and the built-in how-to tool, which answers product how-tos, parameter
-  details, and multi-step workflows on demand so the guide stays lean. Use this skill
+  details, and step-by-step task recipes on demand so the guide stays lean. Use this skill
   when agents need shared workspaces to collaborate with other agents and humans,
   create branded shares (Send/Receive/Exchange), or query documents using built-in AI.
-  Supports ownership transfer to humans, workspace management, and workflow
-  orchestration (durable multi-step workflows, content review, e-signature).
+  Supports ownership transfer to humans and workspace management.
   Free agent plan with 50 GB storage and 5,000 monthly credits.
 license: Proprietary
 compatibility: >-
@@ -16,20 +15,20 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: "2.2.0"
+  version: "2.6.0"
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.2
-**Last Updated:** 2026-06-25
+**Version:** 2.6
+**Last Updated:** 2026-07-20
 
-> **Platform reference.** For a comprehensive overview of Fastio's capabilities, the agent plan, key workflows, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
+> **Platform reference.** For a comprehensive overview of Fastio's capabilities, the agent plan, key concepts, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
 
 This guide is deliberately short. It covers what an agent must know **before it would think to ask anything**: what the server is, the two modes, how to authenticate, the tool menu, **how to ask the `how-to` tool**, the MCP-server mechanics that are specific to *this server* (uploads, blobs, overwrite semantics, notes-vs-files, code-mode contracts, response hints), and the product guardrails that get an agent into trouble silently.
 
-**For everything else — how to accomplish a product task, parameter details, the full per-action tool reference, multi-step workflows, concept deep-dives — ask the `how-to` tool or call `<tool> action="describe"`.** This guide intentionally does NOT duplicate the product how-to corpus.
+**For everything else — how to accomplish a product task, parameter details, the full per-action tool reference, step-by-step task recipes, concept deep-dives — ask the `how-to` tool or call `<tool> action="describe"`.** This guide intentionally does NOT duplicate the product how-to corpus.
 
 > **Why MCP mechanics stay here:** the `how-to` corpus is platform-owned and product/REST-oriented — it does **not** know this MCP server's mechanics (the `POST /blob` sidecar, code-mode `search`/`execute`, the `_next`/`_warnings`/`_recovery` envelope, in-place overwrite/versioning). `surface=code` only changes phrasing, not knowledge. So those sections are load-bearing and live here.
 
@@ -49,14 +48,14 @@ Fastio provides workspaces for agentic teams -- where agents collaborate with ot
 
 The server exposes one of two tool sets, chosen automatically from the MCP client's `clientInfo.name`:
 
-- **Named mode (20 tools)** — action-routed tools covering the full REST surface. Served to named clients and as the safe default for unknown clients.
+- **Named mode (18 tools)** — action-routed tools covering the full REST surface. Served to named clients and as the safe default for unknown clients.
 - **Code mode (5 tools: `auth`, `upload`, `search`, `execute`, `how-to`)** — a lightweight set for headless agents. See Section 6.
 
 **Client → mode mapping** (from `clientInfo.name`):
 
 | `clientInfo.name` (case-insensitive substring; code-mode checked first) | Mode |
 |---|---|
-| `claude-code`, `claude code`, `cursor`, `continue`, `cowork`, `claude-cowork`, `codex`, `antigravity`, `gemini-cli`, `grok-cli` | **Code** |
+| `claude-code`, `claude code`, `cursor`, `continue`, `cowork`, `claude-cowork`, `codex`, `antigravity`, `gemini-cli`, `grok-cli`, `opencode` | **Code** |
 | `claude-desktop`, `cline` | **Named** (explicit) |
 | anything else — incl. bare `openai`, `chatgpt`, `gemini`, `grok`, and unknown/unset | **Named** (safe default) |
 
@@ -69,7 +68,7 @@ The server exposes one of two tool sets, chosen automatically from the MCP clien
 
 ### Resources & Prompts
 
-MCP resources (read via `resources/list` / `resources/read`): `skill://guide` (this guide), `session://status` (auth state), `resource://status` (server health, no auth), plus `download://...` file templates (workspace/share files; up to 50 MB inline base64, larger fall back to the `GET /file/...` pass-through). No MCP prompts are registered.
+MCP resources (read via `resources/list` / `resources/read`): `skill://guide` (this guide), `session://status` (auth state), `resource://status` (server health, no auth), plus `download://...` file templates (workspace/share files; up to 100 KB inline base64, larger fall back to the `GET /file/...` pass-through). No MCP prompts are registered.
 
 For deeper lookups: REST API reference at `https://api.fast.io/llms.txt`; platform guide at [references/REFERENCE.md](references/REFERENCE.md).
 
@@ -77,11 +76,11 @@ For deeper lookups: REST API reference at `https://api.fast.io/llms.txt`; platfo
 
 ## 2. Ask `how-to` and `describe` (READ THIS FIRST)
 
-This guide covers only the essentials + MCP-server mechanics. **For product how-tos, parameter details, the full tool reference, and step-by-step workflows, use these two reflexes instead of improvising.**
+This guide covers only the essentials + MCP-server mechanics. **For product how-tos, parameter details, the full tool reference, and step-by-step task recipes, use these two reflexes instead of improvising.**
 
 ### `how-to` — "how do I…?" (the primary deferral target)
 
-Call **`how-to action=ask question="..."`** whenever the right *approach* on Fastio isn't obvious — a multi-step or unfamiliar task (setting up a review/approval, branded shares, metadata extraction, ownership transfer, billing). It returns the canonical, product-aware sequence of steps so different agents converge on the same correct path.
+Call **`how-to action=ask question="..."`** whenever the right *approach* on Fastio isn't obvious — a multi-step or unfamiliar task (branded shares, metadata extraction, ownership transfer, billing). It returns the canonical, product-aware sequence of steps so different agents converge on the same correct path.
 
 - **FREE** — no credits, no org, no plan gate, no billing. Requires only an authenticated user.
 - **EXPLAIN-ONLY** — it returns guidance; you then act on it with the other tools. It never creates, updates, or deletes anything.
@@ -130,29 +129,27 @@ Authentication is required before any tool except these **unauthenticated** ones
 
 ## 4. Tool Menu
 
-### Named mode — 20 tools
+### Named mode — 18 tools
 
 Action-routed; call `<tool> action=describe` for the per-action reference.
 
 - **`auth`** — Sign-in/sign-up, 2FA, API key management, OAuth/PKCE sessions. The starting point.
-- **`user`** — Current user profile, contacts, invitations, user assets, account eligibility, shares you belong to, personal AI instructions.
-- **`org`** — Organization CRUD, members, billing/subscriptions, workspace creation, invitations, assets, org discovery, ownership transfer, custom domains, org AI instructions.
-- **`workspace`** — Workspace settings & lifecycle (update/delete/archive), shares listing/import, assets, discovery, notes (create/read/update), async-job status, the task-tracking toggle (`enable-workflow`), workspace AI instructions, and the consolidated `metadata-*` actions.
-- **`share`** — Share CRUD (Send / Receive / Exchange), public details, archiving, password auth, members, name checks, AI titling, the task-tracking toggle, AI instructions, and share-native review (`review-*`).
+- **`user`** — Current user profile, contacts, invitations, user assets, account eligibility, shares you belong to.
+- **`org`** — Organization CRUD, members, billing/subscriptions, workspace creation, invitations, assets, org discovery, ownership transfer, custom domains.
+- **`workspace`** — Workspace settings & lifecycle (update/delete/archive), shares listing/import, assets, discovery, notes (create/read/update), async-job status, and the consolidated `metadata-*` actions.
+- **`share`** — Share CRUD (Send / Receive / Exchange), public details, archiving, password auth, members, name checks, and AI titling.
 - **`fileshare`** — Durable, single-file share links (replaces deprecated QuickShare). Binds to one file; access tiers, password, expiry, per-user grants, version history, external-editor write-back.
 - **`storage`** — Files & folders in workspaces and shares: list/search/move/copy/rename/delete/purge/restore, versions, locking, preview URLs, node-level metadata. Requires `profile_type` (`workspace`|`share`).
 - **`metadata`** — AI metadata templates + the unstructured-data extraction pipeline, saved views, and lexical metadata search (workspace level).
-- **`find`** — Unified search across a workspace or share: one query, results grouped into independently-paginated buckets (files, metadata, comments, workflows). For one result type prefer `storage action=search` or `metadata action=search`.
-- **`upload`** — File uploads: chunked lifecycle, single-call streaming, bulk batch, web imports from URLs, limits/extensions. Large binaries flow through `POST /blob`; small binaries can use `content_base64`. See Section 5.
+- **`find`** — Unified search across a workspace or share: one query, results grouped into independently-paginated buckets (files, metadata, comments). For one result type prefer `storage action=search` or `metadata action=search`.
+- **`upload`** — File uploads: chunked lifecycle, single-call streaming, bulk batch, web imports from URLs, limits/extensions. **Files/binaries default to the `POST /blob` sidecar → `blob_id`**; `content_base64` is a fallback for clients that can't reach `/blob`. See Section 5.
 - **`download`** — Generate download / ZIP URLs. MCP can't stream binary, so these return pre-authenticated URLs / `resource_uri`s. Requires `profile_type` for file/zip URLs.
 - **`ai` (Ripley)** — Read-only delegation over the platform RAG agent: ask a natural-language question about workspace/share content, get a cited answer. Never does content CRUD; consumes AI credits — don't re-call `ask` to retry, poll the existing chat. Requires `profile_type`.
-- **`comment`** — Comments on files, scoped to `{entity_type}/{parent_id}/{node_id}`: add (with optional anchoring), reply, delete, reactions, workflow linking.
+- **`comment`** — Comments on files, scoped to `{entity_type}/{parent_id}/{node_id}`: add (with optional anchoring), reply, delete, reactions.
 - **`event`** — Audit/activity log with rich filtering, AI activity summaries, event details, activity polling, plus the per-member **Dashboard** feed (`dashboard-*`).
 - **`member`** — Member management for workspaces and shares (add/remove/update roles, transfer ownership, join/leave). Includes pending (invited) members. Requires `entity_type`.
 - **`invitation`** — Invitation management for workspaces and shares (list, list-by-state, update, delete). Requires `entity_type`.
 - **`asset`** — Asset upload/delete/list/read for orgs, workspaces, shares, users. Requires `entity_type`.
-- **`task`** — Lightweight in-workspace task lists & tasks (statuses, priorities, assignees, dependencies). Requires workflow enabled on the entity (`enable-workflow`). **Separate from the `workflow` tool** — unrelated domain, no shared endpoints/IDs/state.
-- **`workflow`** — Durable, multi-step workflow ORCHESTRATION scoped to a workspace, plus native content-review (`review-*`) and e-signature (`sign-*`). 111 actions — call `workflow action=describe` for the full reference. NOT the `task` primitive and NOT `workspace action=enable-workflow`.
 - **`how-to`** — Built-in product help: ask natural-language "how do I…" questions about Fastio (FREE, explain-only). See Section 2 — reach for this before improvising.
 
 ### Code mode — 5 tools (headless agents)
@@ -175,12 +172,12 @@ These are mechanics of *this MCP server*. `how-to` does not know them — get th
 
 ### Upload strategy — pick the FIRST row that matches
 
-**Default to `stream-upload` unless you know the exact byte count.** Batch is a specialized option only for "multiple small files in one shot." Read top-to-bottom:
+**For any file or binary, stage the bytes via the `POST /blob` sidecar and pass `blob_id` — that is the default** (it bypasses the MCP transport entirely; `create-session`/`blob-info` hand you a ready-to-run `curl` command). Then pick the action: `stream-upload` (no `filesize` needed) unless you know the exact byte count (chunked). `content_base64` is the fallback **only** for clients that can't reach `/blob`. Batch is a specialized option only for "multiple small files in one shot." Read top-to-bottom:
 
 | Situation | Size Known? | Recommended Approach |
 |---|---|---|
 | Any file with a URL | N/A | `upload action=web-import` (single step) |
-| Have content but DON'T know exact size, OR generating/transforming content first | No | **`upload action=stream-upload`** (single call — creates the session, streams the bytes, auto-finalizes; **no `filesize` required**, size auto-detected). For larger payloads: `POST /blob` first, then pass `blob_id` to `stream-upload`. |
+| Any file/binary (DEFAULT) — incl. unknown/generated size | No | **`POST /blob` → `upload action=stream-upload` with `blob_id`** (single call — auto-finalizes, **no `filesize` required**). Tiny inline text may pass `content` directly; use `content_base64` only if your client can't reach `/blob`. |
 | File with KNOWN exact byte count (already on disk, pre-measured) | Yes | `POST /blob` → `upload action=create-session` with `filesize` → `chunk` with `blob_id` → `finalize`. **`filesize` MUST match the bytes exactly — mismatch fails `finalize` with code `10522` and forces a session cancel.** |
 | **Specialized:** several small files at once (≤4 MB each) | Yes | `POST /blob` per file → `upload action=batch` with a `files[]` manifest (one round-trip, up to 200 files; not for single uploads) |
 
@@ -202,7 +199,7 @@ A raw-HTTP endpoint outside the JSON-RPC pipe — **bypasses MCP transport limit
 
 ### Storage overwrite & versioning (REPLACE by default, in place)
 
-**Do NOT delete-and-re-upload to "update" a file — that is a data-loss trap.** Same-name uploads into the same parent folder **overwrite the existing node in place, preserving the `node_id`.** The prior content is kept as a recoverable version. Deleting the old node first is wasted work, breaks `node_id` references held by other entities (comments, tasks, metadata, links), and can leak the file into trash.
+**Do NOT delete-and-re-upload to "update" a file — that is a data-loss trap.** Same-name uploads into the same parent folder **overwrite the existing node in place, preserving the `node_id`.** The prior content is kept as a recoverable version. Deleting the old node first is wasted work, breaks `node_id` references held by other entities (comments, metadata, links), and can leak the file into trash.
 
 **Correct update-a-file pattern:** `upload action=create-session` with the **same** `parent_node_id` and **same** `filename` (+ `profile_type`/`profile_id`/`filesize`) → `POST /blob` → `chunk`/`finalize` (or `stream`). The `node_id` is unchanged; the previous content becomes a version. Inspect/roll back with `storage action=version-list` / `version-restore`. (For a deterministic overwrite when the filename may have drifted, pass `target_node_id` on `create-session` — server uses `action=update` + `file_id`; `parent_node_id` ignored, `filename` optional for rename-on-replace.)
 
@@ -239,15 +236,15 @@ Always inspect per-item `results[]`. (Whole-batch HTTP-4xx rejections with no `r
 - **Scope (RAG)** — `files_scope` / `folders_scope`. **Requires workspace intelligence enabled**; files must be `ai_state: indexed`. Omit scope to search the whole workspace (recommended default). Narrows the RAG search boundary; populates `citations`.
 - **Attachments** — `files_attach` (`nodeId:versionId`, max 20 files / 200 MB). **No intelligence required.** **Preflight: only files with `ai.attach: true` can be attached** — check via `storage action=details` (full detail; `ai.attach` is omitted at terse/standard). FILES ONLY — a folder nodeId returns 406. `citations` is always empty in this mode.
 
-Sending both scope and attach errors. After `chat-create`/`message-send`, the response is async; `ai action=message-read` polls (up to 15× / 2s ≈ 30s). If still processing, **don't tight-loop** — use `event action=activity-poll` (see Activity polling).
+Sending both scope and attach errors. After `chat-create`/`message-send`, the response is async; `ai action=message-read` does a bounded activity long-poll (~24s worst case: a 12s ceiling × 2 iterations). If still processing, **don't tight-loop** — use `event action=activity-poll` (see Activity polling).
 
 ### Activity polling — don't tight-loop
 
-Three mechanisms, most-to-least preferred: **`event action=activity-poll`** (long-poll, server holds up to ~95s, returns activity keys like `ai_chat:{chatId}`/`storage`/`members` + a `lastactivity` timestamp), WebSocket (live UIs), `event action=activity-list` (one-time snapshot). **Do NOT poll detail endpoints (e.g. `ai action=message-read`) in tight loops** — long-poll for the change, then fetch the detail once. For AI completion: poll until an `ai_chat:{chatId}` key matching your chat appears, then `message-read` once. **Param split:** `event` `activity-list`/`activity-poll` take `profile_type`+`profile_id` (or `entity_id`); `event` `search`/`summarize`/`details` take `workspace_id`/`share_id`/`org_id`/`user_id` filters — mixing the two patterns errors (code `10262`).
+Three mechanisms, most-to-least preferred: **`event action=activity-poll`** (long-poll, server holds up to ~95s, returns activity keys like `ai_chat:{chatId}`/`storage`/`members` + a `lastactivity` timestamp), WebSocket (live UIs), `event action=activity-list` (one-time snapshot). **Do NOT poll detail endpoints (e.g. `ai action=message-read`) in tight loops** — long-poll for the change, then fetch the detail once. For AI completion: poll until an `ai_chat:{chatId}` key matching your chat appears, then `message-read` once. **Param split:** `event action=activity-list` takes `profile_id` (alias `context_id`; `profile_type` is optional/ignored) and `event action=activity-poll` takes `entity_id` — these two are NOT interchangeable. The `event` `search`/`summarize`/`details` family takes `workspace_id`/`share_id`/`org_id`/`user_id` filters — mixing the activity and search families errors (code `10262`).
 
 ### Downloads
 
-MCP never streams binary — tools return URLs. `download action=file-url` (needs `profile_type`) returns a temporary pre-authenticated URL; `download action=zip-url` returns the URL **plus the required `Authorization` header value** (the zip fetch needs it). For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **50 MB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` OR `Authorization: Bearer` — a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
+MCP never streams binary — tools return URLs. `download action=file-url` (needs `profile_type`) returns a temporary pre-authenticated URL; `download action=zip-url` returns the URL **plus the required `Authorization` header value** (the zip fetch needs it). For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **100 KB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` OR `Authorization: Bearer` — a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
 
 ### Response hints & envelope
 
@@ -255,19 +252,17 @@ All tool responses are **GitHub-flavored Markdown** (CommonMark + tables), no JS
 
 - **`_next`** — an array of exact next-action suggestions (tool + action + IDs). Follow them instead of guessing.
 - **`_warnings`** — irreversible/destructive/problematic consequences. Read before proceeding (purge, bulk copy/move/delete/restore partial failures, archive/delete/close, billing-create, share/type changes, chat-delete, token expiry, transfer-token-create, etc.).
-- **`_state`** — the entity's state machine on state-bearing responses: `current` (tagged terminal/not), `possible` (all states + meanings), `from_here` (legal actions), `note` (caveats). LIST responses carry only `possible`. Full machines under `workflow action=describe` → `state_machines`.
+- **`_state`** — the entity's state machine on state-bearing responses: `current` (tagged terminal/not), `possible` (all states + meanings), `from_here` (legal actions), `note` (caveats). LIST responses carry only `possible`.
 - **`_recovery`** — on errors (`isError:true`), status-based recovery. Notably **402** = credits exhausted → `org action=limits`; **401** = re-auth (`auth signin`/`set-api-key`; "Session expired" = prior session lapsed, "Not authenticated" = none); **403** = scope/permission (check `auth action=status` → `scopes_detail`); **429** = back off 2-4s. Errors carry numeric `code` + human `text`.
 - **`detail=terse|standard|full`** — many list/node actions trade verbosity for token cost (terse = ids/labels/timestamp; standard adds operational context + `ai.state`; full adds long-form fields incl. the full `ai` object with `ai.attach`). Defaults vary per action — `describe` shows whether an action takes it. (Storage `details` defaults to `full`; lists default to `terse`.)
-
-### Workflow `workflow`-tool prose families (detail via `describe`, NOT how-to)
-
-These advanced workflow-tool families are documented by **`workflow action=describe`** (or `action=guide`, both no-auth) — they are NOT in the how-to corpus: `pool-*` (concurrency pools), `extraction-schema-*` (`extraction-schema-derive` spends AI credits), `agent-template-*`, `external-subject-*` / `grant*`, `outbound-webhook-*` (HMAC-signed; secret returned once), `audit-redact*`. Write/lifecycle actions are **fire-and-forget** (return ids + a `_next` poll hint — poll `action=state`, never busy-loop); destructive actions are **confirm-gated** (`confirm='true'`).
 
 ---
 
 ## 6. Code Mode contracts (`search` + `execute`)
 
 When connecting from a headless agent, the server enables Code Mode (5 tools above). Two non-obvious contracts:
+
+> **`search`/`execute` are not action-routed** — pass their params directly (`query` / `method`+`path`), not an `action`. They still answer `action="describe"` (a compact param reference) so the describe reflex works, but otherwise omit `action`.
 
 ### `search` — content vs API
 
@@ -291,7 +286,7 @@ execute method="postJson" path="/workspace/1234567890123456789/storage/root/crea
 
 **Response types** are handled automatically: JSON (parsed envelope), Text (`{content, content_type, http_status}`), Binary (returns metadata + guidance to use the `download://` resource). **Reading notes:** call the node's `…/storage/{node_id}/readnote/` path (JSON), not `…/read/` (raw binary) — there is no bare `/readnote/` alias. **Reading uploaded files (non-notes):** `resources/read uri="download://workspace/{ws}/{node}"`.
 
-> **`execute` cannot stream bytes.** Byte-download routes are blocked (the Worker would buffer the whole payload): storage `…/read/`, fileshare `…/read/`, sign-envelope document/audit, workflow audit-export, review-preview. For storage-node bytes use the `download://` resource or `GET /file/...`. **Sign-envelope / workflow-audit bytes are reachable ONLY in named mode** (`/workflow-download/...`) — a code-mode agent cannot fetch them; surface that to the user rather than retrying.
+> **`execute` cannot stream bytes.** Byte-download routes are blocked (the Worker would buffer the whole payload): storage `…/read/`, fileshare `…/read/`. For storage-node bytes use the `download://` resource or `GET /file/...`; surface that to the user rather than retrying.
 
 ---
 
@@ -315,9 +310,9 @@ New orgs require a **paid plan** — after `org action=create` the org is upgrad
 ## 9. Must-Know Gotchas
 
 - **Action names** use hyphens (`create-session`); underscores are equivalent. `describe` shows the canonical form.
-- **Profile params + alias.** Workspace/share-scoped tools take `profile_type`+`profile_id` (alias: `context_type`+`context_id`) — use one pair, don't mix.
-- **ID format.** Profile IDs (org/workspace/share/user) are 19-digit numeric strings (or a custom name). All other IDs (node, upload, chat, comment, task, workflow/review/sign, etc.) are opaque alphanumerics of **29 or 30 characters** (30-char IDs carry a 2-char type prefix). **Never infer an ID's entity type from length or prefix, don't reject an ID on length, don't slice by a fixed offset, and don't apply numeric validation to opaque IDs.**
-- **Confirm before destructive actions.** Irreversible operations (`purge`, `delete`, `close`, workflow void/cancel, etc.) are confirm-gated (`confirm='true'`) and/or tagged `[DESTRUCTIVE]`. Always confirm with the user first.
+- **Profile params + aliases.** Workspace/share-scoped tools take `profile_type`+`profile_id` (type alias: `context_type`; id alias: `context_id`). The storage-family tools — `find`, `download`, `storage`, `ai`, `upload` — also accept `instance_id` (the REST/how-to name) as a `profile_id` alias; `find` additionally accepts the type-specific `workspace_id`/`share_id`. Other profile-scoped tools (`comment`, `event`) take only `profile_id`/`context_id`. Use one id, don't mix.
+- **ID format.** Profile IDs (org/workspace/share/user) are 19-digit numeric strings (or a custom name). All other IDs (node, upload, chat, comment, etc.) are opaque alphanumerics of **29 or 30 characters** (30-char IDs carry a 2-char type prefix). **Never infer an ID's entity type from length or prefix, don't reject an ID on length, don't slice by a fixed offset, and don't apply numeric validation to opaque IDs.**
+- **Confirm before destructive actions.** Irreversible operations (`purge`, `delete`, `close`, etc.) are confirm-gated (`confirm='true'`) and/or tagged `[DESTRUCTIVE]`. Always confirm with the user first.
 - **Read-only scoped keys silently narrow the toolset.** With a read-only scoped key (all grants `:r`), write actions are removed from each tool's action enum; attempting a write returns a **schema validation error** (not a 403). Re-authenticate with a read-write/unscoped key to restore them. In **code mode**, a read-only session is likewise blocked from `execute` POST/PUT/PATCH/DELETE (not just the named-tool enums); out-of-scope entity access returns **403** (check `auth action=status` → `scopes_detail`).
 - **Session state persists.** The token is stored server-side and survives across calls in the same connection; OAuth sessions auto-refresh (up to the 30-day refresh-token lifetime). No need to pass tokens between calls.
 - **Use `web_url` from responses.** Entity-returning responses include a ready-to-use `web_url` — **always use it; never construct human-facing URLs by hand.** Include it whenever you create or reference something a human will open.
