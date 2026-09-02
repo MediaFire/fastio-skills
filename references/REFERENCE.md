@@ -1,6 +1,6 @@
 # Fastio for AI Agents
 
-> **Version:** 1.38.0 | **Last updated:** 2026-08-29
+> **Version:** 1.38.0 | **Last updated:** 2026-09-02
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -431,7 +431,7 @@ Workspaces are where agentic teams do their work. Each workspace has its own sto
 activity feed — a shared environment where agents collaborate with other agents and with humans.
 
 - **Included storage scales with your plan** — query org billing/usage for your org's storage allowance
-- **File size limits are plan-dependent** (up to 40 GB on paid plans) — query `/upload/limits/` for exact values
+- **File size limits are plan-dependent** (25 GB, 50 GB, or 100 GB by plan — see *Plans & Credits* below) — query `/upload/limits/` for exact values
 - **File versioning** — every edit creates a new version, old versions are recoverable
 - **Folder hierarchy** — organize files however you want
 - **Filename and semantic search** — find files by name (including `find`-style glob patterns) or by meaning. There is no full-text index of file bytes; content matching is the AI's understanding of a file. See *Filename Search* and *`search_in=content` Is Not `grep`*.
@@ -824,7 +824,7 @@ GET /current/workspace/{workspace_id}/storage/search/?search={query}
 GET /current/share/{share_id}/storage/search/?search={query}
 ```
 
-When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `raw_score`, `score_source`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, and `search_metadata` fields.
+When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `raw_score`, `score_source`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, `summary_short`, `best_chunk`, `metadata_match`, `metadata_match_field`, and `search_metadata` fields.
 
 `/storage/search/` returns **one result per file** with the best-matching passage
 only — a document matching in several places still yields a single row, not one per
@@ -840,19 +840,30 @@ retrieval can still return a different value, because a `keyword` score is BM25 
 moves with the index statistics. A cutoff still has to be calibrated per engine, per
 index and per kind of query.
 
-**`score_source` identifies the scale `raw_score` is on**, and nothing more:
+**`score_source` is an attribution, and only three of its four values name a scale.**
 `keyword` (a BM25 score — **unbounded above**, and dependent on the index contents and
 the query terms), `semantic` (the content engine's similarity score for the matching
-passage), or `filename` (a fixed name-match band rather than a measured score, so
-`raw_score` is `null`). There is **no `both`** — which legs matched is a separate
-question, answered by `match_source`. It is decided **per hit**, so one response can
-carry all three: **group by `score_source` before comparing any two `raw_score`
-values**, and never compare a `keyword` value against a `semantic` one. Both fields
+passage) and `filename` (a fixed name-match band rather than a measured score, so
+`raw_score` is `null`) each name **the scale `raw_score` is on**. `metadata` is **not a
+fourth scale**: it says the row was **promoted** because the query matched its extracted
+metadata, and its `raw_score` is still populated and **remains on the `keyword` scale** —
+compare it with other `keyword` rows, not with `semantic` ones. A promoted hit whose rank
+came from the content engine reports `semantic` rather than `metadata`; read
+`metadata_match` for the promotion itself. There is **no `both`** — which legs matched is a
+separate question, answered by `match_source`. It is decided **per hit**, so one
+response can carry all four: **group by `score_source` before comparing any two
+`raw_score` values**, and never compare a `keyword` value against a `semantic` one. Both fields
 are on `/storage/search/` only — the unified `/search/` route does not return them.
 
-**Searching extracted metadata is a different endpoint.** `/storage/search/` has
-never searched extracted metadata — it matches filenames, AI-generated summaries
-and document content. For metadata, use:
+**`/storage/search/` now also matches extracted metadata**, alongside filenames,
+AI-generated summaries and document content: a hit whose query matched an
+entity-style metadata value (a counterparty, a customer, a document title) comes
+back with `metadata_match: true` and is **promoted** in the ordering. `metadata_match`
+says the query *also* matched that metadata — it co-occurs normally with a filename or
+summary match rather than replacing one. What it still
+does not do is let you retrieve *by field*, or tell you which field matched
+(`metadata_match_field` is reserved and currently always `null`). For that, use the
+dedicated metadata endpoints:
 
 ```
 GET /current/workspace/{workspace_id}/metadata/search/?q={query}
@@ -1032,8 +1043,9 @@ query, ranking, and response keys.
 
 **Result shape under `search_in=filename`.** A filename search has no content leg,
 so `/storage/search/` returns the **keyword-only** item shape — `name`,
-`parent_id`, `type`, `content_snippet: null`, `match_source: "keyword"` — even on
-a workspace with intelligence enabled. The hybrid-only fields
+`parent_id`, `type`, `content_snippet: null`, `match_source: "keyword"`, plus
+`summary_short: null`, `best_chunk: null`, `metadata_match` and
+`metadata_match_field: null` — even on a workspace with intelligence enabled. The hybrid-only fields
 (`relevance_score`, `raw_score`, `score_source`, `mimetype`, `media_segment`, `page`)
 are **absent**. That is
 the same shape you already get whenever intelligence is off, so no new parsing is
@@ -1058,7 +1070,17 @@ in every mode.
       "match_source": "both",
       "media_segment": null,
       "mimetype": "application/pdf",
-      "page": { "start_page": 3, "end_page": 3 }
+      "page": { "start_page": 3, "end_page": 3 },
+      "summary_short": "Q4 revenue and margin review for the North America segment.",
+      "best_chunk": {
+        "text": "The quarterly revenue showed a 15% increase...",
+        "page": { "start_page": 3, "end_page": 3 },
+        "media_segment": null,
+        "score": 0.87,
+        "result_type": "doc"
+      },
+      "metadata_match": false,
+      "metadata_match_field": null
     }
   },
   "search_metadata": {
@@ -1079,8 +1101,25 @@ With intelligence enabled, the `/storage/search` response also includes:
 - `media_segment` — `{start_seconds, end_seconds}` identifying the timestamp range in audio/video where the match was found. Only present for audio/video file matches, enabling deep-linking to the exact moment.
 - `relevance_score` — relevance score, normalised within the current result set, so its scale is re-derived per query. Order results with it; do not threshold it.
 - `raw_score` — the un-rescaled retrieval score, on the scale `score_source` names. `null` when `score_source` is `filename`. `/storage/search/` only.
-- `score_source` — which retrieval **scale** `raw_score` is on: `keyword`, `semantic`, or `filename`. Decided per hit; there is no `both`. `/storage/search/` only.
+- `score_source` — which retrieval leg `raw_score` is attributed to: `keyword`, `semantic`, `filename`, or `metadata`. `keyword`/`semantic` name the scale `raw_score` is on; `filename` means a name-promoted row (`raw_score` null); `metadata` is an attribution on a keyword-sourced row whose `raw_score` stays on the keyword scale. Decided per hit; there is no `both`. `/storage/search/` only.
 - `match_source` — source of the match: `keyword`, `semantic`, or `both`
+- `summary_short` — the stored short AI summary of the **whole file**, or `null` when it has none. Always `null` at `?output=terse` (the tier drops it) and on the keyword-only response.
+- `best_chunk` — the highest-scoring real **passage** of the file, as distinct from a whole-file summary: `{text, page, media_segment, score, result_type}`. `text` follows the same `output=` byte budget as `content_snippet`; `page` and `media_segment` are **both always present** and **at most one of them is ever set** — `page` is `{start_page, end_page}` (1-based, inclusive) on a document passage (`result_type: "doc"`), `media_segment` is `{start_seconds, end_seconds}` on a transcript passage (`result_type: "transcript"`), and the other is `null`; `score` is the passage's own un-rescaled score, on the same scale a `semantic` `raw_score` is on; `result_type` is `doc` or `transcript`. `null` when no qualifying non-summary passage was returned for that file on this query — the retrieval window may simply not have returned one, so it is not a statement that the file has no passages — and on a keyword-only hit. **Use it when you need a locator.** `content_snippet` reports whichever evidence ranked highest, which can be the whole-document summary — and a summary is nowhere in the file, so `page` is `null` on such a hit. `best_chunk` always names a real passage. When the top-ranked evidence is already a passage, `best_chunk.text` is the same text as `content_snippet`.
+- `metadata_match` — `true` when the query **also** matched the file's extracted metadata (entity-style values such as a counterparty, a customer, or a document title); `false` otherwise. It commonly co-occurs with a filename or summary match and does not mean the match happened instead of those. Read `match_source` for which retrieval legs matched, and the tier ordering below for why a row sits where it does.
+- `metadata_match_field` — **reserved, currently always `null`.** It will name the metadata field that carried the match once per-field matching exists. Do not branch on it.
+
+**Ordering is tier-first.** Results come back ordered by **tier**, then by
+`relevance_score` descending *within* a tier. Highest tier first: (1) exact filename
+match, (2) filename prefix match, (3) metadata-entity match (`metadata_match: true`),
+(4) everything else — and the fourth group keeps exactly the order it had before,
+`relevance_score` descending. ⚠️ **A promoted hit can therefore appear above a hit
+with a higher `relevance_score`.** That is the ordering working as designed, not a
+scoring bug, and it is the thing most likely to surprise you: **do not re-sort by
+`relevance_score` yourself** — that throws the promotion away. **Promotion is not one
+thing:** *filename* promotion (tiers 1 and 2) **does lift the row's `relevance_score`**
+into a reserved band — long-standing published behaviour, unchanged — whereas *metadata*
+promotion (tier 3) changes the **order** only and never rewrites `relevance_score` or
+`raw_score`.
 
 **With `details=true`** — the `/storage/search/` endpoint enriches each file entry with a `node` field containing the full node resource:
 
@@ -1099,6 +1138,16 @@ With intelligence enabled, the `/storage/search` response also includes:
         "content_snippet": "Revenue increased 15%...",
         "match_source": "both",
         "mimetype": "application/pdf",
+        "summary_short": "Annual revenue and margin review.",
+        "best_chunk": {
+          "text": "Revenue increased 15%...",
+          "page": { "start_page": 2, "end_page": 2 },
+          "media_segment": null,
+          "score": 0.87,
+          "result_type": "doc"
+        },
+        "metadata_match": false,
+        "metadata_match_field": null,
         "node": {
           "id": "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4",
           "name": "report.pdf",
