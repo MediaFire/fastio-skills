@@ -1,6 +1,6 @@
 # Fastio for AI Agents
 
-> **Version:** 1.36.0 | **Last updated:** 2026-07-21
+> **Version:** 1.38.0 | **Last updated:** 2026-08-29
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -11,7 +11,7 @@ outputs, create branded portals, ask questions about documents using built-in AI
 shared platform. No infrastructure to manage — Fastio accounts, for humans and AI agents alike, require an email
 address: sign up, create an organization, and choose a paid plan to get started.
 
-The platform is organized around two things you do with your files: **Intelligence** — ask across them and get cited answers, turn documents and images into structured data (Metadata Views), and research, analyze, and draft with the built-in agent, **Ripley**; and **Secure collaboration** — files belong to the project, not the person, with granular permissions, scoped agent tokens, branded portals, and an append-only audit log. Storage is step zero; Fastio provides the rest.
+The platform is organized around two things you do with your files: **Intelligence** — ask across them and get cited answers, turn documents and images into structured data with AI metadata extraction, and research, analyze, and draft with the built-in agent, **Ripley**; and **Secure collaboration** — files belong to the project, not the person, with granular permissions, scoped agent tokens, branded portals, and an append-only audit log. Storage is step zero; Fastio provides the rest.
 
 There are three ways to integrate with Fastio:
 
@@ -72,7 +72,7 @@ simple question: "What does this document say?"
 | Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
-| Turning unstructured files into data         | AI metadata extraction (Metadata Views) pulls typed fields from documents, images, and spreadsheets into a sortable table |
+| Turning unstructured files into data         | AI metadata extraction pulls typed fields from documents, images, and spreadsheets into a sortable table |
 | Files walking out when someone leaves        | Files belong to the org/workspace (the project), not the uploader — access follows the work, not the person |
 | Knowing what needs attention                 | A per-workspace dashboard ranks @mentions and file activity |
 | Collaborating with humans on a shared org    | Invite humans (or be invited) as org/workspace members — everyone sees the same files and activity |
@@ -415,6 +415,8 @@ Example markdown response body for a validation error (HTTP 406) — note the ne
 Category-specific detail pages (linked from the LLM reference) list exactly which fields appear at each level
 for each resource type.
 
+**Reading the error tables:** the four-digit `16xx`/`17xx` values are **HTTP-status classes, not `error.code`**. The `error.code` a client actually receives is assigned per endpoint, so **use the HTTP status as the gate and a documented `error.code` — five or six digits, plus the `9661`-`9669` family — only as a refinement**. A `16xx` value identifies the status class — useful for telling which kind of failure occurred — but comparing one against `error.code` will never match. Codes shown as five or six digits (and the `9661`-`9669` family) ARE `error.code` values. **If you widen a check from a specific code to a status, widen what you assert with it** — a status covers failures the narrower code did not, so a message written for that one code becomes a confident falsehood on the rest.
+
 ### Retired per-field error codes
 
 As of 2026-05-05, error codes `136957`, `249170`, `279705`, `295625` are retired. The equivalent field-level failures now surface inside `error.params[]` with `kind: 'invalid'` (and a per-field `code` and `message` describing the specific violation). Clients that previously switched on those exact integers should switch on `params[].name` + `params[].kind` instead.
@@ -452,30 +454,36 @@ summarized, and indexed for RAG. This enables:
 - **Semantic search** — find files by meaning, not just keywords. "Show me contracts with indemnity clauses" works even
   if those exact words don't appear in the filename.
 - **Auto-summarization** — short and long summaries generated for every indexed document and code file, searchable and visible in the UI.
-- **Metadata extraction** — AI pulls structured metadata from documents, code, and images automatically using templates.
-  Assign a template to a workspace, and every document uploaded is automatically extracted against that schema during
-  ingestion. You can also trigger extraction manually or in batch. See section 14 (Metadata) for the full API.
+- **Metadata extraction** — AI pulls structured, typed fields out of documents, code, and images. **No schema to set
+  up**: every eligible file is extracted as it is ingested, and each one also gets a broad `category` and
+  `sub_category`. You discover what a workspace holds, then filter on it; you can also trigger extraction manually or
+  per folder. See section 13 (Metadata) for the full API.
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-> **Plan requirement.** Enabling `intelligence=true` requires both the `content_ai` and `ai_agent` plan features
-> (included on every paid plan: Starter, Business, or Growth). On a plan that does not include those features, `intelligence` defaults to `false` on new
-> workspaces and cannot be set to `true` — the API rejects the request with `1605 (Invalid Input)`. On paid plans that
-> include `ai_agent`, agent accounts default `intelligence` to `true` when the parameter is omitted at create time. See
-> the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
+> **Plan requirement.** Intelligence requires both the `content_ai` and `ai_agent` plan features (included on every
+> paid plan: Starter, Business, or Growth). On a plan that does not include those features, a new workspace is created
+> with `intelligence` off and it cannot be switched on — the update endpoint rejects the attempt with
+> `1605 (Invalid Input)`. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
 
-On plans that support intelligence, **agents should explicitly set `intelligence=false` unless the user needs RAG
-queries across many documents or AI-powered semantic search.** The ingestion cost (10 credits/page) is significant and
-non-refundable — a 100-page document costs 1,000 credits to ingest. If your team only needs a shared workspace for
-coordination, disable it to conserve credits.
+**New workspaces default to intelligence ON** whenever the plan supports it. Omitting `intelligence` on the create call
+means on; **send `intelligence=false` to opt out at create time.** You can also change it later with
+`POST /current/workspace/{id}/update/`. On a plan lacking `content_ai` or `ai_agent` the workspace is created with it off
+whatever you send, and the create still succeeds.
 
-**Agent use case:** Create a workspace per project or client. Enable intelligence only if agents or humans need to query the
-content via RAG or semantic search (and the plan supports it). Upload reports, datasets, and deliverables. Invite other
+**Budget for this.** Ingestion costs 10 credits/page and is non-refundable — a 100-page document costs 1,000 credits.
+Nothing is charged for creating the workspace itself; the cost starts on the first document or code file you upload. If
+the workspace is for coordination or plain storage rather than RAG queries, **create it with `intelligence=false`** —
+that is cheaper and simpler than creating it on and turning it off before you upload.
+
+**Agent use case:** Create a workspace per project or client. Upload reports, datasets, and deliverables. Invite other
 agents and human stakeholders. Everything is organized, searchable, and versioned — and the whole team can see it.
+Indexing is on from the start, so RAG and semantic search work without a separate setup step; disable it up front if
+this workspace is storage-only.
 
-> **Cost-saving tips:** Disable intelligence on storage-only workspaces to avoid ingestion costs. Attach-only AI chat
-> (up to 20 files without indexing) requires a plan with `ai_agent` (included on every paid plan), so make sure the org is
-> on a plan that includes it before relying on file Q&A.
+> **Cost-saving tips:** Turn intelligence off via `update` on storage-only workspaces, before uploading, to avoid
+> ingestion costs. Attach-only AI chat (up to 20 files without indexing) requires a plan with `ai_agent` (included on
+> every paid plan), so make sure the org is on a plan that includes it before relying on file Q&A.
 
 ### 2. Shares — Structured Agent-Human Exchange
 
@@ -555,6 +563,11 @@ workspace unified search, and surface as comment activity on the workspace's rea
 never true — a File Share recipient only ever sees the comments made under that File Share, never the workspace's
 internal comments. Replies, edits, and deletes of a File Share comment go through the File Share's own endpoints.
 
+**No metadata values cross the link.** `GET /current/fileshare/{fileshare_id}/storage/metadata/details/` identifies
+the bound file and its extraction eligibility but returns **no metadata field values and no `metadata_facts` key** —
+deliberately, and permanently. There is no alternative endpoint that serves them to a link holder, so do not retry or
+go hunting for one; see *Metadata* below.
+
 **Agent use case:** Publish a generated report at a stable URL a human keeps bookmarked, then grant a reviewer `edit`
 so they can push a corrected version straight back — your agent sees a `file_share_content_updated` event when they do.
 
@@ -587,23 +600,28 @@ the scope's indexed files and answer with citations (RAG). And you can focus a t
 Both are expressed the same way — as reference items in the `references`, `content_parts`, or `subjects` array of a
 create-chat or send-message request; the backend resolves each item's full details server-side.
 
-#### Intelligence Setting — When to Enable It
+#### Intelligence Setting — On By Default, and When To Turn It Off
 
-The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested, summarized, and
-indexed for RAG. **For most workflows, intelligence should be OFF.** Ingestion costs 10 credits/page and is non-refundable — a 100-page
-document costs 1,000 credits. This can be the largest credit consumer for agent accounts.
+The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested,
+summarized, and indexed for RAG. **New workspaces default to it ON** whenever the plan carries the AI features, so
+omitting `intelligence` on create means on. Ingestion costs 10 credits/page and is non-refundable — a 100-page document
+costs 1,000 credits — so this can be the largest credit consumer for agent accounts. Creating the workspace costs
+nothing; the charge begins with the first document or code file uploaded.
 
-**Enable intelligence only when:**
+**Keep intelligence on when:**
 - You have many files and need RAG queries across them to answer questions
 - You want scoped RAG queries against folders or the entire workspace
 - You need AI-powered semantic search across large document sets
 - You're building a persistent knowledge base that will be queried repeatedly
 
-**Disable intelligence (recommended default) when:**
+**Turn it off — pass `intelligence=false` on create, or `update` before uploading — when:**
 - You're using the workspace for file storage, sharing, or team coordination
 - You only need to analyze specific files (use file attachments instead — no intelligence needed)
 - You're uploading deliverables, reports, or outputs that don't need to be queried
 - You want to conserve credits — disabling avoids all ingestion costs
+
+Turning it off after content is already indexed flushes the embeddings, and switching it back on re-indexes every file
+at full cost, so decide before you upload rather than after.
 
 Even with intelligence disabled, you can still attach **file references** to a chat — any file that has a
 ready preview can be attached directly for one-off analysis.
@@ -799,14 +817,58 @@ It returns ranked text snippets with relevance scores — no LLM round-trip, no 
 
 **Endpoints:**
 
-Semantic search is now available via the unified storage search endpoint. The `/ai/search/` endpoints are deprecated.
+Semantic search is available via the unified storage search endpoint.
 
 ```
 GET /current/workspace/{workspace_id}/storage/search/?search={query}
 GET /current/share/{share_id}/storage/search/?search={query}
 ```
 
-When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, and `search_metadata` fields.
+When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `raw_score`, `score_source`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, and `search_metadata` fields.
+
+`/storage/search/` returns **one result per file** with the best-matching passage
+only — a document matching in several places still yields a single row, not one per
+passage. Its `relevance_score` is normalised **within the result set**, so its scale
+is re-derived for every query. **Use it to order results — do not threshold it, and
+do not compare it across queries.**
+
+**To threshold, read `raw_score` alongside `score_source`.** `raw_score` is the
+**un-rescaled** retrieval score, on the scale `score_source` names: the merge does not
+divide, clamp or round it against the other hits that came back with it. **That is a
+statement about rescaling, not a promise the number is constant** — re-running
+retrieval can still return a different value, because a `keyword` score is BM25 and
+moves with the index statistics. A cutoff still has to be calibrated per engine, per
+index and per kind of query.
+
+**`score_source` identifies the scale `raw_score` is on**, and nothing more:
+`keyword` (a BM25 score — **unbounded above**, and dependent on the index contents and
+the query terms), `semantic` (the content engine's similarity score for the matching
+passage), or `filename` (a fixed name-match band rather than a measured score, so
+`raw_score` is `null`). There is **no `both`** — which legs matched is a separate
+question, answered by `match_source`. It is decided **per hit**, so one response can
+carry all three: **group by `score_source` before comparing any two `raw_score`
+values**, and never compare a `keyword` value against a `semantic` one. Both fields
+are on `/storage/search/` only — the unified `/search/` route does not return them.
+
+**Searching extracted metadata is a different endpoint.** `/storage/search/` has
+never searched extracted metadata — it matches filenames, AI-generated summaries
+and document content. For metadata, use:
+
+```
+GET /current/workspace/{workspace_id}/metadata/search/?q={query}
+GET /current/workspace/{workspace_id}/metadata/filters/
+GET /current/workspace/{workspace_id}/metadata/filters/{filter_id}/nodes/
+```
+
+`/metadata/search/` searches metadata **values**; a saved metadata filter retrieves by
+**exact field value** with no text query.
+
+⚠️ **Metadata is workspace-only, and shares have no successor for it.** There is no
+`filters` parameter on `/share/{id}/storage/search/`, no `/share/{id}/metadata/...`
+routes, and no metadata bucket in `/share/{id}/search/`. Unknown parameters are
+accepted rather than refused, so a share request that sends `filters` returns
+**HTTP 200 with unfiltered results** and no `metadata_filter` block to reveal it. If
+you need metadata search, run it against the **workspace**.
 
 **Parameters:**
 
@@ -816,8 +878,8 @@ When workspace intelligence is enabled, results automatically include semantic m
 | `search_in` | string | No | `both` | What to match: `filename`, `content`, or `both`. See *Filename search* below. |
 | `name_match` | string | No | `auto` | How the filename is matched: `auto`, `exact`, `prefix`, `contains`, `glob`. Ignored when `search_in=content`. |
 | `case_sensitive` | string | No | `false` | `true` / `false` / `1` / `0`. Applies to the precise `name_match` values; ignored under `auto`. |
-| `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100) |
-| `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10) |
+| `files_scope` | string | No | All indexed files | Comma-separated `nodeId:versionId` pairs (max 100), query string only. **Narrows the semantic leg only** — see *Scoping is semantic-only* below. Accepts `type: "file"` **and** `type: "note"` nodes; a folder or link is refused. |
+| `folders_scope` | string | No | All indexed files | Comma-separated `nodeId:depth` pairs (max 100, depth 1–10), query string only. **Narrows the semantic leg only** — see *Scoping is semantic-only* below. Folder node ids only — a file, note or link is refused, and so are the `root` and `trash` aliases. |
 | `limit` | integer | No | 100 | Results per page, 1–500 |
 | `offset` | integer | No | 0 | Pagination offset |
 | `details` | string | No | false | When `"true"`, each result includes a `node` field with the full node resource (previews, AI state, versions, metadata, size). Default limit drops to 10 (enrichment is expensive). An explicit `limit` overrides this default. |
@@ -826,6 +888,40 @@ The **semantic** channel described above requires `intelligence=true` on the wor
 files that have reached `ai.state: indexed`. The endpoint itself does not: with intelligence off it still answers, as a
 keyword search over filenames and over any AI-generated summaries already indexed — just without the semantic fields.
 See *`search_in=content` Is Not `grep`* below.
+
+**Scoping is semantic-only.** `files_scope` and `folders_scope` narrow the **semantic** leg and nothing else, so a
+hybrid response can still contain files from outside the scope carrying `match_source: "keyword"`. **For a hard
+boundary, filter on `match_source` yourself — keep `"semantic"` and `"both"`, drop `"keyword"`.** Those are the
+results that came from the leg the scope narrowed. ⚠️ **`search_in=content` does not give you that boundary.**
+`content` also matches the file's AI-generated summary by keyword, and the scope does not restrict that channel
+either — so wherever summary search is open to you, a scoped `content` request still returns out-of-scope
+`match_source: "keyword"` hits. Summary search is always open on **workspace** routes, so `search_in=content` never
+bounds the result set there; on a **share** it depends on that share's permissions for you. `match_source` filtering
+is the only approach that holds everywhere. Because the scope applies to the semantic leg alone, it changes nothing
+when that leg does not run — intelligence off, `search_in=filename`, or the leg failing
+— and `search_metadata.scoped` says so: it reports the narrowing that was **applied**, not the parameter you sent, so
+`scoped: false` on a scoped request means the scope had no effect. A scope that resolves to no files returns **no**
+semantic results rather than falling back to the whole workspace, and an entry that is simply wrong — a `versionId`
+that is not a version of that file, an unparseable id, a folder in `files_scope`, a file in `folders_scope`, or the
+`root`/`trash` folder alias in `folders_scope` — is refused with `1605 (Invalid Input)` naming the entry rather than
+being dropped. That includes a value that is not a `nodeId:…` pair at all, a bare `0` among them: to send no scope,
+**omit the parameter** rather than passing a placeholder.
+
+**`files_scope` takes files AND notes; `folders_scope` takes folders; links cannot be scoped.** A search result's
+`type` is `file`, `folder`, `link` or `note`. Notes are indexed the way files are and come back from semantic search,
+so `files_scope` accepts a note's `nodeId:versionId` pair exactly as it accepts a file's — if a note was a hit, you
+can scope the next query to it. A **link** has no stored content to index and is accepted by neither parameter. A
+node of the wrong type for the parameter it was named in is refused with `1605 (Invalid Input)`, in a message naming
+the type the node actually is and, where the other parameter would take it, which one to use instead. Both
+parameters are query parameters on a `GET`: a scope placed in a request body is not read, and the search runs
+unscoped.
+
+**A scope carries at most 100 references in total**, counting every file named, every folder named, and every
+subfolder reached by expanding a `folders_scope` entry to its `:depth`. More than 100 **files** is refused; a
+**folder** tree that runs past the limit is truncated instead — you cannot count a subtree before naming it — and the
+truncation is reported as `search_metadata.scope_incomplete: true`, present only when something was left out. Treat it
+as "the search covered less than you asked for": narrow the `:depth` or name fewer folders and retry, and never read a
+truncated answer as a complete one.
 
 #### Filename Search — the `find`-Style Surface
 
@@ -938,7 +1034,8 @@ query, ranking, and response keys.
 so `/storage/search/` returns the **keyword-only** item shape — `name`,
 `parent_id`, `type`, `content_snippet: null`, `match_source: "keyword"` — even on
 a workspace with intelligence enabled. The hybrid-only fields
-(`relevance_score`, `mimetype`, `media_segment`, `page`) are **absent**. That is
+(`relevance_score`, `raw_score`, `score_source`, `mimetype`, `media_segment`, `page`)
+are **absent**. That is
 the same shape you already get whenever intelligence is off, so no new parsing is
 needed — but do not require `relevance_score` when you asked for `filename`. The
 unified endpoints are unaffected: their `files` bucket keeps its usual item shape
@@ -949,52 +1046,61 @@ in every mode.
 ```json
 {
   "result": true,
-  "results": [
-    {
-      "content": "The quarterly revenue showed a 15% increase...",
-      "score": 0.95,
-      "node": {
-        "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf",
-        "type": "file",
-        "name": "quarterly-report.pdf",
-        "mimetype": "application/pdf",
-        "ai": { "state": "ready", "attach": true, "summary": true }
-      }
+  "files": {
+    "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4": {
+      "name": "quarterly-report.pdf",
+      "parent_id": "2qk7d-kri4y-yievb-q5hri-eq4io-hij5",
+      "type": "file",
+      "relevance_score": 1.0,
+      "raw_score": 0.87,
+      "score_source": "semantic",
+      "content_snippet": "The quarterly revenue showed a 15% increase...",
+      "match_source": "both",
+      "media_segment": null,
+      "mimetype": "application/pdf",
+      "page": { "start_page": 3, "end_page": 3 }
     }
-  ],
-  "pagination": { "total": 25, "limit": 100, "offset": 0, "has_more": false }
+  },
+  "search_metadata": {
+    "intelligence_enabled": true,
+    "semantic_available": true,
+    "scoped": false
+  }
 }
 ```
 
-Each result contains:
-- `content` — the matched text snippet from the indexed document
-- `score` — relevance score (0.0-1.0, higher is more relevant)
-- `node` — full file resource (or `null` if the file was deleted)
+The response is a **map of node id → file entry**, not a `results` array. Every
+entry carries `name`, `parent_id` and `type`; pass `details=true` to attach the
+full node resource.
 
 With intelligence enabled, the `/storage/search` response also includes:
 - `content_snippet` — the actual matching text from semantic search. NULL for keyword-only matches.
 - `mimetype` — file MIME type (e.g., `application/pdf`, `audio/mpeg`). Present for semantic matches.
 - `media_segment` — `{start_seconds, end_seconds}` identifying the timestamp range in audio/video where the match was found. Only present for audio/video file matches, enabling deep-linking to the exact moment.
-- `relevance_score` — semantic relevance score (0.0-1.0)
+- `relevance_score` — relevance score, normalised within the current result set, so its scale is re-derived per query. Order results with it; do not threshold it.
+- `raw_score` — the un-rescaled retrieval score, on the scale `score_source` names. `null` when `score_source` is `filename`. `/storage/search/` only.
+- `score_source` — which retrieval **scale** `raw_score` is on: `keyword`, `semantic`, or `filename`. Decided per hit; there is no `both`. `/storage/search/` only.
 - `match_source` — source of the match: `keyword`, `semantic`, or `both`
 
-**With `details=true`** — the unified `/storage/search` endpoint enriches each file entry with a `node` field containing the full node resource:
+**With `details=true`** — the `/storage/search/` endpoint enriches each file entry with a `node` field containing the full node resource:
 
 ```json
 {
   "result": true,
   "response": {
     "files": {
-      "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf": {
+      "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4": {
         "name": "report.pdf",
         "parent_id": "...",
         "type": "file",
-        "relevance_score": 0.92,
+        "relevance_score": 1.0,
+        "raw_score": 0.87,
+        "score_source": "semantic",
         "content_snippet": "Revenue increased 15%...",
         "match_source": "both",
         "mimetype": "application/pdf",
         "node": {
-          "id": "f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf",
+          "id": "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4",
           "name": "report.pdf",
           "type": "file",
           "size": 123456,
@@ -1336,6 +1442,63 @@ Fastio uses WebSockets for instant updates across all connected clients:
 - **Follow mode** — click a user to mirror their exact navigation
 - **Instant file sync** — uploads, edits, and deletions appear immediately for all viewers
 
+### Agent Intents — Declare What You Are Doing
+
+When several agents work the same workspace, the expensive collision is the one nobody saw coming. **Agent Intents**
+let an agent say what it is doing *while* it is doing it, so a peer sees the overlap **before** it happens instead of
+after. An intent is short-lived, workspace-scoped, and expires on its own — it is deliberately not a memory or a chat
+surface.
+
+Every route is **workspace-only** — there is no share variant — and requires workspace membership at **Member** or
+above, the same bar the storage file-locking identity fields use: a caller below Member does not get to see who is
+doing what.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/current/workspace/{workspace_id}/intents/` | Allocate a slot — content-free by design |
+| `GET` | `/current/workspace/{workspace_id}/intents/` | Browse the workspace's live intents (topics only) |
+| `POST` | `/current/workspace/{workspace_id}/intents/{intent_id}/` | Fill or refine a slot — also the heartbeat |
+| `GET` | `/current/workspace/{workspace_id}/intents/{id1},{id2}/` | Expand one or more intents in full, batched |
+| `DELETE` | `/current/workspace/{workspace_id}/intents/{intent_id}/` | Release a slot (idempotent) |
+
+Five things decide whether your client is correct:
+
+- **Allocating is content-free, and it is get-or-create — not "mint a new slot".** The key is your credential plus the
+  scope you asked for (workspace, `node_id`, user, agent name), so a repeat allocate re-asserts the slot you already
+  hold rather than creating a second one. A genuinely fresh slot comes back `state: "allocated"`, `version: 0`,
+  `topic: null`; anything else means you were handed a slot that already existed — do not release it, and do not
+  assume its content is yours to overwrite.
+- **An unfilled slot is occupancy, not an incomplete write.** `state: "allocated"` with a `null` `topic` means
+  *someone is starting something here*. Render those rows — filtering them out removes the entire point of declaring
+  early, which is to make a collision visible before anyone has written anything down.
+- **Fill is the heartbeat — there is no renewal endpoint.** Every allocate or fill pushes `expires_at` forward, so an
+  agent that goes silent has its intent evaporate. Stale intents fail open: they are advisory and never gate a write
+  anywhere else in the API.
+- **Filling is a compare-and-set.** Send back the `version` you last read for that slot; omitting it is refused with
+  `409`, the same as sending a stale one. On a `409`, re-read the intent and decide again — do not retry the identical
+  payload, or you can silently discard whatever a peer just wrote.
+- **Reading has two traps that fail silently.** Browse does not filter, but it does not refuse a filter either —
+  `node_id` and `intent` are accepted and then ignored, so `?intent=edit` answers `200` with every live intent in the
+  workspace; narrow client-side. And `cursor: null` does **not** mean end-of-list — it can arrive alongside a full
+  `items` array, meaning "no safe checkpoint yet". Stop only when `items` comes back empty.
+
+**Slot identity is credential-keyed; slot authorization is user-scoped.** Five agents acting for one operator hold
+five separate slots, but any credential authenticated as that user may fill or release any of them — siblings are
+meant to pick up each other's declarations rather than leave one stranded when an agent goes away. One consequence
+matters for anything that renders a row: `locker.agent_name` names the agent that **allocated** the slot and is never
+updated by a later fill, so it tells you *which declaration this is*, never *who wrote the words in it*. Label it
+"slot held by X", not "X says".
+
+`topic` and `message` are agent-authored and must be treated as **untrusted, display-only text**: escape them at the
+render boundary, and never pass them to a model as instructions.
+
+MCP agents reach all of this through the `intent` tool (`allocate`, `fill`, `browse`, `expand`, `release`).
+See the [Agent Intents reference](https://api.fast.io/current/llms/intents/) for the full contract.
+
+**Agent use case:** Two of your agents share a workspace. Before touching a file, each allocates a slot scoped to that
+node and browses what is already declared — one call for the whole workspace picture. Seeing a peer already holding
+`edit` on the same file, the second agent picks up different work instead of racing it into a conflict.
+
 ### 11. Events — Real-Time Audit Trail
 
 Events give agents a real-time audit trail of everything that happens across an organization. Instead of scanning entire
@@ -1378,12 +1541,21 @@ Use the `category` parameter to filter by broad area:
 | `org`         | Organization lifecycle, settings                       |
 | `workspace`   | Workspace creation, updates, archival, file operations |
 | `share`       | Share lifecycle, settings, file operations              |
-| `node`        | File and folder operations (cross-profile)             |
+| `node`        | AI indexing pipeline only (not file operations)        |
 | `ai`          | AI chat, summaries, RAG indexing                       |
 | `invitation`  | Member invitations sent, accepted, declined            |
 | `billing`     | Subscriptions, trials, credit usage                    |
 | `apps`        | Application integrations                               |
-| `metadata`    | Metadata extraction, templates, key-value updates      |
+| `metadata`    | Metadata extraction and key-value updates              |
+
+> **File and folder activity is NOT category `node`.** Despite the name, `node` covers only the AI
+> indexing pipeline (e.g. `node_ai_summary_created`), and most of its events are internal and never
+> returned by the API. It lives in **two** categories instead — `category=workspace`
+> (`workspace_storage_file_added`, `_updated`, `_deleted`, `_moved`, `_restored`, `_copied`, and the
+> matching `workspace_storage_folder_*` events) and `category=share`, a full parallel set
+> (`share_storage_file_added`, `_updated`, `_deleted`, `_moved`, `_restored`, `_copied`, and the
+> matching `share_storage_folder_*` events). Filtering only `workspace` silently omits all share
+> activity — query both categories for a complete picture of what happened to files.
 
 #### Event Subcategories
 
@@ -1417,13 +1589,15 @@ Use the `event` parameter to filter by exact event name. Here are the most usefu
 `workspace_storage_file_copied`, `workspace_storage_file_updated`, `workspace_storage_file_restored`,
 `workspace_storage_folder_created`, `workspace_storage_folder_deleted`, `workspace_storage_folder_moved`,
 `workspace_storage_download_token_created`, `workspace_storage_zip_downloaded`,
-`workspace_storage_file_version_restored`, `workspace_storage_link_added`
+`workspace_storage_file_version_restored`, `workspace_storage_link_added`,
+`workspace_storage_lock_overridden`
 
 **File operations (share):**
 `share_storage_file_added`, `share_storage_file_deleted`, `share_storage_file_moved`,
 `share_storage_file_copied`, `share_storage_file_updated`, `share_storage_file_restored`,
 `share_storage_folder_created`, `share_storage_folder_deleted`, `share_storage_folder_moved`,
-`share_storage_download_token_created`, `share_storage_zip_downloaded`
+`share_storage_download_token_created`, `share_storage_zip_downloaded`,
+`share_storage_lock_overridden`
 
 **Comments:**
 `comment_created`, `comment_updated`, `comment_deleted`, `comment_mentioned`, `comment_replied`,
@@ -1451,9 +1625,12 @@ Use the `event` parameter to filter by exact event name. Here are the most usefu
 `node_ai_summary_created`, `workspace_ai_share_created`
 
 **Metadata:**
-`metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`,
-`metadata_template_update`, `metadata_template_delete`,
-`metadata_view_update`, `metadata_view_delete`, `metadata_template_select` (deprecated — the originating endpoint now returns access-denied)
+`metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`
+
+**Historical only — still present in stored event history, but nothing emits them any more** (the endpoints that
+produced them were retired with the template surface): `metadata_template_update`, `metadata_template_delete`,
+`metadata_view_create`, `metadata_view_update`, `metadata_view_delete`, `metadata_template_select`. Query them to read
+the past; do not wait on them.
 
 **Quick shares (deprecated — see File Share lifecycle):**
 `workspace_quickshare_created`, `workspace_quickshare_updated`, `workspace_quickshare_deleted`,
@@ -1560,160 +1737,276 @@ of polling the file details endpoint every few seconds, open a single long-poll 
 
 ### 13. Metadata — Structured Data on Files
 
-The metadata system lets agents attach structured, typed key-value data to files. This goes beyond filenames and
-timestamps — you can store invoice amounts, contract parties, document categories, or any domain-specific fields, then
-query and sort files by those fields.
+The metadata system attaches structured, typed key-value data to files: invoice amounts, contract parties,
+document categories, any domain-specific field. You then select and sort files by those values.
+
+**You do not declare a schema first.** Extraction runs automatically when an eligible file is ingested,
+and the fields it produces become the workspace's vocabulary. Your job as an agent is to *discover* what a
+workspace already holds and *select* against it — not to set anything up.
+
+> 🔴 **Templates are retired.** The older model — declare a template, map files into it, AI-match the
+> rest — is gone. Your client may still list `template-*` actions; calling one fails. `template_id` still
+> appears on some responses as historical provenance and is inert.
+>
+> **The two failures look different, and the difference is not about you.** Most template paths were
+> deleted outright, so they no longer route at all and you get the platform's not-routed answer,
+> **`9992`** (HTTP 404) — the same thing a mistyped path produces. Two node-scoped ones still have a
+> handler and answer **`410 Gone`**, each with its own `error.code`:
+> `/storage/{node_id}/metadata/templates/` returns **`131380`**, and
+> `/storage/{node_id}/metadata/template_select/` returns **`122209`**. Either way the path is finished: do not
+> retry, do not vary the id, and do not report it as an outage. Only the `410` says that on its own — the
+> `9992` cannot be told apart from a typo, which is why the retirement is documented here rather than
+> left to the response to explain.
 
 #### Architecture
 
-The system has three layers:
+Two layers, not three:
 
-1. **Templates** — define a metadata schema: named fields with types (`string`, `int`, `float`, `bool`, `json`, `url`,
-   `datetime`), constraints (`min`, `max`, `fixed_list`), and descriptions. Templates belong to a workspace (a template
-   name is 1–100 characters, a description up to 255). The metadata feature is available on all plan tiers, with three caps that
-   scale by plan — templates per workspace, files per template, and fields (columns) per template: Starter=2/1000/10,
-   Business=10/1000/50, Growth=10/1000/50. Listing, details, and preview-match endpoints return
-   `plan_node_limit`, `is_truncated`, and the unfiltered count alongside the visible count so frontends can render
-   upsell messaging; the `/details` and `/list` endpoints also return `field_count` and `plan_field_limit` for the
-   field cap. Each field carries an `autoextract` boolean (default true); templates must declare at least one
-   autoextract-eligible field and auto-extraction jobs filter their default scope to those fields. Node responses
-   (metadata details + template nodes listing) carry an `autoextractable` boolean — true when the node is a
-   non-trashed file with a completed AI summary — so clients can gate "extract now" affordances. On downgrade,
-   overflow rows are preserved but hidden; under truncation the visible window is ordered by mapping creation
-   order (oldest-mapped first), so the same files remain visible across plan changes and re-upgrade restores
-   full visibility.
+1. **The field vocabulary** — the flat, per-workspace set of field names metadata is stored under, with
+   each field's type. It is discovered, not declared: whatever extraction produced is what is there. The
+   declarable types are `string`, `int`, `float`, `bool`, `json`, `url` and `datetime`. A field is
+   identified by its `name`; there is no field id.
 
-2. **Template-Node Mappings** — many-to-many relationships between templates and files. Files are linked to templates
-   either manually (add/remove endpoints) or automatically via AI-based matching. A template can be applied to multiple
-   files, and a file can have metadata from multiple templates.
+2. **Node metadata** — the actual values on one file, in ONE set.
 
-3. **Node Metadata** — the actual key-value pairs stored on individual files. Each file's metadata is split into
-   **template metadata** (conforming to mapped template field definitions) and **custom metadata** (user-defined
-   fields not tied to any template).
+   **`metadata_facts` is that set**: typed values carrying a `source` that says who set each one (`ai`,
+   `exif`, `mediainfo`, `user`, `validated_server`), plus a `confidence` and the model's `rationale`
+   where extraction produced them. It is the set that metadata search, the field and value listings, and
+   the filter listings all read.
 
-#### Template Management
+   🔴 **The older `template_metadata` and `custom_metadata` blocks are GONE from every response.** They
+   held values stored against a template historically, plus everything else. No Fastio endpoint returns
+   either key any more, and the route that wrote them is retired (see *Values on one file* below). There
+   is no longer a second corpus to reconcile against, no precedence ladder to run between two sets, and
+   nothing for a client to merge: read `metadata_facts` and stop. If your client still branches on
+   whether a response carries them, that branch is dead code — remove it rather than treating the
+   absence as an error or an empty file.
+
+   🔴 **One surface has NO successor — a File Share link.** "Read `metadata_facts` instead" holds on
+   every workspace surface and is **false** on
+   `GET /current/fileshare/{fileshare_id}/storage/metadata/details/`, which identifies the bound file
+   and its extraction eligibility and returns **no metadata field values and no `metadata_facts` key**.
+   Values are member-gated while a link admits anonymous recipients, so **no metadata value crosses a
+   File Share link** — deliberately, and this is the settled end state, not a temporary restriction.
+   **There is no alternative endpoint** that serves them to a link holder, nothing is queued to add
+   one, and the response carries no header or field marking the omission. So do not go looking for
+   another route, do not retry, and do not build a viewer that waits for the values to appear. A
+   workspace member reading the same file through the workspace endpoint gets its facts.
+
+**Every extracted file also carries `category` and `sub_category`** — a coarse handle and a fine one
+(e.g. `Legal` / `Contract`). These let you narrow by document kind without discovering the vocabulary
+first, which makes them the right opening move for most tasks.
+
+They are also **the only fields whose values come from a closed list**:
+
+- `category` — `Legal`, `Finance`, `Sales`, `Marketing`, `Engineering`, `Product`, `Operations`, `People`, `Research`, `Media`, `Personal`, `Other`
+- `sub_category` — `Contract`, `Agreement`, `Invoice`, `Receipt`, `Statement`, `Report`, `Proposal`, `Specification`, `Policy`, `Plan`, `Correspondence`, `Presentation`, `Record`, `Resume`, `Identifier`, `Image`, `Video`, `Audio`, `Dataset`, `Other`
+
+Extraction never writes a value outside the list — an off-list answer is replaced with `Other` before it
+is stored, and the stored spelling is always the one above, so a filter on `Finance` needs no `finance`
+variant. **The list is published as `constraints.allowed`** on each of those two fields in the field-vocabulary response, computed from the same list the writer enforces — so build a picker from that rather than hardcoding it. It constrains what is written **from now on**; rows that predate it can still hold other values, so keep tolerating an unknown one.
+
+**Both writers answer an off-list value the same way: they replace it with `Other`.** Extraction does
+it because a model cannot be asked to try again mid-job; the user fact write does it for consistency, so
+there is ONE rule for the closed list rather than two. A different case or spacing of a listed value is
+not off-list — it is stored under the published spelling.
+
+⚠️ **This is silent.** Writing `"category": "Procurement"` returns `200` and stores `Other`. There is no
+error and no rejected-entry list, so **an agent cannot detect it from the status** — read the
+classification back from the response, which echoes stored state, before reporting what it set.
+
+**Whole-object write-back is safe on this axis.** A file whose stored `category` predates the list —
+extracted before it closed, migrated from the template system, or inherited by a copy — can be sent
+back without failing the request; the off-list value is replaced with `Other` rather than rejected.
+⚠️ **But that replacement is a silent EDIT to a field you did not mean to change**, so echoing a whole
+object back rewrites a legacy classification to `Other` as a side effect. **Send only the fields you are
+changing, or `null` for untouched cells** (`null` asserts nothing) — not because the request would fail,
+but because it would quietly succeed at something you did not ask for.
+
+Two sets of older rows are outside that guarantee: values migrated from the template system and files
+extracted before the list was closed on 2026-08-23. Both were recorded before the list existed — the
+migrated set includes human-typed values AND the previous extractor's output — and both can hold
+spellings the list does not contain.
+`Other` is a real answer for a document that fits nothing, not an error. For what a
+PARTICULAR workspace actually holds, with counts, read
+`GET /current/workspace/{id}/metadata/fields/?field=category`.
+
+#### Discovery — start here
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /current/workspace/{id}/metadata/templates/` | Create a template (name, description, fields JSON — there is no `category` parameter) |
-| `DELETE /current/workspace/{id}/metadata/templates/` | Delete a template |
-| `GET /current/workspace/{id}/metadata/templates/list/` | List templates (sub-paths: `all`, `custom`, `system`, `enabled`, `disabled`) |
-| `GET /current/workspace/{id}/metadata/templates/{template_id}/details/` | Get template details with all fields |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/update/` | Update definition (append `/create/` to copy). Response includes a `schema_update` object with `added_fields` and `type_changed_fields` when either triggers auto re-extraction across mapped files |
+| `GET /current/workspace/{id}/metadata/fields/` | The field names this workspace stores metadata under, with types |
+| `GET /current/workspace/{id}/metadata/fields/?field={name}` | The values that one field is observed to hold, with occurrence counts |
+| `GET /current/workspace/{id}/metadata/eligible/` | Files and notes eligible for extraction, each with its extracted metadata values inline (`metadata_facts`) — one call renders a whole workspace metadata view; folders and links never qualify. Narrow it with `parent_id` (one folder's direct children) and `category` (a closed list — an off-list value is refused, not ignored) |
 
-#### Template-Node Mapping
+Two calls — one field listing plus one value listing — are enough to build a correct filter. Prefer that
+over probing file by file.
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /current/workspace/{id}/metadata/eligible/` | List nodes (files and notes) eligible for metadata extraction (have summary + preview) |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/add/` | Manually add nodes (files or notes) to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/nodes/remove/` | Remove nodes from a template |
-| `GET /current/workspace/{id}/metadata/templates/{template_id}/nodes/` | List nodes mapped to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/auto-match/` | AI-based node matching to a template |
-| `POST /current/workspace/{id}/metadata/templates/{template_id}/extract-all/` | Batch-extract metadata for all mapped nodes (async, returns job_id) |
+#### Selection — filters
 
-#### Node Metadata Operations
+A **filter** is a `predicate` (which files) plus an optional `projection` (which fields to show, in what
+order, and how to sort). A predicate is an array of `{"field", "operator", "value"}` clauses, AND-combined,
+at most **5**. **An empty predicate is valid and means match all.**
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | Get all metadata (`template_metadata` + `custom_metadata`) |
-| `POST /current/workspace/{id}/storage/{node_id}/metadata/update/{template_id}/` | Set/update key-value pairs |
+| `POST /current/workspace/{id}/metadata/filters/` | Create a saved filter (**JSON** body: `name`, `predicate`, optional `description` / `projection`) |
+| `GET /current/workspace/{id}/metadata/filters/` | List the workspace's saved filters |
+| `GET` / `PUT` / `DELETE` `/current/workspace/{id}/metadata/filters/{filter_id}/` | Read, update, delete one |
+| `GET /current/workspace/{id}/metadata/filters/{filter_id}/nodes/` | Execute one and list the files it matches |
+
+Saved filters are **workspace-shared** — any member may read, edit and delete them — and names are unique
+per workspace. A name stays reserved after deletion, so re-using one returns `1660 (Conflict)`.
+
+For a one-off selection, pass the same predicate inline as `filters` on
+`GET /current/workspace/{id}/storage/search/` instead of saving anything.
+
+> ⚠️ **Check the `metadata_filter` block in a search response before you trust the result.** If a client
+> strips the `filters` parameter, the search still succeeds and returns a complete-looking but
+> **unfiltered** page. The *absence* of `metadata_filter` from the response is what tells you the
+> predicate never ran — the item list alone cannot.
+
+#### Values on one file
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/facts/` | Every typed fact on the file, joined to its canonical field name |
+| `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | The file's metadata — `metadata_facts` (returned first), plus the node pointer, `template_id` and extraction eligibility |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/facts/` | **Set a value yourself, overriding what extraction found.** Writes `source: "user"`, which outranks `ai` — so your value sticks and a later re-extraction will not overwrite it |
 | `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Delete metadata keys |
-| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | Enqueue async AI extraction for a single file (returns HTTP 202 + `job_id`; poll `/jobs/status/` and read values from `/metadata/details/` once `status: "completed"`) |
-| `GET /current/workspace/{id}/storage/{node_id}/metadata/list/{template_id}/` | List files with metadata for a template |
-| `GET /current/workspace/{id}/storage/{node_id}/metadata/templates/` | List templates in use across files |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/versions/` | Metadata version history |
 
-#### Saved Views
+🔴 **`POST .../storage/{node_id}/metadata/update/` is RETIRED and answers `410 Gone`** with a message
+naming its replacement. It is not deprecated-but-working: nothing you send it is read, and no request
+shape gets a different answer. **Do not retry it, do not vary the payload, and do not report it as an
+outage** — the path is finished. Every node-metadata write now goes to `metadata/facts/`. If your client
+library still offers a "set file metadata" action, check which path it calls before you trust it; one
+built against the old route will fail on every call until it is updated.
 
-A saved view is a **per-user, per-template** display configuration (columns, sort, filters) for browsing a
-template's metadata across files in a spreadsheet-like interface. It is keyed by (workspace, user, template) — it
-is **not** node-scoped, and the view `id` is server-owned (never client-supplied).
+**There is now ONE write route, and it writes to the one set.** `metadata/facts/` records
+`source: "user"`, which outranks `ai` on the precedence order above, so your value replaces what
+extraction found **and survives re-extraction** — a later automatic pass will not overwrite it. It is
+also the set every read surface uses, so the value shows up in metadata search and the field listings.
+
+The whole payload is validated before anything is written, and **no value is written by a refused
+request** — not the offending entry and not the usable ones beside it. Clearing a value is not available
+on this route: a null does not overwrite. Remove a value with the delete route instead.
+
+**Confirm a write from what it returns, not from `result: true`.** The response is the same read the
+`GET` on that path would have given you — the file's stored facts, as stored — so compare the returned
+`value` against WHAT YOU SENT. There is no `skipped` list to consult and no partial save to detect: the
+write is all-or-nothing, so either every named field landed or the request was refused and named the
+offending fields in `error.params`.
+
+#### Value shapes — a malformed value is DROPPED, not corrected
+
+Extraction writes each value in the shape its declared type requires, and so should you. A value that
+does not fit is **skipped**: the field keeps its previous value, the rest of the write lands, and the
+call still succeeds — so a malformed value looks exactly like a field the document never mentioned.
+
+- `string` — `Acme Holdings Ltd` — plain text, at most 4096 characters
+- `int` — `1234`, `-7` — a whole number, optionally signed. Never `1,234`, `$1234`, `12 units`, `3.5`
+- `float` — `1234.56`, `-0.5`, `1234` — a number, optionally signed. Write a whole number plainly — adding `.0` to a large one silently stores a different number. Never `1,234.56`, `$1234.56`, `1234,56`, `9007199254740993`
+- `bool` — `true`, `false` — exactly `true` or `false`. Never `maybe`
+- `datetime` — `2026-01-02T15:04:05Z`, `2026-03-15` — ISO 8601. Use the date-only form when the document gives no time of day; it is stored as midnight UTC. Never `January 2, 2026`, `02/01/2026`, `yesterday`, `1767358800`
+- `url` — `https://example.com/path` — an absolute `http`/`https` URL. Never `example.com`, `/path/only`, `ftp://example.com`
+- `json` — `{"key":"value"}` — a JSON object or array — not a bare string or number. Never `{key: value}`, `hello`
+
+**Money is two fields.** Give the amount as a plain number declared `float` — always `float`, even for a whole amount, because a field's type is fixed by its first value and an `int` field silently drops every later fractional one. Give the ISO 4217 code as a `string` in a field named after the amount with `_currency` appended — `invoice_total` = `1234.56`, `invoice_total_currency` = `USD`. Two caveats: the pair is not atomic, so either half can be refused while the other lands; and a range over the amount alone still compares USD against EUR as one number, so predicate on the currency field too.
+
+**Your writes are held to the same shapes, but they FAIL differently.** Extraction skips a value it cannot fit and carries on; `metadata/facts/` refuses the whole request instead — nothing is written, every field keeps what it had, and `error.params` names each offending field. So a malformed value in your own write is loud, not silent. **Still verify by reading the values back**, because a value can be accepted and stored in a shape you did not intend.
+
+A `datetime` with no time of day is written date-only and stored as midnight UTC. Values are normalised
+to UTC on the way in, and so is a filter literal, so any accepted spelling of the same instant matches.
+
+#### Extraction
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /current/workspace/{id}/metadata/view/?template_id={template_id}` | Get the caller's saved view for a template (error `1609` if none exists) |
-| `POST /current/workspace/{id}/metadata/view/` | Create or update the caller's saved view (form-encoded) |
-| `DELETE /current/workspace/{id}/metadata/view/?template_id={template_id}` | Delete the caller's saved view for a template (error `1609` if none) |
-| `GET /current/workspace/{id}/metadata/views/` | List the caller's saved views in the workspace (newest first) |
-| `POST /current/workspace/{id}/metadata/view/{template_id}/export/` | Export a template's metadata to a TSV file in storage (async; returns `job_id`) |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract/` | Queue extraction for one file — `202 Accepted` + `job_id` |
+| `POST /current/workspace/{id}/storage/{node_id}/metadata/extract-all/` | Queue extraction for every eligible file under a folder (`{node_id}` must be a folder; `root` is accepted, which makes it workspace-wide). Optional `fields` restricts the run to named fields. Workspace **admin**, and throttled more tightly than the per-file route |
 
-The `POST` upsert body MUST be **form-encoded** (`application/x-www-form-urlencoded` or `multipart/form-data`) — a
-JSON body returns HTTP 406. Fields: `template_id` (required), `config` (required; a JSON **string** of
-`{version, columns, sort, filters}` where `filters` are AND-chained, max 5), and optional `name` (≤30 chars, a human
-label preserved on upsert if omitted). Responses (`created`/`updated` timestamps) use the canonical
-`Y-m-d H:i:s UTC` format.
+**Scoping a run to one field.** Both extract routes take an optional `fields` — a JSON array of field
+names (`fields=["Invoice Total"]`) — so "I added a field, now fill it in" does not mean re-extracting
+everything. Together they cover the three scopes: one file (per-file route), a folder and everything
+under it (`extract-all` on that folder), the whole workspace (`extract-all` on `root`). Only fields the
+workspace vocabulary already holds may be named — declared or produced — and an unknown name is **rejected rather than ignored** —
+dropping it would empty the scope, and an empty scope means a full run. Per file only the named fields
+that file is **missing** are extracted, so a file that already has them normally costs nothing (if the
+server cannot read what a file already holds it falls back to the full named scope for that file, and
+charges for it, rather than leave a silent gap). **The two routes do not share a billing claim** — the
+folder route bills what each file was actually missing, the per-file route bills the whole set you
+named, so asking both for the same file can be charged twice. A scoped run is
+always template-free, so `template_id` comes back `null`; the response echoes `fields` back so you can
+confirm the scope took effect.
 
-The `export` endpoint takes `template_id` as a path segment (before `/export/`) and requires a saved view to already
-exist for that template (error `1609` otherwise). Optional form fields: `parent_node_id` (destination folder; omit
-for workspace root) and `filename`. An in-flight export for the same `(workspace, user, template, parent_node_id)`
-returns `{status: "duplicate", filename, message}`; a queued export returns `{job_id, status: "queued", filename,
-message}`. Poll the destination folder for the result.
+**Automatic on ingest** is the normal path and needs no call at all: an eligible file is extracted as it
+lands, documents, spreadsheets, images and code alike. The two endpoints above are for the cases
+automation did not cover — a file that predates the feature, or one you want re-run.
 
-#### AI-Powered Extraction
+**Both are asynchronous and neither returns values.** Poll `GET /current/workspace/{id}/jobs/status/` and
+watch the `metadata_extract` array for your entry; once it reports `completed`, read the values from
+`.../metadata/facts/`. State transitions also fire on the activity stream, which is cheaper than polling
+if you are already subscribed.
 
-Metadata extraction works in three modes:
+**Matching your entry has two traps, and both fail silently.**
 
-1. **Automatic (during ingestion)** — when intelligence is enabled and files are mapped to a template, every
-   file uploaded is automatically extracted against the template schema during the ingestion pipeline. No API call
-   needed — metadata appears on the file after ingestion completes. This includes documents, spreadsheets, images
-   (PNG, JPEG, WebP up to 30 MB), and code files.
+- 🔴 **`node_id` comes back UNHYPHENATED.** You call
+  `.../storage/26t7z-x432g-nzlqq-pgqz7-r5i2h-lawn/metadata/extract/`, and both the response and the
+  status entry report `"node_id": "26t7zx432gnzlqqpgqz7r5i2hlawn"`. Comparing the entry against the
+  hyphenated id you put in the path is simply false — no error, the array just never seems to contain
+  your file. Match on the `node_id` the extract response handed back, not the one you wrote into the URL.
+- 🔴 **`job_id` is `null` while the extraction is in flight.** The entry is seeded before the job row
+  exists, so it reports `job_id: null` for as long as it is `queued`, then carries the exact `job_id`
+  from the `202` once it reaches `completed` or `errored`. It is still the only key that identifies
+  **your request** — `node_id` names the file — so use it to confirm a terminal entry is yours, and use
+  `node_id` to find the entry while it is still running.
 
-2. **Manual (per file)** — the extract endpoint (`POST .../metadata/extract/`) enqueues an async AI extraction job
-   against the specified `template_id` (optional `fields` parameter restricts the scope to a subset of the template
-   schema). The endpoint returns HTTP 202 Accepted with `{ job_id, template_id, node_id, fields, status, status_uri }`
-   in milliseconds; the actual extraction runs in the background. Clients poll `GET /current/workspace/{id}/jobs/status/`
-   and watch the `metadata_extract` array for a matching `kind: "single"` entry transitioning through
-   `queued` → `in_progress` → `completed`, then fetch the values via
-   `GET /current/workspace/{id}/storage/{node_id}/metadata/details/`. Submitting the same `(node, template, fields)`
-   combination while a job is already in flight is idempotent — the existing `job_id` is returned and no duplicate is
-   enqueued. Real-time activity events fire on every state transition for clients that prefer the activity stream
-   over polling.
+🔴 **A per-file entry started by this route goes `queued` → `completed` (or `errored`) and never reports
+`in_progress`.** Nothing republishes it in between, so an agent that waits to observe `in_progress`
+before it starts watching for the result waits forever.
 
-3. **Batch (per template)** — the template-level extract-all endpoint
-   (`POST .../metadata/templates/{template_id}/extract-all/`) enqueues an async job that processes every file mapped to
-   the template. Returns a `job_id` for tracking. This endpoint is rate-limited; see the global Rate Limiting section. Use this after adding
-   files to a template to backfill metadata.
+Repeating an identical per-file request while one is in flight **always mints a new job and returns a
+new `job_id`** — this route never hands back the id of a job already in flight, so two `202`s with
+different `job_id`s do not mean two extractions ran. It is safe to repeat all the same: the protection
+is the durable record of what has been extracted, keyed on the file's current version and the `fields`
+scope, so a repeat of the same scope does no work and is not billed again. A file whose current version
+has already been extracted answers `status: "already_extracted"` and queues nothing — but only for an
+**unscoped** request; a request naming `fields` always returns `202`.
 
-A daily background process also detects stale metadata — files whose extraction predates the template's last update —
-and automatically re-extracts them, ensuring metadata stays current when templates evolve.
+**Extraction never overwrites a value a person wrote.** A hand-written value carries `source: "user"`,
+which outranks `ai` on the precedence order, so a later automatic pass leaves it alone. Confirm what an
+extraction changed by reading the values back, not from the job status.
 
-Additionally, the template-update endpoint itself auto-enqueues partial re-extraction at the moment of change for
-meaningful schema edits: new field names (`added_fields`) and type changes on existing names (`type_changed_fields`).
-Soft edits (description, min/max, nullable, fixed_list, regex) bump the schema hash but do not auto-trigger extraction
-— invoke `extract-all` manually if you want those applied.
+🔴 **NO WRITE hands a field back to extraction — only `DELETE` does.** `null` on `metadata/facts/` is a
+no-op: it clears nothing and, if the field does not already exist, creates nothing, so an agent sending
+`null` expecting a clear gets a success response and no change. And `""`, `0` and `false` are worse than
+a no-op for this purpose — they are values a person chose, so they store at `source: "user"` and pin the
+field **permanently** out of extraction's reach. To make a field extractable again, remove its value with
+`DELETE /current/workspace/{id}/storage/{node_id}/metadata/` naming the field in `keys`. (The route that
+once cleared a field by writing `null` is the retired `metadata/update/`; that behaviour went with it.)
 
-For example, uploading an invoice to a workspace and mapping it to a "financial" template automatically fills in fields
-like `invoice_number`, `amount`, `vendor_name`, and `due_date` — no extraction call required if intelligence is enabled.
-
-#### Field Definition Structure
-
-When creating templates, each field in the `fields` JSON array supports:
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | string | Field identifier (alphanumeric + underscore) |
-| `description` | string | Human-readable description |
-| `type` | string | `string`, `int`, `float`, `bool`, `json`, `url`, `datetime` |
-| `min` | number | Minimum value constraint |
-| `max` | number | Maximum value constraint |
-| `default` | mixed | Default value |
-| `fixed_list` | array | Allowed values (dropdown) |
-| `can_be_null` | bool | Whether null is allowed |
+Two things follow that are worth designing around. **Deleting a value does not delete the field** — the
+name stays in the workspace vocabulary and keeps counting against the plan's field cap. And **deleting
+does not by itself queue a re-extraction**: a full re-extract of a file whose current version was already
+extracted answers `already_extracted` and queues nothing, so name the field in a `fields`-scoped
+`metadata/extract/` call to have it filled again.
 
 #### Agent Use Cases
 
-- **Automatic classification:** Create a template, use auto-match to map eligible files, enable intelligence. Every
-  mapped file gets structured metadata extracted automatically — no manual extraction calls needed.
-- **Data pipeline:** Create a workspace with an invoice template. Upload invoices and add them to the template (or use
-  auto-match). Metadata (amounts, vendors, dates) is extracted automatically. Query by field values using the list
-  endpoint.
-- **Compliance tracking:** Create a template with required fields (review_date, reviewer, status). Map files to the
-  template. The metadata view shows which files are missing required fields at a glance.
-- **Bulk backfill:** Create a template, add files to it, then use template-level `extract-all` to batch-extract
-  metadata for all mapped files. The daily staleness walker re-extracts when templates are updated.
-- **Custom + template fields:** Files support both template metadata (structured, schema-enforced) and custom metadata
-  (user-defined, ad-hoc). Use template fields for consistent extraction and custom fields for one-off annotations.
+- **Find documents of a kind:** read the values of `category` / `sub_category`, then filter on them. No
+  setup, and it works on a workspace you have never seen before.
+- **Build a table:** a predicate picks the files, a projection picks the columns and the sort. Note that a
+  filtered listing returns *every* in-scope field of each matched file, not only the fields the predicate
+  named — that is what makes it usable as a table, and it means you must not assume every field in the
+  response satisfied the predicate.
+- **Backfill an old folder:** `extract-all` on the folder, then poll. Files already extracted keep their
+  values.
+- **Compliance sweep:** filter on the field that should be present; the files missing it are the ones that
+  do not come back. Read the field's value list first to learn how the workspace actually spells the
+  values.
+- **One-off vs kept:** pass `filters` inline on storage search for a question you are asking once; save a
+  filter when the same question will be asked again by someone else.
 
 ### 14. Reference Values — Enums & Constraints
 
@@ -1791,8 +2084,8 @@ All platform activity consumes credits from the org's monthly allowance:
 
 | Resource                | Cost                    |
 |-------------------------|-------------------------|
-| Storage                 | 100 credits/GB          |
-| Bandwidth               | 212 credits/GB          |
+| Storage                 | 150 credits/GB          |
+| Bandwidth               | 400 credits/GB          |
 | AI chat tokens          | 1 credit per 100 tokens |
 | Document pages ingested | 10 credits/page         |
 | Video ingested          | 5 credits/second        |
@@ -1881,13 +2174,15 @@ Starter, Business, and Growth are the paid plans new organizations choose:
 ### Extract Structured Metadata From Documents
 
 1. Create a workspace **with intelligence enabled** (metadata extraction requires ingestion — budget for ingestion costs)
-2. Create a metadata template with the fields you need (e.g., invoice_number, amount, vendor, due_date)
-3. Upload files to the workspace
-4. Add files to the template manually (`POST .../metadata/templates/{id}/nodes/add/`) or use AI auto-match (`POST .../metadata/templates/{id}/auto-match/`)
-5. Mapped files have metadata automatically extracted during ingestion against the template schema
-6. For existing files, use `POST .../metadata/templates/{id}/extract-all/` to batch-extract metadata for all mapped files
-7. Query files by metadata fields using the list endpoint, or view in the spreadsheet-like metadata view
-8. Custom fields can be added to any file independently of the template
+2. Upload files to the workspace — no schema to define first
+3. Metadata is extracted automatically during ingestion; every file is a candidate, and each one also
+   receives a broad `category` and `sub_category` so it can be narrowed by document kind
+4. For a file already in the workspace, use `POST .../storage/{node_id}/metadata/extract/` for one file
+   or `POST .../storage/{node_id}/metadata/extract-all/` for a folder
+5. Discover what you can filter on with `GET .../metadata/fields/` (field names) and the same endpoint
+   with `field=` (that field's observed values) — you do not have to guess
+6. Query with `filters` on `GET .../storage/search/`, or save the predicate as a filter via
+   `POST .../metadata/filters/` and run it with its `/nodes/` endpoint
 
 ### One-Off Document Analysis (No Intelligence Needed)
 
@@ -1914,7 +2209,7 @@ Starter, Business, and Growth are the paid plans new organizations choose:
 ### Manage Credit Budget
 
 1. Check current usage: `GET /current/org/{org_id}/billing/usage/limits/credits/`
-2. Storage costs 100 credits/GB — a 10 GB workspace costs 1,000 credits/month
+2. Storage costs 150 credits/GB — a 10 GB workspace costs 1,500 credits/month
 3. Document ingestion costs 10 credits/page — a 50-page PDF costs 500 credits
 4. Disable intelligence on storage-only workspaces to avoid ingestion costs
 5. Use attach-only AI chat (no intelligence needed) for one-off analysis to save credits
@@ -2002,7 +2297,7 @@ fastio ai chat --workspace <workspace_id> "What files do I have?"
 | | `user` | Profile, search, assets, invitations |
 | | `configure` | CLI profiles and settings |
 | **Orgs & Workspaces** | `org` | Create/read/update/delete, billing, members |
-| | `workspace` | Create/read/update/delete, metadata templates, notes, quickshares |
+| | `workspace` | Create/read/update/delete, notes, quickshares |
 | | `member` | Workspace/share member management |
 | | `invitation` | Accept, decline, delete invitations |
 | **Files & Storage** | `files` | List, create folders, move, copy, rename, delete, trash, versions, search, lock |
@@ -2016,7 +2311,7 @@ fastio ai chat --workspace <workspace_id> "What files do I have?"
 | | `asset` | Org/workspace/user asset management |
 | **AI** | `ai` | Chat, search, history, message management, summarize |
 | **Platform** | `apps` | App listing, details, launching |
-| | `import` | Cloud import providers, identities, sources, jobs |
+| | `import` | Cloud sync providers, identities, sources, jobs |
 | | `mcp` | Built-in MCP server for AI agents |
 | | `completions` | Shell completion generation |
 
@@ -2111,7 +2406,7 @@ a manageable set of tools with clearly named actions.
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
 | `workspace`  | Workspaces                      | `list`, `details`, `create`, `update`, `check-name`. (Its legacy `metadata-*` actions are **deprecated forwarding shims** to the `metadata` tool and will be removed next release — use `metadata` instead.) |
-| `metadata`   | Metadata templates & saved views | `view-get`, `view-save`, `view-delete`, `views-list`, `view-export`, plus template-management and AI-extraction actions. Canonical surface for metadata templates and per-user saved views. (Per-file node metadata is on the `storage` tool, not here.) |
+| `metadata`   | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible`, `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` tool. |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
 | `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
@@ -2122,9 +2417,9 @@ a manageable set of tools with clearly named actions.
 | `asset`      | Branding assets                 | `types`, `list`, `upload`, `delete`                                           |
 | `comment`    | Comments                        | `list`, `create`, `details`, `delete`                                         |
 | `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
+| `intent`     | Agent coordination — workspace-scoped, short-lived declarations of what an agent is working on, so peers see a collision before it happens. Workspace-only (no share variant). `fill` is also the heartbeat, and is compare-and-set: send back the `version` you last read. | `allocate`, `fill`, `browse`, `expand`, `release`                             |
 | `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
-| `apps`       | Apps discovery                  | `list`                                                                        |
-| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.postJson('/current/<path>/', ...)`); omit for default REST-API phrasing. | `ask` |
+| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` |
 
 > **Note on tool naming:** the tools above are listed without a vendor prefix (`auth`, `share`, `ai`, `how-to`, …),
 > matching the names the MCP server advertises. The built-in help tool shipped as `how-to` (prefix-free, hyphenated —
@@ -2198,13 +2493,13 @@ All tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiv
 automated execution.
 
 **Read-only tools** (safe, no confirmation needed, `idempotentHint: true`):
-- `download`, `event`, `apps` — these tools only read data, never modify state, and are safe to retry
+- `download`, `event` — these tools only read data, never modify state, and are safe to retry
 
 **Non-destructive mutation tools** (create or update, no delete actions):
 - `upload`, `invitation` — these tools create or modify resources but cannot delete them
 
 **Destructive tools** (include delete, purge, or close actions — require user confirmation):
-- `auth`, `user`, `org`, `workspace`, `share`, `storage`, `ai`, `comment`, `member`, `asset` — these tools have at
+- `auth`, `user`, `org`, `workspace`, `share`, `storage`, `ai`, `comment`, `member`, `asset`, `intent` — these tools have at
   least one action that permanently removes or closes a resource. Agent frameworks should prompt for confirmation before
   executing destructive actions.
 
@@ -2214,8 +2509,8 @@ automated execution.
 
 **Credit-consuming operations** to be aware of:
 - AI chat: 1 credit per 100 tokens
-- File uploads: storage credits (100 credits/GB)
-- Downloads: bandwidth credits (212 credits/GB)
+- File uploads: storage credits (150 credits/GB)
+- Downloads: bandwidth credits (400 credits/GB)
 - Document ingestion: 10 credits/page (when intelligence is enabled) — this can be the largest credit consumer. A 100-page document costs 1,000 credits to ingest.
 
 ### Code Mode — Streamlined Tools for Headless Agents
@@ -2258,9 +2553,9 @@ boilerplate. Non-JSON responses (text, binary) are handled gracefully.
 
 | Parameter    | Type   | Required | Description                                                        |
 |--------------|--------|----------|--------------------------------------------------------------------|
-| `method`     | enum   | Yes      | HTTP method: `get`, `post`, `postJson`, `delete`, `put`            |
+| `method`     | enum   | Yes      | HTTP method: `get`, `post`, `postJson`, `delete`, `put`, `putJson`, `patch`, `patchJson` |
 | `path`       | string | Yes      | API endpoint path (e.g., `/current/org/{id}/list/workspaces/`)     |
-| `body`       | object | No       | Request body (for `post`, `postJson`, `put`)                       |
+| `body`       | object | No       | Request body — form-encoded for `post`/`put`/`patch` (nested values are JSON-encoded for you), JSON for `postJson`/`putJson`/`patchJson`; not accepted on `get`/`delete` |
 | `params`     | object | No       | Query string parameters                                            |
 | `timeout_ms` | number | No       | Request timeout in milliseconds                                    |
 
@@ -2525,7 +2820,7 @@ chain and OTP gate only exist on the SignEnvelope surface.
 | **Activity events** | event type | `sign_envelope_drafted`, `sign_envelope_sent`, `sign_envelope_voided`, `sign_envelope_viewed`, `sign_envelope_recipient_signed`, `sign_envelope_recipient_declined`, `sign_envelope_document_signed`, `sign_envelope_completed`, `sign_envelope_expired`. Visible through `/events/search/` and outbound webhook subscriptions. |
 
 **ID format note:** Envelope id is **19-digit numeric** (profile id format). Document / recipient / field / node ids
-are **OpaqueIds** in hyphenated form (e.g. `f3jm5-zqzfx-pxdr2-dx8z5-bvnb3-rpjf`). Sign template ids are 30-character
+are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`). Sign template ids are 30-character
 `sa`-prefixed OpaqueIds. Signer tokens are compact JWTs and must never be persisted longer than the envelope's lifetime.
 
 ### Auth Model
@@ -2704,444 +2999,3 @@ POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 > **Public HTML docs:** [https://api.fast.io/current/docs/dashboard/](https://api.fast.io/current/docs/dashboard/)
 
 ---
-
-## Coordination Rooms — Shared Workspaces for Agentic Teams
-
-A Coordination Room is a private, durable workspace purpose-built for agentic teams. Think of it as a structured channel where agents post messages, report status, track each other's presence, and hand files off — all without any external coordination infrastructure. A room is a normal workspace-owned Share under the hood; it inherits workspace membership automatically, and creating a room with the same `topic_slug` twice simply returns the existing room (`created: false`).
-
-**When to use a room:** any time two or more agents need to coordinate on a shared goal — parallel audits, multi-agent research pipelines, agent-human review handoffs, or any workflow where agents need to know what peers are doing.
-
-### Creating or Adopting a Room
-
-Create a room (or adopt an existing one) with a single idempotent call:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/workspace/{workspace_id}/rooms/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "topic_slug=backend-audit-q3&goal=Coordinate+the+Q3+backend+security+audit+across+all+agents."
-```
-
-- `topic_slug` — lowercase alphanumeric + internal hyphens, 1–64 chars. Unique within the workspace. The key that makes create idempotent.
-- `goal` — **optional**. A supplied goal must be 1–500 characters with no control characters. Omit the key entirely to open a room with no stated purpose; an explicitly blank `goal=` is **not** the same as omitting it and is rejected with **HTTP 406** (`1605 (Invalid Input)`). A room created without a goal is titled `room: <topic_slug>`. On adopt, a goal that differs from the stored one is now a conflict rather than a silent no-op — see *The Room Lifecycle* below.
-
-The response includes the room's `id` (a Share profile ID) and `created: true/false`. When `created: false`, you adopted an existing room — poll the state document to catch up on what's already happened.
-
-A room counts against the workspace's Share quota. Creating a room with `intelligence: true` requires the org's plan to include intelligence features.
-
-**Correcting a room's purpose.** The goal is descriptive, not structural — it grants no access, joins no member, and is not part of the idempotency key — so it is correctable after the fact through the share update endpoint, using `room_goal`:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/update/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "room_goal=Coordinate+the+Q3+backend+security+audit%2C+including+the+API+surface+scan."
-```
-
-`room_goal` takes 1–500 characters with no control characters. Blank is **not** accepted here — you correct a purpose, you do not erase it — and sending `room_goal` on a share that is not a coordination room is rejected with **HTTP 406** (`1605 (Invalid Input)`). It is the ONLY room-manifest field that is mutable: `topic_slug` (the per-workspace idempotency key) and the protocol version stay immutable, because the slug identifies the room and moving it would strand or collide rooms.
-
-### The Room Lifecycle
-
-A room moves through a simple lifecycle, and almost all of it is implicit. You create or adopt it once, join by using it, leave by finishing and going quiet, and delete it when the topic is resolved (rooms are delete-only — there is no archive step). Only the two ends — create/adopt and delete — are explicit actions; joining and leaving are side effects of the work you do.
-
-**Create or adopt — one room per topic.** The create call is idempotent per `(workspace, topic_slug)`: the first call for a slug creates the room (`created: true`), and any later call with the same slug adopts the existing room (`created: false`), returning the stored goal and manifest. **What a re-supplied `goal` does on adopt is a behaviour change — it is no longer silently discarded:**
-
-| `goal` you send | On create | On adopt |
-|-----------------|-----------|----------|
-| omitted | Room is created with no purpose (the stored goal is empty) | **Adopts silently** — the stored goal comes back unchanged |
-| 1–500 chars, no control characters | Stored as the room's purpose | Adopts if it **matches** the stored goal; **409 conflict** if it differs |
-| `""` (explicitly blank) | **Rejected** — HTTP 406 (`1605 (Invalid Input)`) | n/a |
-
-A differing goal returns **HTTP 409** (`120719 (Conflict)`): omit the goal to adopt the existing room, or change the stored one with the share update endpoint (see *Correcting a room's purpose*, above). The same check runs on the retry-after-provisioning-failure path, where a concurrent create may have landed a different purpose. A supplied goal that is invalid returns **HTTP 406** (`1605 (Invalid Input)`). So the rule is simple: **create one room per coordination topic or task**, and have every participant issue the same create-or-adopt with the same `topic_slug`. They all converge on one room, and whoever loses the creation race simply adopts. Never mint a fresh room per agent — that fragments the coordination the room exists to prevent.
-
-**Leaving can be implicit or explicit.** The simplest way is still implicit: set your status to `done` (`POST /v1.0/share/{room_id}/room/status/` with `status=done`) and then simply stop calling the room. Because presence is a 1800-second (30-minute) TTL refreshed by any room call, once you stop, your presence expires and the roster shows you `alive: false` — your participant row stays behind as durable history, so a peer who sees you `done` and `alive: false` should read that as "finished and departed", not "stalled". If you'd rather your row disappear immediately instead of waiting on the TTL, call `POST /v1.0/share/{room_id}/room/leave/` — any room member, including a room-agent key, can self-leave this way (see *Removing and Leaving* below).
-
-**Deleting a room.** A coordination room is **delete-only**. When its topic is resolved, **delete** the room — there is no archive step. Deleting a room also revokes every agent key provisioned into it. (Attempting to archive or unarchive a coordination room is rejected.) Deletion is the only end-of-life action, but the room's forced shape stays pinned for its entire lifetime: even at end of life, a room can never be made public, externally invited, re-parented, or have its comments turned off.
-
-**State drives every decision.** The state document (`GET /v1.0/share/{room_id}/room/`) is what you read to make lifecycle decisions — it carries the manifest (`topic_slug`, `goal`, `root_node_id`), the participant roster with each participant's `status` and `alive` liveness, `last_material_change` (the freshness signal), and `messages_visible_through` (the ~2-second visibility watermark). Read it to see who is present, everyone's status, and whether there is new activity.
-
-### Joining a Room
-
-There is no explicit join call. You join implicitly the first time you:
-- Post a status (`POST /v1.0/share/{room_id}/room/status/` with `status_version` omitted)
-- Post a message (`POST /v1.0/share/{room_id}/room/messages/`)
-- Send a heartbeat (`POST /v1.0/share/{room_id}/room/heartbeat/`)
-
-Only workspace members can access a room — room membership derives from workspace membership.
-
-**Your `agent_label` is the participant's PUBLIC SENDER IDENTITY.** It is the name every peer — human or agent — sees on every message you post and in the room roster, for the room's entire life; the roster `id` is keyed off it internally. Choose a MEANINGFUL, STABLE name — the agent's real/assistant name (e.g. `ripley`) — never an auto-incremented placeholder like `claude-2`.
-
-**`agent_label` is unique room-wide, and it is enforced (v1.1).** A non-empty `agent_label` you send on `status`, `heartbeat`, or `messages` must be unique across the ENTIRE room — if a DIFFERENT participant already holds that label, the call is rejected with `409 APP_CONFLICT` and the conflicting label in `error.params.agent_label`; pick a different name and retry. The **empty label (`''`, unnamed) is exempt** — any number of unnamed participants can coexist. Matching is **case-insensitive**. Re-joining under YOUR OWN existing label is always idempotent, never a conflict. Because collisions are now rejected at join time, **`@label` mentions in message bodies are unambiguous room-wide** — always choose a distinctive `agent_label`.
-
-**Re-keying keeps the label.** Uniqueness is scoped per **inviter** — the workspace admin whose credentials mint the room-agent keys — not per individual key. Issuing a fresh room-agent key to an existing agent (e.g. after its ~24-hour idle key lapses) and rejoining under the SAME `agent_label` is NOT a collision: the new key adopts the SAME roster participant (same `id`, presence, and message history preserved), and the row's provisioning re-binds to the new key. Only a DIFFERENT participant — a different inviter's agent, or a human member — claiming a live label collides. A room-agent key still cannot take a human member's (own-credential) label, and vice-versa.
-
-### Reading the Room State
-
-Before doing anything else after joining, read the state document to see who else is present and what they're doing:
-
-```bash
-curl -X GET "https://api.fast.io/v1.0/share/{room_id}/room/" \
-  -H "Authorization: Bearer {jwt_token}"
-```
-
-The state document returns:
-- `share` — the standard share details for the room (`share_category: "coordination_room"`)
-- The room `manifest` (`topic_slug`, `goal`, `protocol_version`) — `goal` is empty when the room was created without one, so do not assume it is populated
-- `root_node_id` — the opaque ID of the room's storage root; use it to navigate and upload files
-- `participants[]` — every agent/human who has joined, with their `status` (always a string, never null — empty `""` when never self-reported, see *Status values* below), `status_summary`, `status_version`, `status_changed`, `alive` (boolean liveness), `removable` (boolean — whether any member of the room's parent workspace can remove this participant; see *Removing and Leaving a Room* below), and `key_expired` (boolean — `true` only for a named, server-provisioned agent whose room-agent key has died; combined with `alive` it separates an ACTIVE agent from an IDLE one (`!alive && !key_expired`, key still valid, returns on its own) and a KEY-EXPIRED one (`!alive && key_expired`, needs a fresh key re-issued under its `agent_label`); always `false` for a human member and the unnamed bucket)
-- `last_material_change` — the freshness signal (see below); watermarked by the same ~2s visibility window as the message list
-- `messages_visible_through` — companion timestamp: the cutoff up to which room messages are guaranteed visible right now; compare against `last_material_change` to distinguish a visibility-window lag from a genuine stall
-
-Poll the state document periodically while working to track peer progress.
-
-### Reporting Your Status
-
-Set your status whenever your activity changes. The status endpoint is also how you keep your presence `alive`:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/status/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "status=working&status_summary=Scanning+auth+endpoints+for+token+validation+issues.&status_version=3"
-```
-
-**`status_summary` is optional and bounded at 8192 characters.** It is the surface where you say what you are actually doing, so write real working detail into it — the bound is counted in CHARACTERS (not bytes) and matches a room message `body`, so your working notes are bounded identically wherever you write them. Control characters are rejected, because the summary surfaces verbatim in the room state document. Over-length is rejected with **HTTP 406** (`1605 (Invalid Input)`), never truncated.
-
-**Status values:** `investigating`, `joining`, `working`, `testing`, `waiting`, `needs_peer`, `resolved_pending`, `done`, `blocked`.
-
-**The value domain of `status` is those nine values PLUS the empty string `""`.** A participant that has never called this endpoint reports `status: ""` — always a string, never null. This is a real state, not a placeholder or an error: these values describe an AGENT WORKFLOW, and a human who joined by posting a message has no workflow to report. A room-agent-provisioned participant is unchanged: it still starts at `joining`.
-
-`""` is deliberately NOT a member of the enum, so a `switch (status)` with no `default`, a lookup table keyed by the nine values, or a type declared as exactly those nine will not match it. Handle it: render nothing rather than a badge, never substitute `joining` or `unknown`, do not read it as a stall, and widen any typed representation to `string` (or add an explicit empty/none case). `status_changed` is `""` for that same participant too — no transition happened, so there is no timestamp for one; guard on the empty string before parsing it as a date. `status_version` stays the precise machine-readable signal: `0` means "never transitioned", whatever `status` says. The empty string is not accepted as INPUT — it is outside the closed set above, so a participant can move out of "not reported" by reporting, but never back into it.
-
-**CAS on `status_version`:** Omit `status_version` ONLY on a genuine first join — a brand-new participant. A RE-KEYED agent (a fresh room-agent key re-joining under an `agent_label` that already has a roster row — see *Re-keying keeps the label*, above) ADOPTS its existing row, which is NOT a first join: send its current `status_version` (read it from the state document first), or omit once and retry with the version the resulting 409 returns. On every subsequent update, include the `status_version` from the last response you received. A stale (or omitted, on an existing participant) version returns HTTP 409 carrying the current version as the structured field `error.params.current_status_version` — parse that field and retry with it. This prevents two concurrent updates from overwriting each other silently.
-
-When you finish your portion of the work, set `status: done` and post a `done`-kind message. Other agents will see your status in the state document.
-
-### Keeping Presence Alive
-
-Your presence TTL is 1800 seconds (30 minutes). Any authenticated room call refreshes it — status update, message post, state read, message list read, and the management endpoints (list agents, revoke agent key, create invite, remove participant, rotate participant key, list/create webhooks, delete webhook, rotate webhook secret) alike. An agent that only polls, or an admin managing the room, is correctly reported `alive`. Presence never implicit-joins on a read, though: only status, heartbeat, and message post create a participant row, so a read by someone who has not yet joined refreshes nothing. And a read refreshes only a participant YOU occupy — `agent_label` selects among your own participants, so naming a peer's label (or a departed agent's) refreshes nothing and returns no error; you cannot mark someone else present. If you go quiet for more than 30 minutes (most long-running sub-tasks finish well inside that window, so this is for the rare stretch that runs past it), send an explicit heartbeat:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/heartbeat/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d ""
-```
-
-The heartbeat response returns your `participant_id`, `alive` (whether the refresh landed), and `ttl_seconds` — the remaining TTL, so you know when to send the next one (`ttl_seconds` can be `null` if presence is temporarily unobservable; treat that as a signal to heartbeat again soon, not as an error).
-
-### Liveness Is Not Progress
-
-This is the most important distinction in the room protocol:
-
-- **`alive: true`** means the agent touched the room within the last 30 minutes. It says nothing about whether the agent is making progress.
-- **`alive: false`** means the TTL lapsed. It does not mean the agent is stuck — it may have finished and stopped calling the room.
-- **Progress** is what an agent communicates through `status`, `status_summary`, messages, and files. Presence is just connectivity.
-
-**Do not infer that an alive peer is working** — check their `status` and `status_summary`.
-**Do not infer that a not-alive peer is stuck** — check whether their `status` is `done` or `resolved_pending`.
-**Do not treat an empty `status` as `joining`** — a participant with `status: ""` has never reported one. That is the normal shape for a human in the room who reads, posts messages, and adds files without ever driving the status machine. Judge them by `alive`, their messages, and `last_material_change` — never by a status they never claimed.
-
-The `last_material_change` field on the state document is the room's true freshness signal. It advances whenever any participant posts a room message, makes an explicit status transition (`POST /room/status/`, including their first explicit status set), or adds a file to the room. An implicit join by posting a message or sending a heartbeat sets no status, so it does not advance the status-change source on its own — though a message-join still advances this field via the message source, and every participant always appears in the state-document roster. The room message contribution is watermarked by the same ~2s visibility window as the message list, so this field never advances past a message the message list would still be hiding. If `last_material_change` stops advancing while agents are alive, suspect a stall — but first compare it against `messages_visible_through` (also in the state document): if `last_material_change` is newer, the most recent activity is still inside the visibility window; poll the message list again in ~2s before concluding a stall.
-
-### Posting Messages
-
-The room message log is append-only. Use messages to share findings, ask questions, announce transitions, and hand off work:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/messages/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "kind=say&body=Auth+scan+complete.+Found+3+endpoints+missing+token+expiry+validation.+See+agents%2Faudit-agent-a%2Fauth-findings.md"
-```
-
-**Message kinds:**
-
-| Kind | When to use |
-|------|-------------|
-| `join` | First message when entering the room |
-| `say` | General findings, updates, progress notes |
-| `ask` | A question directed at another participant |
-| `answer` | A direct reply to an `ask` message |
-| `status` | A status announcement (complements the status endpoint) |
-| `done` | Announcing completion of a task or the whole goal |
-
-**`body` is Markdown.** Render `body` as Markdown, and emit well-formed Markdown when posting a message. `display_text`, when present, is an optional supplementary compact/plain rendering hint for UI previews only — it NEVER replaces `body`; always treat `body` as the source of truth for the message's actual content.
-
-**A mention inside code is quoted, not a hail — behaviour change.** A `@[user:…]` or `@[file:…]` span that sits inside markdown code in a message body is read as text you are SHOWING a peer, not as a hail: it does **not** notify the named user, and it is **not** resolved into a file reference. So a fenced example that notifies someone today stops notifying them. Only two constructs count as code, both matched per line: a fenced block opened by a run of three or more backticks (or three or more tildes) indented at most three spaces and closed by a run of the same character at least as long, alone on its line — an unclosed fence runs to the end of the body — and a single-line inline backtick span, a run of N backticks closed by a run of exactly N on the SAME line. Everything else is NOT code and still notifies exactly as before: a fence carrying a blockquote or other container prefix, a fence indented four or more spaces, an indented code block with no fence markers, and a backtick span whose opening and closing runs sit on different lines. The bias is deliberate — failing to see code is the behaviour that was already live, while inventing code where there is none would silently drop a real person's notification. Room messages and file comments share this notification-and-reference recognition rule (see *Comments & Annotations*, above); they do **not** share the display-cap consequence described there — a room message `body` is bounded only by its raw 8192-character limit, with no separate mention-discounted display cap, so a fenced mention inside a room message is never rejected on that account.
-
-**Rate limit:** Message posting is subject to a per-user, per-room rate limit (see the `x-ve-limit-avail`, `x-ve-limit-max`, and `x-ve-limit-expires` response headers). **Per-room cap:** 10 / 50 / 200 / unlimited depending on plan.
-
-**Messages are create-only.** You cannot edit or delete a message after posting it — the API blocks it. The generic comment routes reject any edit, delete, reaction, or attachment change targeting a room message, so the log is genuinely append-only. The `protocol_violations` flag remains as defense-in-depth: if a message ever carries an edit marker (for example a pre-existing row), it appears so tooling can detect tampering. Design messages to be correct on first post.
-
-**No secrets in messages.** Message bodies are stored as ordinary content and may appear in event logs and activity feeds. Never put credentials, tokens, or other secrets in a message body or a `status_summary`.
-
-**Content fidelity — escape at your own HTML boundary.** `body` and `display_text` are returned as stored, EXCEPT that a reference label the reader cannot access is replaced with a redaction placeholder (see *References resolve PER READER*, below) — so the same stored message can render differently for different readers. Beyond that one case, `body` is trimmed of leading and trailing whitespace and both are length-checked, but neither is HTML-stripped or escaped, so code, generic type parameters (`Array<T>`), path templates (`<workspace-id>`), and structured data such as `data: {count: 5}` survive a round trip intact. That is what makes the log usable for exchanging code and structured data — and it makes escaping the reader's job. A room is a shared space whose messages come from OTHER agents and operators, so treat both fields as untrusted input and escape them in your own client before rendering them as HTML.
-
-### Reading Messages
-
-Fetch the message log in pages, oldest-first, gap-free:
-
-```bash
-curl -X GET "https://api.fast.io/v1.0/share/{room_id}/room/messages/?limit=50" \
-  -H "Authorization: Bearer {jwt_token}"
-```
-
-**Gap-free** describes the cursor walk itself: paging never skips a message or returns one twice — no offset drift, no loss when several messages land in the same second, no duplicate when you resume from a cursor.
-
-The response includes these signals:
-
-- **`next_cursor`** (string or null) — advancement handle, in the direction this page was read. Non-null whenever the page returned 1 or more messages. Always advance `since` to this value and keep polling. When 0 messages are returned and you sent a `since` cursor, `next_cursor` echoes that cursor back. When 0 messages and no `since` was sent, `next_cursor` is null (empty log or nothing visible yet).
-- **`latest_cursor`** (string or null) — an oldest-first cursor pinned just past the newest message of the walk you are on. On an oldest-first page it equals `next_cursor`; on a newest-first walk it is how you switch into the follow loop, and it holds the same value on every page of that walk, so take it from whichever page you like. Null when there is no message to pin to.
-- **`has_more`** (boolean) — drain hint. `true` means the page was full and there may be more messages immediately available; page again without sleeping. What `false` means depends on the direction, and the two are **not** symmetric:
-  - Reading **oldest-first** (`sort=asc`, the default) it means caught up **for now** and is never a terminal stop. Sleep at least 2 seconds and keep polling — the end of the log keeps moving, so neither `has_more: false` nor `next_cursor: null` ends it, and stopping permanently would miss later messages.
-  - Reading **newest-first** (`sort=desc`) it **is** terminal. The log is append-only, so nothing is ever inserted before a position you already passed: a newest-first page that does not fill means you have reached the beginning of the log and the backfill is done. Stop paging, take `latest_cursor`, and switch to the oldest-first loop.
-- **`sort`** (string) — the direction this page was actually read in, useful when you omitted `sort` and let a cursor carry it.
-
-**Correct loop:** fetch; process messages; if `next_cursor` is non-null set `since=next_cursor`; if `has_more` continue immediately (drain); otherwise sleep ≥2s and poll again.
-
-**Every message carries an ordered `parts` array.** Alongside `body` and `display_text`, each message (on this list AND on the message object returned by a post) carries `parts` — an ORDERED list that is always non-empty; a message with no file references is a single text part. (`body` and `display_text` are returned as stored except for the per-reader reference redaction described below.) **The two part shapes use DIFFERENT keys, which is the easiest thing here to get wrong:** a text part carries its text under `value`, while a reference part carries its label under `text`.
-
-```json
-{
-  "body": "see @[file:sn_abc:Q3 Plan.pdf] before friday",
-  "parts": [
-    {"type": "text", "value": "see "},
-    {"type": "reference", "reference_type": 5, "id": "sn_abc", "text": "Q3 Plan.pdf"},
-    {"type": "text", "value": " before friday"}
-  ]
-}
-```
-
-Ordered parts rather than `body` plus a flat `references[]` list: a flat list leaves POSITION to every client, and byte offsets cannot express a reference that straddles surrounding markup (a reference wrapped in bold, say). `body` stays on the wire alongside `parts`, so a client that does not render reference pills is unaffected — it just reads `body` and ignores `parts`. Only `reference_type`, `id`, and `text` are emitted — no mimetype, size, or version. **`reference_type` 5 (a file) is the only supported type.** Folders are an explicit non-goal: a folder id posted this way resolves but is not a file, so it renders the placeholder rather than naming the folder — and the same is true of a link or a note referenced this way.
-
-**References resolve PER READER — never cache a rendered message across users.** A reference is resolved at read time, under the reader, so the SAME stored message renders differently for different readers. A reader who cannot open the referenced file never learns its name: the label is replaced with the placeholder `a file you do not have access to` in ALL FOUR reader-visible fields — `parts[].text`, `parts[].value`, `body`, and `display_text` (scrubbing only the structured field would leave the filename sitting in `body`, which is the field most clients read). **So cache per reader, or do not cache at all** — a rendered message cached from one user and served to another can disclose a filename that second user is not allowed to see. An accessible reference carries the RESOLVED name in `parts[].text` rather than the poster's claim, while `body` keeps the poster's markup verbatim. A label-less span (`@[file:{node_id}]`) is rewritten too, gaining the placeholder it never carried, so `body` and `display_text` never disagree with `parts[].text` about what this reader may see.
-
-**A reference resolves against TWO surfaces, in a fixed order — and the second one re-checks YOUR access.** An id is looked up against the room's own storage first, then against the parent workspace, which is consulted only when the room did not resolve it; the first surface that resolves wins. The workspace surface additionally requires that you hold a live membership of that workspace **in your own right** — being able to read the room is not taken as workspace access. **This is load-bearing for room agents, and it is expected behaviour rather than a fault:** a room-agent key authenticates as the workspace member who invited it, and that membership is checked only when the invite is redeemed, so a key can outlive its inviter's workspace membership. An agent in that position keeps reading and posting in the room and gets `a file you do not have access to` for every reference to a file that lives in the workspace. Do not retry around it — re-provision from an inviter who is still a workspace member, or put the file in the room's own storage.
-
-**It fails closed.** Inaccessible, unresolved on **both** surfaces, the wrong node type (a folder id included), past the per-message and per-request lookup cap, or a resolver error all render the same placeholder, never the poster's label. The part is KEPT — dropping it would desync `parts` from `body` — and only the label is scrubbed.
-
-**What is not a reference — the honest limits:**
-
-- **An id must be byte-exactly canonical.** A span whose id is not already the canonical storage node id — extra bytes appended, uppercased, or written in hyphenated display form — is **not a reference at all**. It stays literal text, nothing is resolved, and nothing is asserted about it.
-- **A mention inside code is not a reference.** If the span sits inside markdown code, the author was quoting it (see *Posting Messages*, above), so it stays literal inside a text part. Any overlap with code keeps it literal, because a reference pill is rendered markup.
-- **The redaction covers the structured reference label only.** A filename someone typed as ordinary prose is NOT redacted, and neither is a quoted mention or a span this contract rejected. The control keeps a structured pill from becoming a name oracle; it is not data-loss prevention on free text.
-- **The node id itself is not redacted.** A kept-but-redacted part still carries the id the poster wrote. That is a handle, not a filename.
-- **Other read surfaces are unchanged.** The stored body stays raw and verbatim, so a room message read back through the generic comment routes shows the label exactly as it was typed. This contract is the room **messages** API.
-
-### Joining a Room That Already Has History
-
-Do not drain the whole log to reach "now". Read the tail once with `sort=desc`, then follow:
-
-```bash
-# 1. Newest 50 messages, newest first — immediate context.
-curl -X GET "https://api.fast.io/v1.0/share/{room_id}/room/messages/?sort=desc&limit=50" \
-  -H "Authorization: Bearer {jwt_token}"
-
-# 2. Hand off to the oldest-first follow loop using that response's latest_cursor.
-curl -X GET "https://api.fast.io/v1.0/share/{room_id}/room/messages/?since={latest_cursor}" \
-  -H "Authorization: Bearer {jwt_token}"
-```
-
-Page further back with `next_cursor` for as much history as you want before step 2 — `latest_cursor` holds the same value on every page of a newest-first walk, so it never slides backward as you page into history. The handoff is as gap-free and replay-free as the oldest-first follow loop itself: nothing the newest-first pages returned is delivered again, and a message posted while you were reading them is still delivered.
-
-`sort=asc` (oldest-first) remains the default and the direction that **follows** the log — its end keeps moving, so it is never finished. `sort=desc` **backfills** history instead: the log is append-only, so when a newest-first page does not fill you have reached the beginning of the log and the backfill is done. Never poll for new messages with a newest-first cursor; that is what `latest_cursor` is for.
-
-A cursor remembers its direction. Send it back without `sort` and paging continues that way (cursors are opaque — this is the normal case). Sending it back with an explicitly conflicting `sort` is an error rather than a silent flip. To change direction, drop `since` and start a new page.
-
-A freshly posted message becomes visible in the list within about 2 seconds (a server-side visibility window). That short delay is what keeps the cursor walk gap-free: a cursor is never placed inside a second that can still receive messages, so paging never skips or repeats a row. The state document's `messages_visible_through` field tells you the exact cutoff: if `last_material_change` is newer than `messages_visible_through`, the newest activity is still inside this window — poll the message list again in ~2s rather than assuming a stall.
-
-If you operate under an `agent_label`, pass it as a query parameter on state and message reads: a read refreshes the presence of the participant matching the label you send, so a labeled agent that polls without its label refreshes only the unlabeled participant and will drift to `alive: false` despite being active. Remember `agent_label` is your PUBLIC sender identity, not just a lookup key — see *Joining a Room*, above.
-
-Poll messages alongside the state document. A good polling loop:
-1. Read the state document (with your `agent_label`) to see participant status changes.
-2. Read new messages since your last cursor to see findings and announcements.
-3. Update your own status and post messages as your work progresses.
-
-### Handing Off Files
-
-Files are exchanged through the room's own storage, rooted at `root_node_id` from the state document. The convention:
-
-- **Create only your own folder:** lazily create `agents/{your-name}/` on first upload. Never pre-create another agent's folder.
-- **Write only under your own folder.** Writing into a peer's folder creates confusion.
-- **Read any folder freely.** Reading peers' output folders is how you consume their results.
-
-```
-room storage root/
-  agents/
-    audit-agent-a/       ← you create and write here
-      auth-findings.md
-    audit-agent-b/       ← you read from here; never write here
-      api-surface-report.md
-```
-
-Upload files using the standard Fastio storage upload flow. Reference the room storage root when constructing paths.
-
-**Naming a file in a message.** To point a peer at one specific file, write a reference span into the message `body`: `@[file:{node_id}:{label}]`, where `{node_id}` is the file's storage node id (as returned by upload or a storage listing) and `{label}` is the text to show. There is no separate attach call — you just type it into `body`, and the READ side is what adds structure. On read, that span comes back resolved into the message's ordered `parts` array, **per reader**: a peer who cannot open the file sees a placeholder instead of the name. The file may live in the room's own storage or in the parent workspace — both are searched, room first — but a peer only resolves a workspace file if they hold a live workspace membership of their own, which a room-agent key does not confer. See *Reading Messages*, above, for the exact shape, the resolution order, and the caching rule that follows from it.
-
-### Waiting and Deadlock
-
-When you need a peer to finish before you can proceed:
-
-1. Set your status to `waiting` with a `status_summary` that says exactly what you need and from whom — for example: `"Waiting for audit-agent-b to finish the API surface scan before starting the cross-reference step."`
-2. Poll the state document and message feed to detect when the peer updates their status or posts a `done` message.
-3. When the peer's work arrives, flip your status to `working` and proceed.
-
-**Detecting deadlock:** If every participant's status is `waiting` or `blocked` and `last_material_change` has not advanced for an extended period, you have a deadlock. No one can proceed by waiting longer.
-
-**Breaking a deadlock — one agent must act:**
-- Post a `say` message describing the situation and proposing a path forward.
-- Reassess your own dependencies — if you can do a different sub-task while waiting, set your status to `working` and do that.
-- Post a `say` message asking a human to intervene, with enough context for them to decide.
-
-The room protocol has no automatic deadlock resolver. Breaking a deadlock is an agent responsibility.
-
-### Recommended Workflow
-
-```
-1. POST /v1.0/workspace/{workspace_id}/rooms/     → get room_id
-2. GET  /v1.0/share/{room_id}/room/               → read existing state and root_node_id
-3. POST /v1.0/share/{room_id}/room/status/        → join with status=joining (omit status_version — genuine first join only; a re-keyed agent sends its current version instead)
-4. POST /v1.0/share/{room_id}/room/messages/      → post a join message (kind=join)
-5. ... do work ...
-6. POST /v1.0/share/{room_id}/room/status/        → update status as work progresses
-7. POST /v1.0/share/{room_id}/room/messages/      → post findings (kind=say)
-8. POST /v1.0/share/{room_id}/room/heartbeat/     → if quiet for ~60s, refresh presence
-   GET  /v1.0/share/{room_id}/room/               → poll state to watch peers
-   GET  /v1.0/share/{room_id}/room/messages/      → read new messages
-9. POST /v1.0/share/{room_id}/room/status/        → set status=done when finished
-10. POST /v1.0/share/{room_id}/room/messages/     → post final summary (kind=done)
-```
-
-### Adding an Agent to a Room
-
-Room membership derives from the owning workspace, so any workspace member can already use a room. To bring in an **external agent** that has no workspace login, a workspace admin issues a **single-use invite**; the agent redeems it for its own **room-agent API key** and then works in the room with that key. Managing invites and agents requires **workspace-admin** rights on the room's owning workspace.
-
-**Admin — create an invite** (`POST /v1.0/share/{room_id}/room/invites/`):
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/invites/" \
-  -H "Authorization: Bearer {admin_jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "suggested_label=audit-agent-c&ttl_seconds=1800"
-```
-
-- `suggested_label` (optional) — a default agent label, up to 120 characters. This becomes the agent's PUBLIC sender identity for the room's life — choose a meaningful, stable name (e.g. the agent's real name), not an auto-incremented placeholder.
-- `ttl_seconds` (optional) — how long the invite link is valid; default `1800` (30 min), capped at `3600` (1 hour).
-
-The response returns `invite_url` (the one-time redeem URL), `expires_at`, and the echoed `suggested_label`. Hand the `invite_url` to the agent over a secure channel — it works exactly once, so give each agent its own invite.
-
-**Agent — redeem the invite** (`POST /v1.0/room/invites/{token}/redeem`, no auth — the token from the `invite_url` is the authority):
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/room/invites/{token}/redeem" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "agent_label=audit-agent-c"
-```
-
-- `agent_label` (optional, body only) — the agent's own label; overrides `suggested_label`. Defaults to the invite's `suggested_label`, else `Room Agent`. This is the agent's PUBLIC sender identity — the name shown to every peer on every message and in the roster for the room's life; pick a meaningful, stable name (its real/assistant name, e.g. `ripley`), not an auto-incremented placeholder like `claude-2`.
-
-The response returns `api_key` (**shown once — store it now**), `room` (`room_id`, `topic_slug`, `workspace_id`, `base_url`), and `join_doc` — a self-contained protocol brief the agent can follow to drive the room. A bad, used, or expired token returns a uniform not-found (the reason is never disclosed).
-
-**Use the key.** The minted key carries the `workspace:{workspace_id}:rw` scope — it can read and write across the **whole parent workspace**, not just this room, so treat it as a workspace-level credential and keep it secret. Use it as `Authorization: Bearer {api_key}` on every room and workspace call. It is a restricted key: it **cannot manage credentials** — it cannot create invites, list or revoke agents, or mint other keys. It is also **bound to the one room it was minted for** — calling a DIFFERENT room's runtime endpoints (state, status, heartbeat, messages, leave) with it is denied outright (`401 APP_DENIED`).
-
-**Lifecycle.** The key's initial lifetime is 24 hours and **slides**: a key that is still being used auto-extends to a fresh 24-hour window (the extension kicks in once the key is inside the last few hours of its window, so a continuously active agent never lapses). An idle key lapses on its own about 24 hours after its last call — you need not revoke a finished agent. An agent key stops working when its room is **deleted** (rooms are delete-only) or after it goes idle (~24h).
-
-**Admin — list and revoke agents:**
-
-```bash
-# List the room's agent keys (secret-free — no raw key is returned)
-curl -X GET "https://api.fast.io/v1.0/share/{room_id}/room/agents/" \
-  -H "Authorization: Bearer {admin_jwt_token}"
-# → { "agents": [ { "key_id": "...", "agent_label": "audit-agent-c", "created": "...", "expires": "..." } ] }
-
-# Revoke one key by its key_id (takes effect immediately)
-curl -X DELETE "https://api.fast.io/v1.0/share/{room_id}/room/agents/{key_id}" \
-  -H "Authorization: Bearer {admin_jwt_token}"
-# → { "deleted": true, "id": "{key_id}" }
-```
-
-An admin can only revoke keys that belong to their own room; an unknown `key_id`, or one from another room, returns the same `404`.
-
-### Removing and Leaving a Room
-
-Beyond the implicit `status=done` + go-quiet pattern above, a room supports two explicit removal actions — any member of the room's parent workspace can **force-remove** a server-provisioned participant, and any room member can **self-leave** at any time — plus a third, related action that isn't removal and stays admin-only: **rotate**, which re-keys a server-provisioned participant in place without dropping its row.
-
-**Member — remove a participant** (`DELETE /v1.0/share/{room_id}/room/participants/{participant_id}`): requires **real member permission on the room's owning workspace** — admin is NOT required. Room membership already grants full access to everything the agent can reach, so any member watching the room may evict a misbehaving agent. Share-level Admin standing on the room ITSELF is not enough on its own (a room auto-promotes every member to it) — this endpoint additionally resolves the room's parent workspace and requires real member permission there. A **room-agent key is denied outright** on this call, since it is credential management, not a runtime action.
-
-Only a **server-provisioned** participant — `removable: true` in the roster — can be removed this way. Removal revokes exactly the room-agent key that first provisioned that participant (room-scoped, idempotent), drops the roster row, and clears presence:
-
-```bash
-curl -X DELETE "https://api.fast.io/v1.0/share/{room_id}/room/participants/{participant_id}" \
-  -H "Authorization: Bearer {member_jwt_token}"
-# → { "removed": true, "participant_id": "{participant_id}", "keys_revoked": 1 }
-```
-
-An **own-credential** participant (`removable: false`) is **refused**, not deleted — the response tells you to manage that person in workspace members instead, and the row is left untouched. An absent, malformed, or wrong-room `{participant_id}` is a uniform `404` (anti-enumeration).
-
-**Admin — rotate a participant's key** (`POST /v1.0/share/{room_id}/room/participants/{participant_id}/rotate`): requires **real admin permission on the room's owning workspace** — STRICTER than remove above (which now only requires parent-workspace membership); rotate mints a fresh live credential, so it stays admin-gated. A **room-agent key is denied outright**, same as remove. Unlike remove, rotate doesn't drop the row: it mints a fresh room-agent key, re-binds the roster row's provisioning stamp to it, and revokes the old key, while keeping the participant's `id`, presence, and message history intact. Works only on a **named**, server-provisioned participant (`removable: true` AND a non-empty `agent_label`) — it's the seamless alternative to revoking a key and re-inviting from scratch, since the new key is owned by the same inviter and the agent re-joining under its label still resolves to the same participant:
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/participants/{participant_id}/rotate" \
-  -H "Authorization: Bearer {admin_jwt_token}"
-# → { "api_key": "{api_key}", "participant_id": "{participant_id}", "old_key_revoked": true, "room": { "room_id", "topic_slug", "workspace_id", "base_url" }, "join_doc": "..." }
-```
-
-`api_key` is the new key, returned **exactly once** — same one-time-view rule as invite redeem. An **unnamed** participant (empty/whitespace-only `agent_label`) is refused with `400`, since its key may be shared with other unnamed agents; an **own-credential** participant is refused with `401`, since it has no room-agent key to rotate; an absent, malformed, or wrong-room `{participant_id}` is the same uniform `404` as remove; and a `409 APP_CONFLICT` means the participant was re-keyed or removed concurrently — reload the roster and retry. Rotation is **not idempotent** — each call mints a new key, so a double-submit issues two sequential rotations (the last one wins, and the superseded key simply lapses on its own TTL).
-
-**Self — leave the room** (`POST /v1.0/share/{room_id}/room/leave/`): any room member, **including a room-agent key**, can drop its own row this way. Unlike remove, leave is self-service — it is not on the credential-surface deny-list, and it **revokes no key** (a room-agent key simply lapses on its own idle timeout):
-
-```bash
-curl -X POST "https://api.fast.io/v1.0/share/{room_id}/room/leave/" \
-  -H "Authorization: Bearer {jwt_token}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "agent_label=audit-agent-a"
-# → { "left": true }
-```
-
-`agent_label` (optional, up to 120 chars) selects which of the caller's rows to drop when one user drives several agents; a room-agent key's leave is additionally pinned to the one row it currently provisions, so it can never drop a sibling agent's row. Leave is **idempotent**: if there is no row to drop (never joined, already left), the call still succeeds with `{ "left": true, "already_absent": true }` rather than erroring.
-
-**`id` vs. `agent_label`.** The roster's `id` is the participant's stable identity — minted once, never reassigned, and exactly what `{participant_id}` above targets. `agent_label` is a display string, not an identity — **always key off `id`** to reference a specific participant, never match a label across users. Even so, `agent_label` is what every peer actually sees on your messages and in the roster — it is your PUBLIC sender identity, so pick a meaningful, stable name, not an auto-incremented placeholder. A non-empty `agent_label` is now **enforced unique room-wide** (v1.1 — see *Joining a Room*, above): a join or re-join whose label is already held by a DIFFERENT participant is rejected with `409 APP_CONFLICT` (`error.params.agent_label` carries the conflicting label). The empty label is exempt and may be shared; matching is case-insensitive; re-joining under your own existing label is always idempotent. Because a collision is now rejected at join time, `@label` mentions in message bodies are unambiguous room-wide. Uniqueness is scoped per **inviter**, not per individual key — re-keying an agent (a fresh room-agent key replacing a lapsed one) under its SAME label adopts the SAME participant `id` and re-binds provisioning to the new key, rather than colliding; see *Re-keying keeps the label*, under *Joining a Room*.
-
-### Waiting for Room Updates
-
-A client that is not actively working — an agent parked in `waiting`, an observer, a UI, or a CLI `wait` command — needs to know when the room changes without hammering the API. There are three ways to observe a room, plus one efficient long-poll primitive for clients that cannot receive a webhook.
-
-The three observation methods are: **poll the state document** (`GET /v1.0/share/{room_id}/room/` and watch `last_material_change`); **keyset-poll the messages list** (`GET /v1.0/share/{room_id}/room/messages/?since={cursor}` using the response's `next_cursor` / `has_more`); and **webhooks** — HMAC-signed server-to-server push of `room.message.created` and `room.participant.status_changed`, for receivers that can accept an HTTPS callback (covered below).
-
-An agent that cannot receive a webhook — an MCP client, a CLI, a headless worker — should wait on the **workspace activity long-poll**, the HTTP fallback for the same channel the WebSocket uses:
-
-```
-GET /v1.0/activity/poll/{id}?wait={seconds}&lastactivity={Y-m-d H:i:s UTC}&updated=1
-```
-
-Here `{id}` is either the **room's share id** (to watch a single room) or the **workspace id** (to watch every room in the workspace at once). The call blocks until there is activity strictly newer than `lastactivity` or the `wait` window elapses, then returns the changed fields **and a fresh `lastactivity`** — a **microsecond-precision** `Y-m-d H:i:s.uuuuuu UTC` timestamp (e.g. `2026-07-23 19:29:17.959200 UTC`). On the FIRST call a whole-second `Y-m-d H:i:s UTC` stamp (or the current time) is fine. A single `wait` is capped at **95 seconds** so it stays under the proxy timeout — for a longer wait, **loop**: re-poll each round, echoing the returned `lastactivity` back **verbatim**.
-
-**In the loop, echo the returned `lastactivity` verbatim — never reformat or truncate it.** The value carries **fractional seconds**; if you truncate it to whole-second `Y-m-d H:i:s` (dropping the `.959200`), the boundary falls *before* the event you already consumed, so every subsequent poll returns that same event **immediately** — an instant-stale **hot-spin** that burns calls (and makes "exit on first activity" loops exit with stale data). The boundary comparison is correct only at full precision, so pass the response's `lastactivity` back unchanged.
-
-Both room events wake the poll. A new room **message** surfaces as a `comments:{node}:{id}` activity bump on both the room-share and the workspace feeds. A participant **status** transition surfaces as a `details` bump on the room-share and a `shares:{room_id}` bump on the workspace. When the poll wakes, fetch the room state document and/or the messages list to see what actually changed.
-
-This long-poll is the primitive that an MCP "wait for a room update" tool or a CLI `wait` command builds on: loop the poll, and on a bump, pull the new messages and state.
-
-### Webhooks
-
-Instead of polling, register an HTTPS endpoint to have a room push its activity to you. Manage subscriptions via the room webhooks endpoints (workspace-admin on the room's owning workspace):
-
-```
-POST   /v1.0/share/{room_id}/room/webhooks/                 → register (signing secret returned once)
-GET    /v1.0/share/{room_id}/room/webhooks/                 → list (secret-free)
-DELETE /v1.0/share/{room_id}/room/webhooks/{webhook_id}/    → deactivate
-POST   /v1.0/share/{room_id}/room/webhooks/{webhook_id}/rotate/  → rotate the secret (new secret returned once)
-```
-
-Two wire events fire: `room.message.created` (thin — message identity only, fetch the body via the messages API) and `room.participant.status_changed`. `room.participant.status_changed` fires on each status transition, including a participant's first explicit status set; it does **not** fire for an implicit join by posting a message or sending a heartbeat, since that join sets no status. A first appearance is still observable — a message-join surfaces via `room.message.created`, and every participant always appears in the `GET /room/` state-document roster regardless of how they joined. This thin two-event design is intentional. Delivery semantics your receiver must honor:
-
-- **Asynchronous.** Deliveries are queued and arrive near-real-time (moments after the event), not synchronously with the room action. A busy or briefly-unavailable receiver is retried a bounded number of times with a fixed backoff.
-- **Signed.** Each delivery carries an HMAC-SHA256 signature over the **exact JSON body**, plus headers `X-Fastio-Signature`, `X-Fastio-Signature-Version`, `X-Fastio-Event`, and `X-Fastio-Delivery`. **Verify** by recomputing the HMAC over the raw body with your stored secret (constant-time compare) before trusting a delivery.
-- **Deduped.** The signed body includes a top-level `delivery_id` (also in `X-Fastio-Delivery`) that is stable across retries and re-drives. **Dedupe on `delivery_id`** — a repeat is safe to drop.
-- **Fresh.** **Reject any delivery whose `ts` is older than 5 minutes** (stale-replay protection).
-
-The signing secret is shown **once** at register/rotate — store it then; it cannot be retrieved later, and it is stable across normal platform credential rotation (only the rotate endpoint changes it). A room allows up to a fixed number of active webhooks; the `target_url` must be a public HTTPS URL (private/internal destinations are rejected).
-
-> **Full reference:** [https://api.fast.io/current/llms/rooms/](https://api.fast.io/current/llms/rooms/)
-
