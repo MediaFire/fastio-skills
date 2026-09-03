@@ -2018,10 +2018,13 @@ before it starts watching for the result waits forever.
 Repeating an identical per-file request while one is in flight **always mints a new job and returns a
 new `job_id`** — this route never hands back the id of a job already in flight, so two `202`s with
 different `job_id`s do not mean two extractions ran. It is safe to repeat all the same: the protection
-is the durable record of what has been extracted, keyed on the file's current version and the `fields`
-scope, so a repeat of the same scope does no work and is not billed again. A file whose current version
-has already been extracted answers `status: "already_extracted"` and queues nothing — but only for an
-**unscoped** request; a request naming `fields` always returns `202`.
+is the durable record of what has been extracted, keyed on the file's current version, the `fields`
+scope, and the extraction version that processed it, so a repeat of the same scope does no work and is
+not billed again. A file whose current version has already been extracted by the current extraction
+version answers `status: "already_extracted"` and queues nothing — but only for an **unscoped** request;
+a request naming `fields` always returns `202`. When Fastio's extraction engine is upgraded, a plain
+re-extract on a file processed by an earlier version runs again and is billed as a new extraction — that
+is how existing files pick up newly supported fields.
 
 **Extraction never overwrites a value a person wrote.** A hand-written value carries `source: "user"`,
 which outranks `ai` on the precedence order, so a later automatic pass leaves it alone. Confirm what an
@@ -2038,8 +2041,8 @@ once cleared a field by writing `null` is the retired `metadata/update/`; that b
 Two things follow that are worth designing around. **Deleting a value does not delete the field** — the
 name stays in the workspace vocabulary and keeps counting against the plan's field cap. And **deleting
 does not by itself queue a re-extraction**: a full re-extract of a file whose current version was already
-extracted answers `already_extracted` and queues nothing, so name the field in a `fields`-scoped
-`metadata/extract/` call to have it filled again.
+extracted by the current extraction version answers `already_extracted` and queues nothing, so name the
+field in a `fields`-scoped `metadata/extract/` call to have it filled again.
 
 #### Agent Use Cases
 
@@ -2109,6 +2112,11 @@ When intelligence is enabled, each file progresses through AI processing states 
 Use `GET .../storage/{node_id}/requestread/` to generate a temporary auth-free download token. Pass the returned
 `token` as a query parameter: `GET .../storage/{node_id}/read/?token={token}`. This is useful for opening files in
 browser tabs without sending Authorization headers.
+
+Those routes return the file's **bytes**. To read its **text** instead, use `GET .../storage/{node_id}/content/`, which
+returns the extracted text the platform already indexed, as ordered chunks tagged with their page range where the format
+has pages, and rankable against a query with `?q=` so you can locate and quote a passage without walking the whole file.
+That is the only way to read a PDF's words without converting the bytes yourself.
 
 **MCP agents** have additional download options: use the `download://` resource templates for direct content retrieval
 (up to 50 MB), or the `/file/` HTTP pass-through endpoint for streaming larger files. See the "MCP Tool Architecture"
@@ -2457,7 +2465,7 @@ a manageable set of tools with clearly named actions.
 | `workspace`  | Workspaces                      | `list`, `details`, `create`, `update`, `check-name`. (Its legacy `metadata-*` actions are **deprecated forwarding shims** to the `metadata` tool and will be removed next release — use `metadata` instead.) |
 | `metadata`   | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible`, `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` tool. |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
-| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`) |
+| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) |
 | `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
 | `ai`         | AI chat (defaults to the entire workspace — attach nothing to search all indexed documents). Attach file/folder reference items to ground answers in specific files or folders. | `chat-create`, `message-send`, `message-read`, `chat-list` |
