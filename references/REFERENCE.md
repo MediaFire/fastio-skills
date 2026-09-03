@@ -828,9 +828,11 @@ When workspace intelligence is enabled, results automatically include semantic m
 
 `/storage/search/` returns **one result per file** with the best-matching passage
 only — a document matching in several places still yields a single row, not one per
-passage. Its `relevance_score` is normalised **within the result set**, so its scale
-is re-derived for every query. **Use it to order results — do not threshold it, and
-do not compare it across queries.**
+passage. Its `relevance_score` is a **rank-fusion** score over the two
+retrieval legs — the name/text search and the content search — combined by each
+file's **position** in each leg and normalised **within the result set**, so the top
+hit is exactly `1.0` and the scale is re-derived for every query. **Use it to order
+results — do not threshold it, and do not compare it across queries.**
 
 **To threshold, read `raw_score` alongside `score_source`.** `raw_score` is the
 **un-rescaled** retrieval score, on the scale `score_source` names: the merge does not
@@ -843,13 +845,16 @@ index and per kind of query.
 **`score_source` is an attribution, and only three of its four values name a scale.**
 `keyword` (a BM25 score — **unbounded above**, and dependent on the index contents and
 the query terms), `semantic` (the content engine's similarity score for the matching
-passage) and `filename` (a fixed name-match band rather than a measured score, so
-`raw_score` is `null`) each name **the scale `raw_score` is on**. `metadata` is **not a
+passage) and `filename` (the row was placed by a **name match**, not by a measured
+score, so `raw_score` is `null`) each name **the scale `raw_score` is on**. On a file
+both legs found, the leg reported is the one that ranked it **higher**, and on an
+equal position the keyword leg, whose score is always a real measurement. `metadata` is **not a
 fourth scale**: it says the row was **promoted** because the query matched its extracted
 metadata, and its `raw_score` is still populated and **remains on the `keyword` scale** —
-compare it with other `keyword` rows, not with `semantic` ones. A promoted hit whose rank
-came from the content engine reports `semantic` rather than `metadata`; read
-`metadata_match` for the promotion itself. There is **no `both`** — which legs matched is a
+compare it with other `keyword` rows, not with `semantic` ones. A promoted hit the
+content engine ranked higher reports `semantic` rather than `metadata` — and carries
+the provider score, not a keyword one; read `metadata_match` for the promotion
+itself. There is **no `both`** — which legs matched is a
 separate question, answered by `match_source`. It is decided **per hit**, so one
 response can carry all four: **group by `score_source` before comparing any two
 `raw_score` values**, and never compare a `keyword` value against a `semantic` one. Both fields
@@ -1077,7 +1082,10 @@ in every mode.
         "page": { "start_page": 3, "end_page": 3 },
         "media_segment": null,
         "score": 0.87,
-        "result_type": "doc"
+        "result_type": "doc",
+        "position": 12,
+        "sequence": 3001,
+        "indexed_version_id": "3mcys-2dr56-rmgdt-nh36b-prmp7-b47q"
       },
       "metadata_match": false,
       "metadata_match_field": null
@@ -1099,27 +1107,33 @@ With intelligence enabled, the `/storage/search` response also includes:
 - `content_snippet` — the actual matching text from semantic search. NULL for keyword-only matches.
 - `mimetype` — file MIME type (e.g., `application/pdf`, `audio/mpeg`). Present for semantic matches.
 - `media_segment` — `{start_seconds, end_seconds}` identifying the timestamp range in audio/video where the match was found. Only present for audio/video file matches, enabling deep-linking to the exact moment.
-- `relevance_score` — relevance score, normalised within the current result set, so its scale is re-derived per query. Order results with it; do not threshold it.
+- `relevance_score` — a rank-fusion score over the two retrieval legs, normalised within the current result set so the **maximum** score in the set is exactly `1.0` (not necessarily the first row — ordering is tier-first). Its scale is re-derived per query. Order results with it; do not threshold it.
 - `raw_score` — the un-rescaled retrieval score, on the scale `score_source` names. `null` when `score_source` is `filename`. `/storage/search/` only.
-- `score_source` — which retrieval leg `raw_score` is attributed to: `keyword`, `semantic`, `filename`, or `metadata`. `keyword`/`semantic` name the scale `raw_score` is on; `filename` means a name-promoted row (`raw_score` null); `metadata` is an attribution on a keyword-sourced row whose `raw_score` stays on the keyword scale. Decided per hit; there is no `both`. `/storage/search/` only.
+- `score_source` — which retrieval leg `raw_score` is attributed to: `keyword`, `semantic`, `filename`, or `metadata`. `keyword`/`semantic` name the scale `raw_score` is on, and on a file both legs found it is the leg that ranked it **higher** (an equal position goes to `keyword`); `filename` means a name-promoted row (`raw_score` null); `metadata` is an attribution on a keyword-sourced row whose `raw_score` stays on the keyword scale. Decided per hit; there is no `both`. `/storage/search/` only.
 - `match_source` — source of the match: `keyword`, `semantic`, or `both`
 - `summary_short` — the stored short AI summary of the **whole file**, or `null` when it has none. Always `null` at `?output=terse` (the tier drops it) and on the keyword-only response.
-- `best_chunk` — the highest-scoring real **passage** of the file, as distinct from a whole-file summary: `{text, page, media_segment, score, result_type}`. `text` follows the same `output=` byte budget as `content_snippet`; `page` and `media_segment` are **both always present** and **at most one of them is ever set** — `page` is `{start_page, end_page}` (1-based, inclusive) on a document passage (`result_type: "doc"`), `media_segment` is `{start_seconds, end_seconds}` on a transcript passage (`result_type: "transcript"`), and the other is `null`; `score` is the passage's own un-rescaled score, on the same scale a `semantic` `raw_score` is on; `result_type` is `doc` or `transcript`. `null` when no qualifying non-summary passage was returned for that file on this query — the retrieval window may simply not have returned one, so it is not a statement that the file has no passages — and on a keyword-only hit. **Use it when you need a locator.** `content_snippet` reports whichever evidence ranked highest, which can be the whole-document summary — and a summary is nowhere in the file, so `page` is `null` on such a hit. `best_chunk` always names a real passage. When the top-ranked evidence is already a passage, `best_chunk.text` is the same text as `content_snippet`.
+- `best_chunk` — the highest-scoring real **passage** of the file, as distinct from a whole-file summary: `{text, page, media_segment, score, result_type, position, sequence, indexed_version_id}`. `text` follows the same `output=` byte budget as `content_snippet`; `page` and `media_segment` are **both always present** and **at most one of them is ever set** — `page` is `{start_page, end_page}` (1-based, inclusive) on a document passage (`result_type: "doc"`), `media_segment` is `{start_seconds, end_seconds}` on a transcript passage (`result_type: "transcript"`), and the other is `null`; `score` is the passage's own un-rescaled score, on the same scale a `semantic` `raw_score` is on; `result_type` is `doc` or `transcript`; `position` (integer|null) is the passage's 0-based address in the file's chunk order — **send it back as `chunk_from` on `GET /current/{workspace|share}/{id}/storage/{node_id}/content/`** to read the passage in full with the text on either side of it, without downloading the file — `sequence` (integer|null) is the underlying ordering coordinate, absent on older content; and `indexed_version_id` (string|null) is the file version the address was worked out against, in the form the content endpoint returns it — **compare the two, and if they differ the file was re-indexed between your calls, so the position is stale and you should re-run the search rather than quote what came back**; both are `null` when this response could not resolve the address — they are published for **document text only**, so an audio or video passage (`result_type: "transcript"`) never carries one, and neither does a passage that no longer opens a chunk after a re-index or one on a page too large to resolve addresses for (only the first 100 hits of a page get one) — which is not a statement that the passage cannot be read. `null` when no qualifying non-summary passage was returned for that file on this query — the retrieval window may simply not have returned one, so it is not a statement that the file has no passages — and on a keyword-only hit. **Use it when you need a locator.** `content_snippet` reports whichever evidence ranked highest, which can be the whole-document summary — and a summary is nowhere in the file, so `page` is `null` on such a hit. `best_chunk` always names a real passage. When the top-ranked evidence is already a passage, `best_chunk.text` is the same text as `content_snippet`.
 - `metadata_match` — `true` when the query **also** matched the file's extracted metadata (entity-style values such as a counterparty, a customer, or a document title); `false` otherwise. It commonly co-occurs with a filename or summary match and does not mean the match happened instead of those. Read `match_source` for which retrieval legs matched, and the tier ordering below for why a row sits where it does.
 - `metadata_match_field` — **reserved, currently always `null`.** It will name the metadata field that carried the match once per-field matching exists. Do not branch on it.
 
 **Ordering is tier-first.** Results come back ordered by **tier**, then by
 `relevance_score` descending *within* a tier. Highest tier first: (1) exact filename
 match, (2) filename prefix match, (3) metadata-entity match (`metadata_match: true`),
-(4) everything else — and the fourth group keeps exactly the order it had before,
-`relevance_score` descending. ⚠️ **A promoted hit can therefore appear above a hit
+(4) everything else — and the fourth group is ordered by
+`relevance_score` descending. Two rows tie on the score readily, so two further
+steps follow: a `keyword`-scale row (`score_source` `keyword` or `metadata`) sorts
+above a `semantic`-scale one, then `node_id` ascending ends the comparison. ⚠️ **A promoted hit can therefore appear above a hit
 with a higher `relevance_score`.** That is the ordering working as designed, not a
 scoring bug, and it is the thing most likely to surprise you: **do not re-sort by
-`relevance_score` yourself** — that throws the promotion away. **Promotion is not one
-thing:** *filename* promotion (tiers 1 and 2) **does lift the row's `relevance_score`**
-into a reserved band — long-standing published behaviour, unchanged — whereas *metadata*
-promotion (tier 3) changes the **order** only and never rewrites `relevance_score` or
-`raw_score`.
+`relevance_score` yourself** — that throws the promotion away. **A promotion changes
+the ORDER, never the score:** all three promoting tiers leave `relevance_score`
+exactly as retrieval produced it, so a promoted row is identifiable by its position
+and by `score_source` / `metadata_match`, never by a special score value. The one
+field a promotion changes is `raw_score` on a **name** match (tiers 1 and 2), which
+is `null` with `score_source: "filename"`; a metadata-promoted row keeps its
+`raw_score`, on the `keyword` scale where `score_source` is `metadata` — a
+metadata-promoted row the content engine ranked higher reports
+`score_source: "semantic"` and carries the provider score.
 
 **With `details=true`** — the `/storage/search/` endpoint enriches each file entry with a `node` field containing the full node resource:
 
@@ -1144,7 +1158,10 @@ promotion (tier 3) changes the **order** only and never rewrites `relevance_scor
           "page": { "start_page": 2, "end_page": 2 },
           "media_segment": null,
           "score": 0.87,
-          "result_type": "doc"
+          "result_type": "doc",
+          "position": 7,
+          "sequence": 2000,
+          "indexed_version_id": "3u6cr-vxmyl-4y2pr-5jboz-afoke-k4s5"
         },
         "metadata_match": false,
         "metadata_match_field": null,
