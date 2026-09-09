@@ -145,7 +145,13 @@ once and cannot be retrieved later. Direct link: `https://go.fast.io/settings/ap
 
 Use the API key as a Bearer token: `Authorization: Bearer {api_key}`
 
-The API key has the same permissions as the human user, so you can manage their workspaces, shares, and files directly.
+The API key acts as that human, but it is bounded by its **scopes**. A key created without scopes carries `user:*:rw` —
+whole-account **read and write**, so you can manage their workspaces, shares, and files directly — but it is **not**
+administrative and it cannot change account settings. Anything that needs org / workspace / share admin (including
+administrative *reads* such as org billing details, invoices, usage, credits and the events audit log) needs a key
+holding an `rwa` scope, and returns `403` (`10767`) otherwise. Changing the account's password, email or 2FA needs the
+separate `userdetails:*:rw` scope, and returns `403` (`10769`) otherwise. Ask the human to create the key with the
+scopes you need — only a signed-in web session can widen a credential, and a key can never widen itself.
 
 ### Option 3: Agent Account Invited to a Human's Org
 
@@ -196,7 +202,7 @@ This is the recommended approach when:
 | Scenario | Recommended Approach |
 |----------|---------------------|
 | Operating autonomously, storing files, building for users | Create your own account and org (your personal collection of workspaces) and select a paid plan |
-| Helping a human manage their existing account | Ask the human to create an API key for you |
+| Helping a human manage their existing account | Ask the human to create an API key for you — with `rwa` scopes if you must administer, and `userdetails:*:rw` if you must change account settings |
 | Working within a human's org with your own identity | Create an account, have the human invite you to their org or workspace |
 | Building inside a human's already-paid organization | Be invited as a member of the human's org or workspace and build there |
 | Human wants to authorize an agent without sharing credentials | Use PKCE browser login (Option 4) |
@@ -219,6 +225,13 @@ needed.
 **Verify your token:** Call `GET /current/user/auth/check/` at any time to validate your current token and get the
 authenticated user's ID. This is useful at startup to confirm your credentials are valid before beginning work, or to
 detect an expired token without waiting for a 401 error on a real request.
+
+**What your credential can do:** `GET /current/auth/scopes/` reports the authority behind the token — `auth_type`, the
+concrete `scopes` and `scopes_detail`, `full_access` (account-wide **and** may write, so a read-only `user:*:r` grant is
+`false`), **`admin`** (may it perform administrative operations at all) and **`legacy`** (it declares no scopes claim).
+Read `admin` at startup and branch on it: an administrative call made without it fails with `403` (`10767`), and an
+account-settings call without `userdetails:*:rw` fails with `403` (`10769`). Checking once is cheaper than discovering
+the gap mid-workflow.
 
 ### OAuth Scopes — Controlling Access
 
@@ -247,11 +260,27 @@ part of that org→workspace→share chain.)
 > rather than erroring. (This is why the offered set is the seven above, not eight.)
 
 Pass the desired `scope_type` when initiating the PKCE authorization flow (`POST /current/oauth/authorize/`). If
-omitted, the token defaults to full access (equivalent to `all_orgs`).
+omitted, the token defaults to full access (equivalent to `all_orgs`) — full **read and write**, never administration.
+
+**Access modes and the two ceilings.** Every granted scope carries an `access_mode`: `r` (read), `rw` (read and write)
+or `rwa` (read, write and **administer**). `rwa` implies `rw` implies `r`; there is no `ra`. Two optional parameters on
+the authorization request that *starts* the flow set the ceiling for everything consent may grant:
+
+| Parameter          | Values           | Effect                                                                        |
+|--------------------|------------------|-------------------------------------------------------------------------------|
+| `access_mode`      | `r`, `rw`, `rwa` | The highest mode consent may grant. Omit it and the grant can never administer. |
+| `account_settings` | `1`, `0`         | `1` lets consent add the `userdetails:*:rw` scope (password, email, 2FA changes). Omit it and the grant can never touch account settings. |
+
+Consent may narrow these but never widen them (a wider request is refused with `403` `10768`). Never put
+`userdetails:*:rw` in a client-supplied `scopes` list — it is always refused; the server appends it itself when
+`account_settings=1` was asked for at initiation. An `rwa` grant is also capped live by the human's own role, so it
+stops administering an entity the moment they lose admin on it.
 
 **Scope format note:** The `scope` parameter in the authorization request accepts the named strings listed above
 (e.g., `scope=org`). However, API responses return scopes in a different format -- as arrays of
-`entity_type:entity_id:access_mode` strings (e.g., `["org:12345:rw", "org:67890:r"]`). The token endpoint
+`entity_type:entity_id:access_mode` strings (e.g., `["org:12345:rwa", "org:67890:r"]`, where the mode is `r`, `rw` or
+`rwa`). Persist the parsed `scopes` list rather than the legacy single `scope` word — every grant now reports one,
+including a plain `scope=user` grant, which is stored explicitly as `["user:*:rw"]`. The token endpoint
 (`POST /current/oauth/token/`) returns `scopes` as a JSON-encoded string that must be parsed. Use
 `GET /current/auth/scopes/` to introspect the current token's scopes in a structured format.
 
@@ -1223,6 +1252,13 @@ and `comments` matches from the same call. The capability report rides on the
 bucket it describes, at `buckets.files.search_metadata`, and is present only when
 `search_in` was supplied (`scoped` is always `false` here — this endpoint has no
 scope parameters).
+
+`?output=` sizes the `files` bucket here too: it trims each item's `content_snippet`
+to the same byte budget `/storage/search/` applies — ~200 bytes at `terse`, ~600 at
+`standard`, untrimmed at the default `full`, with a trailing `…` only when the value
+was actually cut and the budget inclusive of it. A `null` snippet is left alone. Ask
+for `terse` when you are sweeping many buckets into a limited context window and only
+need to know which files to open.
 
 ### Built-In Help — Ask How-To Questions About Fastio
 
