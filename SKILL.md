@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: 2.78.0
+  version: 2.79.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.78
+**Version:** 2.79
 **Last Updated:** 2026-09-17
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
@@ -324,6 +324,8 @@ Make authenticated REST calls — methods `get`, `delete`, `post`/`put`/`patch` 
 execute method="get" path="/org/1234567890123456789/list/workspaces/"
 execute method="postJson" path="/workspace/1234567890123456789/storage/root/createnote/" body={"name":"summary.md","content":"# Summary"}
 ```
+
+**Listing recipes.** Workspaces: `/orgs/list/` AND `/orgs/list/external/` (the second is the orgs you reach only through a workspace invitation — skipping it hides those workspaces), then `/org/{org_id}/list/workspaces/` per org. One folder: `/workspace/{workspace_id}/storage/{parent_id}/list/` (`root` for the top — there is no parentless `/storage/list/`). Everything in a workspace: `/workspace/{workspace_id}/storage/inventory/?type=file&include=path&page_size=100` (cursor-paged). On the inventory route `output` is answered by this server rather than the platform: `output=terse` reduces each row to its identifying fields, and `full` adds nothing because the route has one tier.
 
 **Several reads in ONE call.** To read documents you have already identified — contents, facts, node details — pass `requests` instead of `method`/`path`: a JSON array of 1–10 `{method:"get", path, params?}` items, run in parallel, results returned in caller order as `results[{index, path, status, ok, response|error}]` plus a `summary`. `get` only, no `body`; one failed item never fails the batch. Send writes singly.
 
