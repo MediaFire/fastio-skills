@@ -15,13 +15,13 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: 2.81.0
+  version: 2.82.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.81
+**Version:** 2.82
 **Last Updated:** 2026-09-18
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
@@ -327,13 +327,13 @@ execute method="postJson" path="/workspace/1234567890123456789/storage/root/crea
 
 **Listing recipes.** Workspaces: `/orgs/list/` AND `/orgs/list/external/` (the second is the orgs you reach only through a workspace invitation — skipping it hides those workspaces), then `/org/{org_id}/list/workspaces/` per org. One folder: `/workspace/{workspace_id}/storage/{parent_id}/list/` (`root` for the top — there is no parentless `/storage/list/`). Everything in a workspace: `/workspace/{workspace_id}/storage/inventory/?type=file&include=path&page_size=100` (cursor-paged). On the inventory route `output` is answered by this server rather than the platform: `output=terse` reduces each row to its identifying fields, and `full` adds nothing because the route has one tier.
 
-**Several reads in ONE call.** To read documents you have already identified — contents, facts, node details — pass `requests` instead of `method`/`path`: a JSON array of 1–10 `{method:"get", path, params?}` items, run in parallel, results returned in caller order as `results[{index, path, status, ok, response|error}]` plus a `summary`. `get` only, no `body`; one failed item never fails the batch. Send writes singly.
+**Several reads in ONE call.** To read documents you have already identified — contents, facts, node details — pass `requests` instead of `method`/`path`: a JSON array of 1–10 `{method:"get", path, params?}` items, run in parallel, results returned in caller order as `results[{index, path, status, ok, response|error}]` plus a `summary`. `get` only, no `body`; one failed item never fails the batch. Send writes singly. **A batch PAGES BY SIZE**, so a request past the ceiling comes back `status:"deferred"` with `next_requests` ready to send — nothing failed, it was not answered. Later responses carry what is still unanswered: `deferred_pending` repeats the requests themselves (each tagged `kind: "list"` for a call nobody resent, `kind: "page"` for a listing page nobody asked for, or `kind: "tail"` for rows a page dropped), and once those have been repeated three times a one-line **absence guard** stays on every `execute` response until they are answered. While it is there your enumeration is incomplete: do not write "not in the workspace".
 
 ```
 execute requests=[{"method":"get","path":"/workspace/{ws}/storage/{node_a}/content/"},{"method":"get","path":"/workspace/{ws}/storage/{node_b}/content/","params":{"q":"payment terms"}}]
 ```
 
-**One call reads TEN files' text, and it has TWO forms.** `GET /workspace/{workspace_id}/storage/content/?nodes=ID,ID,…` reads up to **10** named files in a single request — use it instead of ten `requests` items. **With `q`** it scores every file against that query and returns the passages that answered it (`limit` chunks per file, default 3) — "which of these files says it". **Without `q` it returns an ORDERED window of each file** — `chunk_from=0&max_bytes=2048` gives you the opening ~2 KB of all ten — "what are these documents". That head read is the cheap way to TRIAGE a population: read the openings of everything you found, then spend full reads only on the files that matter, since a document's identity (what it is, whose it is, its date, whether it is a draft) is usually in its first page. The two forms are **exclusive** — `q` together with `chunk_from`/`chunk_to` is refused as an invalid window — and `max_bytes` (`1024`-`262144`) is a budget spent PER FILE, so ten files at the default is ten budgets, not one. In ordered mode each entry also carries `complete` and a `next_cursor`: pass that cursor to the single-file route to read on in THAT file. Workspace only — a share publishes no batched form, so a share pays one call per file.
+**One call reads TEN files' text, and it has TWO forms.** `GET /workspace/{workspace_id}/storage/content/?nodes=ID,ID,…` reads up to **10** named files in a single request — use it instead of ten `requests` items. **With `q`** it scores every file against that query and returns the passages that answered it (`limit` chunks per file, default 3) — "which of these files says it". **Without `q` it returns an ORDERED window of each file** — `chunk_from=0&max_bytes=2048` gives you the opening ~2 KB of all ten — "what are these documents". That head read is the cheap way to TRIAGE a population: read the openings of everything you found, then spend full reads only on the files that matter, since a document's identity (what it is, whose it is, its date, whether it is a draft) is usually in its first page. The two forms are **exclusive** — `q` together with `chunk_from`/`chunk_to` is refused as an invalid window — and `max_bytes` (1024–262144) is a budget spent PER FILE, so ten files at the default is ten budgets, not one. In ordered mode each entry also carries `complete` and a `next_cursor`: pass that cursor to the single-file route to read on in THAT file. Workspace only — a share publishes no batched form, so a share pays one call per file.
 
 **Response types** are handled automatically: JSON (parsed envelope), Text (`{content, content_type, http_status}`), Binary (returns metadata + guidance to use the `download://` resource). **Reading notes:** call the node's `…/storage/{node_id}/readnote/` path (JSON), not `…/read/` (raw binary) — there is no bare `/readnote/` alias. **Reading uploaded files (non-notes):** `resources/read uri="download://workspace/{ws}/{node}"`. An unknown path 404s with a `_tip` naming the nearest real routes by path shape. Calling an `ai/agent` route whose turn is still pending/running returns `_next` with the exact poll route and the terminal states to watch for.
 
