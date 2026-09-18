@@ -1,6 +1,6 @@
 # Fastio for AI Agents
 
-> **Version:** 1.38.0 | **Last updated:** 2026-09-02
+> **Version:** 1.39.0 | **Last updated:** 2026-09-14
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -68,15 +68,16 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Starter, Business, or Growth) |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Starter, Business, Growth, or Enterprise) |
 | Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
+| Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
 | Turning unstructured files into data         | AI metadata extraction pulls typed fields from documents, images, and spreadsheets into a sortable table |
 | Files walking out when someone leaves        | Files belong to the org/workspace (the project), not the uploader — access follows the work, not the person |
 | Knowing what needs attention                 | A per-workspace dashboard ranks @mentions and file activity |
 | Collaborating with humans on a shared org    | Invite humans (or be invited) as org/workspace members — everyone sees the same files and activity |
 | Tracking what happened                       | Full audit trail with AI-powered activity summaries                                               |
-| Plans                                        | New organizations choose a paid plan (Starter, Business, or Growth); credits cover storage, bandwidth, and AI usage |
+| Plans                                        | New organizations choose a paid plan (Starter, Business, Growth, or Enterprise); credits cover storage, bandwidth, and AI usage |
 
 ---
 
@@ -101,13 +102,13 @@ coordinating shared work), create your own account and your own organization:
    - `POST /current/user/email/validate/` with `email` and `email_token` — validates the code and marks your account as verified
 4. `POST /current/org/create/` with `domain` (required, 2-63 chars lowercase alphanumeric + hyphens) — an org is a collector of workspaces that can represent a company, team, business unit, or personal collection
 5. **Select a paid plan to activate the organization.** A newly created organization must select a paid plan
-   (Starter, Business, or Growth) before it can be used; until then it is in an upgrade-only state — the same state as an
+   (Starter, Business, Growth, or Enterprise) before it can be used; until then it is in an upgrade-only state — the same state as an
    org that has exhausted its credits, returning HTTP 402 on resource-consuming endpoints. Choose a plan via the
    billing API or direct the owner to `https://go.fast.io/onboarding`.
 6. `POST /current/org/{org_id}/create/workspace/` with `folder_name`, `name`, `perm_join`, `perm_member_manage` (all required — see Permission Values below)
 
 > **A new organization needs a paid plan before it can do work.** New organizations select one of the paid plans
-> (Starter, Business, or Growth). Until a paid plan is selected, the org is in an upgrade-only state and resource-consuming
+> (Starter, Business, Growth, or Enterprise). Until a paid plan is selected, the org is in an upgrade-only state and resource-consuming
 > endpoints (uploads, AI chat, ingestion) return HTTP 402, exactly like an org that has run out of credits. All paid
 > plans include the `content_ai` and `ai_agent` features needed for agentic chat and RAG across indexed files.
 > The [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) has the full plan matrix.
@@ -152,6 +153,30 @@ holding an `rwa` scope, and returns `403` (`10767`) otherwise. Changing the acco
 separate `userdetails:*:rw` scope, and returns `403` (`10769`) otherwise. Ask the human to create the key with the
 scopes you need — only a signed-in web session can widen a credential, and a key can never widen itself.
 
+**If the human's organization caps what credentials may hold** (an Enterprise `credential_policy`
+setting), a call you make with their key can be refused with `403` and `params.reason` of
+`credential_policy_mode`, `credential_policy_scope`, or `credential_policy_sso` — even for a key that
+worked a moment ago and that you did not change. This means the org tightened its policy, or (for
+`credential_policy_sso`) that the human's account is on an SSO-enforcing domain and is not exempt. It
+is not a bug and not something you can appeal from the API: tell the human, and have them either
+loosen the org's policy or issue you a key that fits it.
+
+**Three further reasons say the policy itself could not be applied**, and they are about the
+organization rather than about your key. `credential_policy_unreadable` (`403`) means the stored
+policy is corrupt, and `credential_policy_org` (`403`) means the resource's owning organization no
+longer exists — both permanent, so retrying will not clear either and an administrator has to act.
+`credential_policy_unavailable` (`503`) means the policy could not be READ, which is transient and
+is the one case where retrying is the correct behaviour. Branch on `params.reason`, never on the
+numeric code.
+
+**If the human's organization restricts cloud sync**, a call to push a local edit back to a connected
+Google Drive/Box/Dropbox/OneDrive folder can be refused with `403` and `params.reason` of
+`cloud_sync_disabled` (sync is off) or `cloud_sync_read_only` (sync is on but read-only). A write-back
+queued before the policy tightened is not lost — it is held and resumes automatically if the policy
+widens again, unless it sits held past a bounded (~5-day) ceiling, in which case it retires and the
+edit must be pushed again once cloud sync is read-write. Do not retry a `cloud_sync_read_only` push in
+a loop; tell the human to ask an org or workspace admin to widen the policy.
+
 ### Option 3: Agent Account Invited to a Human's Org
 
 If you want your own agent identity but need to work within a human's existing organization (their company, team, or personal collection), you can create an agent account and have the human invite you as a member. This gives you access to their workspaces and shares while keeping your own account separate.
@@ -172,6 +197,12 @@ invite separately.
 Alternatively, the human can invite the agent programmatically:
 - **Org:** `POST /current/org/{org_id}/members/{agent_email}/` with `permission` level
 - **Workspace:** `POST /current/workspace/{workspace_id}/members/{agent_email}/` with `permission` level
+
+An Enterprise org may restrict who can invite outsiders onto a share, portal or workspace: a `403` with
+`params.reason` of `external_invites_denied` or `external_invites_object_denied` means that policy
+refused the invite, not a bug — tell the human to ask an org or object admin to allow it. Accepting via
+`accept-all-invitations` is partial success under this policy: a refused invitation is returned in the
+response's `refused` array and stays pending rather than failing the whole call.
 
 ### Option 4: PKCE Browser Login — Secure Authentication Without Sharing Passwords
 
@@ -218,6 +249,18 @@ response includes an `auth_token` (JWT). OAuth access tokens last **1 hour** and
 your token expires, re-authenticate to get a new one. If the account has 2FA enabled, the initial token has limited
 scope until 2FA verification is completed via `/current/user/auth/2factor/auth/{token}/`.
 
+**If your org requires 2FA and your agent account has none enrolled:** the login response carries an
+always-present `enrol_required` boolean; when `true`, `auth_token` is an enrolment credential rather
+than a session, restricted to enrolling a factor — `POST /current/user/auth/2factor/{channel}/`,
+`POST /current/user/auth/2factor/verify/{token}/`, and the three code-delivery endpoints, which are
+**`GET`**, not `POST`: `GET /current/user/auth/2factor/send/sms/`, `GET
+/current/user/auth/2factor/send/call/` and `GET /current/user/auth/2factor/send/whatsapp/`.
+Verifying the code upgrades that credential into a full session in the same response. Used on any
+other endpoint, the credential is refused with **`403`** (never `401`) and `error.params.reason` =
+`two_factor_enrolment_only` — branch on that reason, keep the credential, and finish enrolling. See
+*Interactive Login & Enrolment* in the [Auth reference](https://api.fast.io/current/llms/auth/). This
+does not apply to API keys, OAuth tokens, or MCP sessions — only interactive password/social login.
+
 **API keys (human accounts):** API keys are long-lived and do not expire unless the human revokes them. No refresh flow
 needed.
 
@@ -232,12 +275,26 @@ Read `admin` at startup and branch on it: an administrative call made without it
 account-settings call without `userdetails:*:rw` fails with `403` (`10769`). Checking once is cheaper than discovering
 the gap mid-workflow.
 
+**Enterprise SSO can require sign-in through the org's identity provider.** An org on the Enterprise plan may enforce
+single sign-on for the email domains it has verified. If your agent account's email sits on a domain that org has
+enforced, password/social sign-in, password reset or set, email change, and creating a *new* API key all refuse with
+`403` and `params.reason` set to `sso_required`.
+
+**An API key you already hold is also affected, and this changed.** A credential whose owner is on an enforced domain
+is now refused on requests it makes *against that same org*, with `403` and `params.reason` set to
+`credential_policy_sso`. It keeps working everywhere else: the rule is scoped to the enforcing org, so the same key
+still operates normally against any other org it has access to. If the enforcement state cannot be read, the answer is
+a retryable `503` rather than a refusal — retry it rather than discarding the key.
+
+There is no workaround from this side of the API: sign in through the org's SSO instead, or ask the org's
+owner/admins (who are exempt from enforcement on their own accounts) to issue you a credential.
+
 ### OAuth Scopes — Controlling Access
 
 When using PKCE browser login, you can request scoped access tokens that limit what the agent can do. Scopes follow
 an inheritance model — broader scopes automatically include access to their children.
 
-**Scope types** (the values the `scope` parameter accepts — the currently-offered set):
+**Scope types** (the values the `scope` parameter accepts — the currently-offered set, matching the server's `scopes_supported` metadata):
 
 | Scope Type           | Description                                                                |
 |----------------------|----------------------------------------------------------------------------|
@@ -247,17 +304,16 @@ an inheritance model — broader scopes automatically include access to their ch
 | `all_orgs`           | Wildcard access to all organizations the user owns or is a member of       |
 | `all_workspaces`     | Wildcard access to all workspaces across accessible organizations          |
 | `all_shares`         | Wildcard access to all shares across accessible organizations and workspaces |
+| `all_sign_envelopes` | Wildcard access to all sign envelopes the user can reach                   |
 
 **Inheritance:** `all_orgs` includes `all_workspaces`, which includes `all_shares`. Requesting `all_orgs` grants full
-access to all orgs, workspaces, and shares the user has access to.
+access to all orgs, workspaces, and shares the user has access to. (`all_sign_envelopes` is a separate wildcard, not
+part of that org→workspace→share chain.)
 
 > **Retired scope — `all_workflows`:** no longer offered. The Workflows feature has been removed, so `all_workflows` is
 > deliberately **absent** from the server's `scopes_supported` metadata and must not be requested. The authorization
 > server keeps it only as a fail-closed tombstone, so a pre-existing token that still carries it resolves to nothing
-> rather than erroring.
->
-> `all_sign_envelopes` is likewise retired: E-Signature is no longer offered, so the scope must not be requested,
-> though the value still appears in `scopes_supported` for compatibility.
+> rather than erroring. (This is why the offered set is the seven above, not eight.)
 
 Pass the desired `scope_type` when initiating the PKCE authorization flow (`POST /current/oauth/authorize/`). If
 omitted, the token defaults to full access (equivalent to `all_orgs`) — full **read and write**, never administration.
@@ -491,7 +547,7 @@ summarized, and indexed for RAG. This enables:
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
 > **Plan requirement.** Intelligence requires both the `content_ai` and `ai_agent` plan features (included on every
-> paid plan: Starter, Business, or Growth). On a plan that does not include those features, a new workspace is created
+> paid plan: Starter, Business, Growth, or Enterprise). On a plan that does not include those features, a new workspace is created
 > with `intelligence` off and it cannot be switched on — the update endpoint rejects the attempt with
 > `1605 (Invalid Input)`. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
 
@@ -1161,7 +1217,7 @@ With intelligence enabled, the `/storage/search` response also includes:
 - `score_source` — which retrieval leg `raw_score` is attributed to: `keyword`, `semantic`, `filename`, or `metadata`. `keyword`/`semantic` name the scale `raw_score` is on, and on a file both legs found it is the leg that ranked it **higher** (an equal position goes to `keyword`); `filename` means a name-promoted row (`raw_score` null); `metadata` is an attribution on a keyword-sourced row whose `raw_score` stays on the keyword scale. Decided per hit; there is no `both`. `/storage/search/` only.
 - `match_source` — source of the match: `keyword`, `semantic`, or `both`
 - `summary_short` — the stored short AI summary of the **whole file**, or `null` when it has none. Always `null` at `?output=terse` (the tier drops it) and on the keyword-only response.
-- `best_chunk` — the highest-scoring real **passage** of the file, as distinct from a whole-file summary: `{text, page, media_segment, score, result_type, position, sequence, indexed_version_id, same_as_snippet}`. `text` follows the same `output=` byte budget as `content_snippet`, and at `?output=terse` / `?output=standard` is `null` when `same_as_snippet` is `true`; `page` and `media_segment` are **both always present** and **at most one of them is ever set** — `page` is `{start_page, end_page}` (1-based, inclusive) on a document passage (`result_type: "doc"`), `media_segment` is `{start_seconds, end_seconds}` on a transcript passage (`result_type: "transcript"`), and the other is `null`; `score` is the passage's own un-rescaled score: on a `semantic`/`both` hit it's on the content engine's scale — the same scale a `semantic` `raw_score` is on; on a keyword-backfilled hit it's an in-file text-match score on a different scale, and `score` should never be compared across rows with different `score_source`; `result_type` is `doc` or `transcript`; `position` (integer|null) is the passage's 0-based address in the file's chunk order — **send it back as `chunk_from` on `GET /current/{workspace|share}/{id}/storage/{node_id}/content/`** to read the passage in full with the text on either side of it, without downloading the file — `sequence` (integer|null) is the underlying ordering coordinate, absent on older content; and `indexed_version_id` (string|null) is the file version the address was worked out against, in the form the content endpoint returns it — **compare the two, and if they differ the file was re-indexed between your calls, so the position is stale and you should re-run the search rather than quote what came back**; both are `null` when this response could not resolve the address — they are published for **document text only**, so an audio or video passage (`result_type: "transcript"`) never carries one, and neither does a passage that no longer opens a chunk after a re-index or one on a page too large to resolve addresses for (only the first 100 hits of a page get one) — which is not a statement that the passage cannot be read. `null` when no qualifying non-summary passage was returned for that file on this query — the retrieval window may simply not have returned one, so it is not a statement that the file has no passages. A `keyword`-only hit now carries it as well, on the same terms as `content_snippet`: quoted from the file's indexed text for the top few results of the page and only where `text_indexed` is `true`, and `null` past that cut-off or at `?output=terse`. **Use it when you need a locator.** `content_snippet` reports whichever evidence ranked highest, which can be the whole-document summary — and a summary is nowhere in the file, so `page` is `null` on such a hit. `best_chunk` always names a real passage. When the top-ranked evidence is already a passage, `best_chunk.text` carries the same text as `content_snippet` — at `?output=terse` and `?output=standard`, once both are trimmed to the tier's byte budget, the server drops the duplicate instead: `best_chunk.text` is `null` and `same_as_snippet` is `true`, and you read `content_snippet` for the text while still using `best_chunk`'s locator fields. At the default `full`, `text` is never suppressed and `same_as_snippet` is always `false`.
+- `best_chunk` — the highest-scoring real **passage** of the file, as distinct from a whole-file summary: `{text, page, media_segment, score, result_type, position, sequence, indexed_version_id, chunk_hash, same_as_snippet}`. `text` follows the same `output=` byte budget as `content_snippet`, and at `?output=terse` / `?output=standard` is `null` when `same_as_snippet` is `true`; `page` and `media_segment` are **both always present** and **at most one of them is ever set** — `page` is `{start_page, end_page}` (1-based, inclusive) on a document passage (`result_type: "doc"`), `media_segment` is `{start_seconds, end_seconds}` on a transcript passage (`result_type: "transcript"`), and the other is `null`; `score` is the passage's own un-rescaled score: on a `semantic`/`both` hit it's on the content engine's scale — the same scale a `semantic` `raw_score` is on; on a keyword-backfilled hit it's an in-file text-match score on a different scale, and `score` should never be compared across rows with different `score_source`; `result_type` is `doc` or `transcript`; `position` (integer|null) is the passage's 0-based address in the file's chunk order — **send it back as `chunk_from` on `GET /current/{workspace|share}/{id}/storage/{node_id}/content/`** to read the passage in full with the text on either side of it, without downloading the file — `sequence` (integer|null) is the underlying ordering coordinate, absent on older content; and `indexed_version_id` (string|null) is the file version the address was worked out against, in the form the content endpoint returns it — **compare the two, and if they differ the file was re-indexed between your calls, so the position is stale and you should re-run the search rather than quote what came back**; `chunk_hash` (string|null) is the label of the located chunk, computed from that chunk's full indexed text — it matches `chunks[].chunk_hash` from the content routes for the same chunk, so it's the cheap way to notice a passage you already hold or one repeated across files without re-reading it; it's `null` exactly when `position` is `null`; both `position` and `indexed_version_id` are `null` when this response could not resolve the address — they are published for **document text only**, so an audio or video passage (`result_type: "transcript"`) never carries one, and neither does a passage that no longer opens a chunk after a re-index or one on a page too large to resolve addresses for (only the first 100 hits of a page get one) — which is not a statement that the passage cannot be read. `null` when no qualifying non-summary passage was returned for that file on this query — the retrieval window may simply not have returned one, so it is not a statement that the file has no passages. A `keyword`-only hit now carries it as well, on the same terms as `content_snippet`: quoted from the file's indexed text for the top few results of the page and only where `text_indexed` is `true`, and `null` past that cut-off or at `?output=terse`. **Use it when you need a locator.** `content_snippet` reports whichever evidence ranked highest, which can be the whole-document summary — and a summary is nowhere in the file, so `page` is `null` on such a hit. `best_chunk` always names a real passage. When the top-ranked evidence is already a passage, `best_chunk.text` carries the same text as `content_snippet` — at `?output=terse` and `?output=standard`, once both are trimmed to the tier's byte budget, the server drops the duplicate instead: `best_chunk.text` is `null` and `same_as_snippet` is `true`, and you read `content_snippet` for the text while still using `best_chunk`'s locator fields. At the default `full`, `text` is never suppressed and `same_as_snippet` is always `false`.
 - `metadata_match` — `true` when the query **also** matched the file's extracted metadata (entity-style values such as a counterparty, a customer, or a document title); `false` otherwise. It commonly co-occurs with a filename or summary match and does not mean the match happened instead of those. Read `match_source` for which retrieval legs matched, and the tier ordering below for why a row sits where it does.
 - `metadata_match_field` — **reserved, currently always `null`.** It will name the metadata field that carried the match once per-field matching exists. Do not branch on it.
 
@@ -1380,7 +1436,7 @@ Humans can leave feedback directly on files, anchored to specific content:
 - **Threaded replies** — single-level threads under each comment (replies to replies are auto-flattened)
 - **Emoji reactions** — one reaction per user per comment, new replaces previous
 - **Mentions** — tag users with `@[user:USER_ID:Display Name]` syntax in the comment body
-- **Attachments** — attach up to 25 objects (a file or folder, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints. Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
+- **Attachments** — attach up to 25 objects (a file or folder, a sign envelope, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints. Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
 
 **A mention inside code is quoted, not a hail — behaviour change.** A mention that sits inside markdown code is treated as text the author is SHOWING, not as a hail: it does **not** notify the named user, and it counts in FULL against the display-text cap instead of being discounted as mention markup. Two consequences worth planning for: someone who is notified today by a mention inside a fence stops being notified, and a long body that hid markup inside fences may now be rejected by the cap that previously discounted it. Only two constructs count as code, both matched per line — a fenced block opened by a run of three or more backticks (or three or more tildes) indented at most three spaces and closed by a run of the same character at least as long, alone on its line (an unclosed fence runs to the end of the body); and a single-line inline backtick span, a run of N backticks closed by a run of exactly N on the SAME line. Everything else is NOT recognised as code and still notifies exactly as before: a fence carrying a blockquote or other container prefix, a fence indented four or more spaces, an indented code block with no fence markers, and a backtick span whose opening and closing runs sit on different lines. The bias is deliberate — failing to recognise code is the behaviour that was already live, while inventing code where there is none would silently drop a real person's notification. When in doubt, it is not code.
 
@@ -2187,17 +2243,69 @@ Use `GET .../storage/{node_id}/requestread/` to generate a temporary auth-free d
 `token` as a query parameter: `GET .../storage/{node_id}/read/?token={token}`. This is useful for opening files in
 browser tabs without sending Authorization headers.
 
-Those routes return the file's **bytes**. To read its **text** instead, use `GET .../storage/{node_id}/content/`, which
-returns the extracted text the platform already indexed, as ordered chunks tagged with their page range where the format
-has pages, and rankable against a query with `?q=` so you can locate and quote a passage without walking the whole file.
-That is the only way to read a PDF's words without converting the bytes yourself. To score several files against one
-query in a single call — e.g. after a search returns candidates — use `GET .../workspace/{workspace_id}/storage/content/`
-with `nodes` (up to 10 comma-separated ids) and `q` instead; each file is ranked only against itself, so take the top
-chunks per file rather than merging scores across files. Workspace only, no share form.
+Those routes return the file's **bytes**. To read its **text** instead, use the content routes described under
+"Reading a File's Extracted Text" below.
 
 **MCP agents** have additional download options: use the `download://` resource templates for direct content retrieval
 (up to 50 MB), or the `/file/` HTTP pass-through endpoint for streaming larger files. See the "MCP Tool Architecture"
 section for details.
+
+#### Reading a File's Extracted Text (`content/`)
+
+Three routes look alike, and agents keep confusing them:
+
+| Route | Returns |
+|-------|---------|
+| `GET .../storage/{node_id}/read/` | the file's raw **bytes** (a download) |
+| `GET .../storage/{node_id}/content/` | the file's **extracted text**, as ordered chunks |
+| `GET .../storage/search/` | one **capped excerpt** per matching file |
+
+To read a whole document's words — for example the full text of a PDF in a workspace, by node id — use `content/`
+with an ordered window. Do not download the bytes and convert them yourself, and do not page through search results.
+
+**Read one file's text, in order** — `GET /current/workspace/{workspace_id}/storage/{node_id}/content/`
+(also `GET /current/share/{share_id}/storage/{node_id}/content/`). Returns the same extracted text the platform indexed
+for search and AI, as `chunks[]` of `{position, sequence, chunk_index, start_page, end_page, chars, chunk_hash, score, text}`, plus
+`indexed_version_id`, `total_chunks`, `num_pages`, `next_cursor` and `truncated`.
+
+- **Ordered window:** `chunk_from=0&chunk_to=19` selects an inclusive `position` range (`chunk_to` requires
+  `chunk_from`). `limit` is 1–20 chunks per response (default 5) and `max_bytes` is 1024–262144 bytes of text per
+  response (default 32768). When `next_cursor` is returned, pass it back verbatim as `cursor` to continue.
+- **Chunk identity:** `chunk_hash` is a 10-character label of the chunk's whitespace-normalised text; it is the same
+  value on the search route's `best_chunk.chunk_hash` and on the batched route, so a chunk whose label you already
+  hold need not be read again, and two files whose chunks share a label contain the same passage.
+- **Relevance mode:** `q=` (1–512 characters) ranks this file's own chunks by keyword score (default `limit` 3). It
+  cannot be combined with `page`, `chunk_from`/`chunk_to` or `cursor`.
+- **By page:** `page=N` returns the chunks overlapping that page (page-addressable formats only).
+- **Chunk map only:** `output=terse` returns the chunk addresses without `text`.
+- A search hit's `best_chunk.position` is a `chunk_from` value for this route when it is non-null and below 10000
+  (deeper positions are refused with a 406; reach them with a `cursor` walk instead). If the hit's
+  `best_chunk.indexed_version_id` differs from the `indexed_version_id` this route returns, the file was re-indexed
+  between the calls and the position is stale — re-run the search.
+
+**Read several files in a single call, scored against a query or in order** — `GET /current/workspace/{workspace_id}/storage/content/`
+
+- `nodes=` 1–10 comma-separated node ids, plus either:
+  - `q=` (1–512 characters) — score each file against the query, `limit=` default `3` chunks per file (1–20); or
+  - `chunk_from=`/`chunk_to=` (optional, ordered mode) — an inclusive `position` window per file, `limit=` default `5`
+    chunks per file (1–20). `q` and `chunk_from`/`chunk_to` cannot be combined.
+- `max_bytes` (per file) and `output` work in both modes. In ordered mode each file's entry also carries `complete`
+  and `next_cursor` — pass `next_cursor` as `cursor` to the single-file route to keep reading that one file, and
+  repeat `chunk_from`/`chunk_to` alongside it when this read used them, or that walk runs on to the end of the file.
+- **Head-read / triage:** `?nodes=a,b,c,…&chunk_from=0&max_bytes=2048` returns the first ~2 KB of up to ten files in
+  one call, so an agent can look at many files before deciding which ones to read whole — a contract sweep, meeting-
+  note triage, or literature-review pass pays one call instead of one per file. It reads each file individually
+  server-side, so it is a convenience over ten calls rather than a cheaper query — keep `max_bytes` small for a head
+  read.
+- In `q` mode each file is ranked only against itself, so take the top chunks per file rather than merging scores
+  across files. Nodes that are missing, trashed or not a readable file type come back in `missing[]` with a `reason`;
+  an index or storage read failure fails the whole request.
+- Workspace only; there is no share form. This is the cheap way to turn a batch of search hits into text, or to
+  triage a batch of files before committing to a full read.
+
+**Listing every file is a different route.** `GET /current/workspace/{workspace_id}/storage/inventory/` (and the share
+form) returns every live node as one flat, cursor-paginated list; trash is excluded. Its rows are terse by design and it
+**rejects `output=`** with a 406 — do not add the parameter out of habit.
 
 #### Unit Calculations
 
@@ -2208,7 +2316,7 @@ section for details.
 
 ## Plans & Credits
 
-New organizations — created by humans or agents alike — choose a **paid plan (Starter, Business, or Growth)** to get
+New organizations — created by humans or agents alike — choose a **paid plan (Starter, Business, Growth, or Enterprise)** to get
 started. A newly created organization must select a paid plan before it can do work; until then it is in an
 upgrade-only state and resource-consuming endpoints return HTTP 402. There is no free-to-start path for new orgs.
 
@@ -2248,16 +2356,19 @@ allowance and expanded limits.
 
 ### Plan Entitlement Matrix
 
-Starter, Business, and Growth are the paid plans new organizations choose:
+Starter, Business, Growth, and Enterprise are the paid plans new organizations choose:
 
-| Feature                  | Starter | Business  | Growth    |
-|--------------------------|---------|-----------|-----------|
-| Monthly included credits | 300,000 | 1,200,000 | 4,500,000 |
-| Storage                  | 1 TB    | 10 TB     | 50 TB     |
-| Included seats           | 1       | 20        | 50        |
-| Max file size            | 25 GB   | 50 GB     | 100 GB    |
-| Workspaces               | 10      | 100       | Unlimited |
-| Shares                   | 100     | 1,000     | 1,000     |
+| Feature                  | Starter | Business  | Growth    | Enterprise |
+|--------------------------|---------|-----------|-----------|------------|
+| Monthly included credits | 300,000 | 1,200,000 | 4,500,000 | 15,000,000 |
+| Storage                  | 1 TB    | 10 TB     | 50 TB     | 50 TB      |
+| Included seats           | 5       | 20        | 50        | 150        |
+| Max file size            | 25 GB   | 50 GB     | 100 GB    | 100 GB     |
+| Workspaces               | 10      | 100       | 300       | 1,000      |
+| Members per workspace    | 5       | 20        | 50        | 100        |
+| Shares                   | 50      | 250       | 1,000     | 3,000      |
+| Invitations per share    | 50      | 250       | 500       | 1,000      |
+| Cloud import sources     | 3       | 20        | 50        | 200        |
 
 ---
 
@@ -2347,7 +2458,7 @@ Starter, Business, and Growth are the paid plans new organizations choose:
 3. Document ingestion costs 10 credits/page — a 50-page PDF costs 500 credits
 4. Disable intelligence on storage-only workspaces to avoid ingestion costs
 5. Use attach-only AI chat (no intelligence needed) for one-off analysis to save credits
-6. When credits run low, upgrade the org's plan (Starter, Business, or Growth) for a larger monthly credit allowance
+6. When credits run low, upgrade the org's plan (Starter, Business, Growth, or Enterprise) for a larger monthly credit allowance
 
 ---
 
@@ -2898,7 +3009,7 @@ It's optional — routing works with just the `custom_name` — but improves lin
 ### Typical Agent Flow: Create and Link
 
 1. **Create org** → API returns `org.domain` (e.g., `"acme"`)
-2. **Select a paid plan** → activates the org so it can do work (Starter, Business, or Growth)
+2. **Select a paid plan** → activates the org so it can do work (Starter, Business, Growth, or Enterprise)
 3. **Create workspace** → API returns `workspace.folder_name` (e.g., `"client-docs"`)
 4. **Upload files to folder** → API returns `file.id` for each file
 5. **Create share from folder** → API returns `share.custom_name`
@@ -2909,22 +3020,180 @@ It's optional — routing works with just the `custom_name` — but improves lin
 
 ---
 
+## Signing / E-Signature
+
+The platform ships a native e-signature surface so an agent can collect legally enforceable signatures on PDFs without
+leaving the workspace. A SignEnvelope is an audit-archive Profile holding up to 20 PDFs sent to one or more recipients;
+the internal PAdES-LT engine produces a long-term-validation cryptographic signature on every completed document and
+the envelope's audit certificate captures the full chain of evidence (consent acceptance, OTP authentication where
+required, per-recipient sign events, document hashes).
+
+> **Full reference:** [https://api.fast.io/current/llms/signing/](https://api.fast.io/current/llms/signing/)
+> **Public HTML docs:** [https://api.fast.io/current/docs/signing/](https://api.fast.io/current/docs/signing/)
+
+### What an Agent Gets From Signing
+
+| Capability | What It Solves |
+|------------|----------------|
+| **Native PDF signing** | No external e-sign account required for the default path. The platform's internal PAdES-LT engine embeds a long-term-validation signature directly in the completed PDF; the signature is verifiable offline by any standard PDF reader. |
+| **Audit certificate** | Every completed envelope ships with a downloadable audit certificate (JSON evidence record) capturing the per-recipient consent, OTP flow, sign timestamps, and document hashes. The chain underneath it is hash-linked and HMAC-signed. |
+| **Recipient OTP** | Configure `auth_method=email_otp` or `sms_otp` on a recipient and the signer surface gates the `/sign` action behind a 6-digit OTP. Code issuance and verification are independently throttled per `(envelope, recipient)` so the brute-force surface stays bounded. |
+| **Sequential or parallel routing** | Recipients carry a 1-based `routing_order`. Distinct numbers fire sequentially; identical numbers fire in parallel. The platform activates the first slot on `/send/` and progresses through the slots as each recipient signs. |
+| **Sign templates** | Capture a reusable signing configuration (recipient slots, document slots, field placements, policy) as a `SignTemplate` (`sa…` OpaqueId). Instantiate the template to produce a draft envelope with concrete bindings applied. |
+| **First-view billing** | Credits are reserved at `/send/` and the first-view charge fires the first time any recipient opens the `/view` landing. Subsequent views by the same or different recipients don't re-charge — the meter is once-per-envelope. Voiding doesn't refund. |
+
+### When to Reach for Signing
+
+- An agent has produced a document that needs a human signature before it can ship.
+- A contract / SOW / NDA / consent form needs to be collected and archived with a verifiable audit trail.
+- A multi-party agreement needs sequential or parallel signing with per-recipient OTP gating.
+
+If none of the above apply, an agent can still ship a PDF as a regular file via storage or a share — but the audit
+chain and OTP gate only exist on the SignEnvelope surface.
+
+### Concept Map (for AI agents)
+
+| Concept | Type | Description |
+|---------|------|-------------|
+| **SignEnvelope** | profile (19-digit id) | The audit-archive entity. Parented to a Workspace. Carries lifecycle state (`draft` / `sent` / `in_progress` / `completed` / `declined` / `voided` / `expired` / `failed`), policy, and timestamps. |
+| **SignTemplate** | OpaqueId (`sa…` prefix, 30-char) | A reusable signing configuration capturing recipient slots, document slots, field placements, and policy. Instantiate to produce a draft envelope. Soft-deleted (tombstoned), never purged. |
+| **Document** | OpaqueId | One PDF inside the envelope. Up to 20 per envelope. Carries `source_node_id` / `source_version_id` (the storage node it was copied from), `signed_pdf_node_id` (set when signing completes), `source_sha256`, `completed_sha256`, `display_order`, `signed_at`. |
+| **Recipient** | OpaqueId | One signer / cc / viewer / approver / certified-recipient on the envelope. Carries `role`, `routing_order`, `auth_method` (`none` / `email_otp` / `sms_otp`), and per-recipient lifecycle timestamps. Status flows `pending` → `sent` → `viewed` → `authenticated` → `signing_in_progress` → `signed` (with `declined` / `expired` / `voided` / `failed` terminal). |
+| **Field** | OpaqueId | A field placement on a `(document_id, page)`. Normalized `0..1` coordinates. Type is one of `signature` / `initial` / `date` / `text` / `checkbox`. Belongs to exactly one recipient. |
+| **Signer token** | compact JWT | Short-lived path-token JWT bound to a `(envelope_id, recipient_id)`. The recipient's signing link is `/sign_envelopes/signer/{token}/view/`. The token is consumed (single-use) on the state-changing actions (`/sign`, `/decline`, OTP-verify). |
+| **Audit certificate** | OpaqueId (node) | The per-envelope audit certificate (JSON evidence record), generated when the envelope reaches a terminal state (completed, voided, or declined). `audit_certificate_node_id` on the envelope resource goes non-null when the certificate is in place; both the owner `/audit/download/` and signer `/sign_envelopes/signer/{token}/audit/download/` endpoints stream the JSON bytes directly (no read-token round-trip). |
+| **Activity events** | event type | `sign_envelope_drafted`, `sign_envelope_sent`, `sign_envelope_voided`, `sign_envelope_viewed`, `sign_envelope_recipient_signed`, `sign_envelope_recipient_declined`, `sign_envelope_document_signed`, `sign_envelope_completed`, `sign_envelope_expired`. Visible through `/events/search/` and outbound webhook subscriptions. |
+
+**ID format note:** Envelope id is **19-digit numeric** (profile id format). Document / recipient / field / node ids
+are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`). Sign template ids are 30-character
+`sa`-prefixed OpaqueIds. Signer tokens are compact JWTs and must never be persisted longer than the envelope's lifetime.
+
+### Auth Model
+
+| Endpoint family | Auth |
+|------------------|------|
+| Sender / admin (workspace-parented) | `Authorization: Bearer {api_key}` (JWT / OAuth / API key) |
+| Signer surface | signer session token carried in the URL path — no session required |
+| Provider webhook receiver | Provider's HMAC signature header — no Fastio session |
+
+Workspace **view** is required for read endpoints; workspace **admin** for the
+mutating endpoints (`/send`, `/void`, document downloads on a signed envelope, audit download). Signing availability
+depends on your organization's plan and enabled features.
+
+### Pattern Cookbook
+
+Every signing flow an agent typically runs reduces to one of these recipes. All examples assume an API key in
+`{api_key}` and a workspace id in `{workspace_id}`.
+
+#### Pattern 1: Send a one-recipient envelope, wait for completion
+
+```bash
+# 1. Create the draft envelope.
+curl -X POST "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/create/" \
+  -H "Authorization: Bearer {api_key}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expires_at": "2026-06-15 14:30:00 UTC",
+    "policy_json": {"auth_method": "email_otp"},
+    "documents": [
+      {"source_node_id": "{source_node_id}", "source_version_id": "{source_version_id}", "display_order": 0}
+    ],
+    "recipients": [
+      {"email": "signer@example.com", "display_name": "Alex Signer", "role": "signer", "routing_order": 1, "auth_method": "email_otp"}
+    ],
+    "fields": [
+      {"recipient_email": "signer@example.com", "document_index": 0, "page": 1, "x_norm": 0.5, "y_norm": 0.8, "w_norm": 0.2, "h_norm": 0.05, "type": "signature", "required": true}
+    ]
+  }'
+# -> 200 OK { "sign_envelope": { "id": "{envelope_id}", "envelope_status": "draft", ... } }
+
+# 2. Send the envelope. The platform reserves credits, transitions Draft -> Sent, and dispatches notification.
+curl -X POST "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/send/" \
+  -H "Authorization: Bearer {api_key}"
+# -> 200 OK { "sign_envelope": { "envelope_status": "sent", "sent_at": "...", ... } }
+
+# 3. Poll the envelope until terminal. Drive on `envelope_status`; when it goes to `completed`, the audit certificate
+#    is rendered shortly after and `audit_certificate_node_id` goes non-null.
+curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/details/" \
+  -H "Authorization: Bearer {api_key}"
+
+# 4. (After completion) Download the signed PDF and the audit certificate.
+curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/documents/{document_id}/signed/download/" \
+  -H "Authorization: Bearer {api_key}"
+curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/audit/download/" \
+  -H "Authorization: Bearer {api_key}"
+```
+
+#### Pattern 2: Catch a void or decline, react accordingly
+
+```bash
+# Subscribe to the relevant activity events via an outbound webhook subscription with event types
+# `sign_envelope_voided`, `sign_envelope_recipient_declined`, or `sign_envelope_completed`.
+#
+# When the event lands, look up the envelope's current state via:
+curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/details/" \
+  -H "Authorization: Bearer {api_key}"
+# -> envelope.envelope_status is one of `voided` / `declined` / `completed` / `expired` / `failed`.
+# -> envelope.voided_reason carries the operator's void reason; recipient[].decline_reason carries the signer's reason.
+```
+
+### What to Tell the Recipient
+
+The signer surface is path-token authenticated. The notification email the platform sends contains a link of the
+form `/sign_envelopes/signer/{token}/view/`. The recipient's flow is:
+
+1. **Click the link** → renders the envelope state, documents, fields, and consent disclosure via `GET /sign_envelopes/signer/{token}/view/`.
+2. **Authenticate (OTP recipients only)** → enter the 6-digit code that the platform sent. The verify response carries a new elevated token; the client uses it for the rest of the flow.
+3. **Review and accept consent**, **fill in field values**, **click sign** → `POST /sign_envelopes/signer/{token}/sign/` submits the values; the platform queues the async PAdES-LT signing job and returns a polling token.
+4. **Wait for completion** → the client polls `/status/` and respects the adaptive `next_poll_seconds` (2s for the first 10s after sign, 5s for the next 60s, 15s thereafter).
+5. **Or decline** → `POST /sign_envelopes/signer/{token}/decline/` with an optional reason cascades the envelope to `declined`.
+
+Path tokens are **single-use** on the consume-style actions (`/sign`, `/decline`, OTP verify). The landing token works
+multiple times on `/view` and `/status` until it has been consumed by one of the one-shot actions.
+
+### Gotchas
+
+- **Signing availability is plan-dependent.** Check your organization's plan and enabled features to confirm signing access.
+- **Voiding doesn't refund.** Credits are consumed at `/send/`; the void path captures a reason and short-circuits
+  pending recipients but does not refund. This matches industry convention.
+- **A single decline kills the envelope.** Pending recipients in later routing slots never get notified once the
+  envelope cascades to `declined`. Plan around this for sequential multi-signer flows.
+- **The signed PDF endpoint 404s until the document completes.** Drive on the document's `signed_at` timestamp on the
+  envelope resource — when it's non-null, the signed PDF is downloadable.
+- **The audit certificate 404s until the envelope completes.** Drive on `audit_certificate_node_id` on the envelope
+  resource — it goes non-null when the certificate is ready.
+- **OTP issuance and verification are throttled per-(envelope, recipient).** Back off on a throttle response
+  instead of retrying immediately; the verify throttle protects against brute-force across multiple issuances.
+- **Path tokens are short-lived.** Don't store the signer token longer than the envelope's lifetime. The OTP-elevation
+  path re-mints the token; outside that, treat it as single-use on consume actions.
+- **Documents per envelope is capped at 20.** Exceeding it is rejected at create time with `1605 (Invalid Input)`.
+- **PATCH only works on draft envelopes.** A Sent / InProgress / terminal envelope is immutable on the sender surface;
+  the only transitions are through `/void` and the signer-surface actions.
+
+### See Also
+
+- Full LLM reference: [https://api.fast.io/current/llms/signing/](https://api.fast.io/current/llms/signing/)
+- Public HTML docs: [https://api.fast.io/current/docs/signing/](https://api.fast.io/current/docs/signing/)
+
+---
+
 ## Per-Workspace Dashboard
 
-The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — @mentions and file activity — in a single endpoint call. When the workspace plan includes AI features, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
+The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — pending signatures, @mentions, and file activity — in a single endpoint call. When the workspace plan includes AI features, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
 
 **Key characteristics:**
 
 - **Per-workspace, per-member.** A member sees only the cards relevant to them in that workspace.
 - **AI overlay is additive and gracefully degrades.** Cards are always useful without AI; when AI is available, `urgency`, `ai_summary`, and `suggested_action` enrich each card. Synthesis cards (type `synthesis`, source `ai`) only appear when AI is available.
 - **Ripley Agent seed.** Every card carries a `ripley_seed` — a pre-populated question plus typed entity subjects — for launching a focused Ripley Agent conversation about that card.
-- **Dismiss/snooze is out-of-band.** Dismissing or snoozing a card hides it from the member's view only; the underlying item is unaffected.
+- **Dismiss/snooze is out-of-band.** Dismissing or snoozing a card hides it from the member's view only; the underlying signature is unaffected.
 - **Blocking cards surface first.** Cards that gate other participants are ranked ahead of non-blocking ones.
 
 ### Card types
 
 | Type | What it represents |
 |------|--------------------|
+| `signature` | A pending signature on an envelope |
 | `mention` | An @-mention of the caller in a comment |
 | `file_version` | A new version of a workspace file |
 | `file_added` | A new file added to the workspace |
@@ -2937,11 +3206,15 @@ The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for 
 GET /current/workspace/{workspace_id}/dashboard/?limit=50
 Authorization: Bearer {jwt_token}
 
-# 2. Offer dismiss/snooze on dismissible cards. URL-encode card_key (contains ':').
+# 2. Render each card. For signature cards, use primary_action.endpoint to get the signing link:
+POST /current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/my_sign_link/
+# → Returns: sign_url (when actionable), is_terminal, blocked_signers, etc.
+
+# 3. Offer dismiss/snooze on dismissible cards. URL-encode card_key (contains ':').
 POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 # Optional body: {"snooze_until": "2026-06-18 09:00:00 UTC"}
 
-# 3. Pass ripley_seed to the Ripley Agent to pre-focus the conversation
+# 4. Pass ripley_seed to the Ripley Agent to pre-focus the conversation
 # ripley_seed = {"question": "...", "subjects": [{type, id, display_text}]}
 ```
 
@@ -2951,7 +3224,7 @@ POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 |-------|------|-------------|
 | `card_key` | string | Stable card ID. URL-encode when in a path (contains `:`). |
 | `type` | string | Card type (see table above). |
-| `source` | string | `event` or `ai`. |
+| `source` | string | `event`, `signature`, or `ai`. |
 | `blocking` | boolean | True = blocks other participants; ranked first. |
 | `due_at` | string or null | UTC due date (`"YYYY-MM-DD HH:MM:SS UTC"`). |
 | `ai_summary` | string or null | AI-generated summary. `null` when AI overlay absent. |
@@ -2965,6 +3238,7 @@ POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 
 - `GET /current/workspace/{workspace_id}/dashboard/` — JWT, workspace View-or-above.
 - `POST/DELETE /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/` — JWT, workspace View-or-above.
+- `POST /current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/my_sign_link/` — JWT, **write-scope token** (minting a signing link is a state-changing operation).
 
 > **Full reference:** [https://api.fast.io/current/llms/dashboard/](https://api.fast.io/current/llms/dashboard/)
 > **Public HTML docs:** [https://api.fast.io/current/docs/dashboard/](https://api.fast.io/current/docs/dashboard/)
