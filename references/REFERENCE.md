@@ -1705,7 +1705,9 @@ Search and filter events with `GET /current/events/search/`:
 - **Scope by profile** — filter by `workspace_id`, `share_id`, `org_id`, or `user_id`
 - **Filter by type** — narrow to specific event names, categories, or subcategories (see reference below)
 - **Date range** — use `created-min` and `created-max` for time-bounded queries
-- **Pagination** — offset-based with `limit` (1-250) and `offset`
+- **Pagination** — `limit` (1-250) with either `offset` or an opaque `cursor`; every response carries
+  `pagination.has_more` / `next_cursor` / `page_size`. Stop only when `has_more` is `false` — events you
+  may not see are removed after the page is read, so a short or empty page mid-walk is normal.
 
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
 `GET /current/event/{event_id}/ack/`.
@@ -2334,6 +2336,8 @@ All platform activity consumes credits from the org's monthly allowance:
 | Audio ingested          | 0.5 credits/second      |
 | Images ingested         | 5 credits/image         |
 | File conversions        | 25 credits/conversion   |
+| Cloud sync              | 1 credit per 1,000 objects scanned per sync (minimum 1 per sync) |
+| AI index                | 100 credits per 1,000 indexed vectors, sampled daily and charged on the period average |
 
 When credits run out, the org enters a reduced-capability state — file storage and access continue to work, but
 credit-consuming operations (AI chat, file ingestion, bandwidth-heavy downloads) are limited until the credits reset or
