@@ -15,14 +15,14 @@ compatibility: >-
   via Streamable HTTP (/mcp) or SSE (/sse).
 metadata:
   author: fast-io
-  version: 2.83.0
+  version: 2.84.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.83
-**Last Updated:** 2026-09-21
+**Version:** 2.84
+**Last Updated:** 2026-09-26
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and upgrade paths, see [references/REFERENCE.md](references/REFERENCE.md).
 
@@ -257,6 +257,8 @@ Sending both scope and attach errors. After `chat-create`/`message-send`, the re
 ### Activity polling — don't tight-loop
 
 Three mechanisms, most-to-least preferred: **`event action=activity-poll`** (long-poll, server holds up to ~95s, returns activity keys like `ai_chat:{chatId}`/`storage`/`members` + a `lastactivity` timestamp), WebSocket (live UIs), `event action=activity-list` (one-time snapshot). **Do NOT poll detail endpoints (e.g. `ai action=message-read`) in tight loops** — long-poll for the change, then fetch the detail once. For AI completion: poll until an `ai_chat:{chatId}` key matching your chat appears, then `message-read` once. **Param split:** `event action=activity-list` takes `profile_id` (alias `context_id`; `profile_type` is optional/ignored) and `event action=activity-poll` takes `entity_id` — these two are NOT interchangeable. The `event` `search`/`summarize`/`details` family takes `workspace_id`/`share_id`/`org_id`/`user_id` filters — mixing the activity and search families errors (code `10262`).
+
+**Watching storage across a whole org — use `event action=changes`, not one poll per workspace.** It is the org-wide storage change feed: one call and one cursor cover every workspace and share of the org you can read. It takes `org_id` only (plus `cursor`, `limit`). Omit `cursor` to bootstrap (no history — just a head cursor; list what you track right after), then send each returned `cursor` back unchanged; `has_more:true` → call again, but if the same cursor came back the newest changes are still settling — wait ~10s. Rows carry ids, not names (`storage action=details` on `object_id`); dedupe by `event_id` (latest delivery wins); a 406 on the cursor (malformed or `cursor_expired`) means re-bootstrap and re-list. It does not cover purges, user-owned (non-org) shares, some share-only operations or commits landing >~10s late (renames arrive as `*_updated`), so reconcile with a periodic full listing. `activity-poll` stays the call for ONE workspace or share.
 
 ### Downloads
 

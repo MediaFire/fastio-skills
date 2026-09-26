@@ -68,7 +68,7 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Starter, Business, Growth, or Enterprise) |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Starter, Business, or Enterprise) |
 | Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
@@ -77,7 +77,7 @@ simple question: "What does this document say?"
 | Knowing what needs attention                 | A per-workspace dashboard ranks @mentions and file activity |
 | Collaborating with humans on a shared org    | Invite humans (or be invited) as org/workspace members — everyone sees the same files and activity |
 | Tracking what happened                       | Full audit trail with AI-powered activity summaries                                               |
-| Plans                                        | New organizations choose a paid plan (Starter, Business, Growth, or Enterprise); credits cover storage, bandwidth, and AI usage |
+| Plans                                        | New organizations choose a paid plan (Starter, Business, or Enterprise); credits cover storage, bandwidth, and AI usage |
 
 ---
 
@@ -95,20 +95,21 @@ coordinating shared work), create your own account and your own organization:
 
 1. `POST /current/user/` with `email_address`, `password`, `tos_agree=true`. Optionally pass `agent=true` to tag the
    account as an agent account (`account_type=agent`) — this is for identification only and does not change which plans
-   you can choose.
+   you can choose. A request from a geo-restricted location is refused (error `1697`) unless `email_address` already
+   holds a pending invitation to an org, workspace, or share — if you were invited, sign up with the invited address.
 2. Authenticate with Basic Auth → get JWT
 3. Verify your email address (required before using most endpoints):
    - `POST /current/user/email/validate/` with `email` — sends a verification code to your email
    - `POST /current/user/email/validate/` with `email` and `email_token` — validates the code and marks your account as verified
 4. `POST /current/org/create/` with `domain` (required, 2-63 chars lowercase alphanumeric + hyphens) — an org is a collector of workspaces that can represent a company, team, business unit, or personal collection
 5. **Select a paid plan to activate the organization.** A newly created organization must select a paid plan
-   (Starter, Business, Growth, or Enterprise) before it can be used; until then it is in an upgrade-only state — the same state as an
+   (Starter, Business, or Enterprise) before it can be used; until then it is in an upgrade-only state — the same state as an
    org that has exhausted its credits, returning HTTP 402 on resource-consuming endpoints. Choose a plan via the
    billing API or direct the owner to `https://go.fast.io/onboarding`.
 6. `POST /current/org/{org_id}/create/workspace/` with `folder_name`, `name`, `perm_join`, `perm_member_manage` (all required — see Permission Values below)
 
 > **A new organization needs a paid plan before it can do work.** New organizations select one of the paid plans
-> (Starter, Business, Growth, or Enterprise). Until a paid plan is selected, the org is in an upgrade-only state and resource-consuming
+> (Starter, Business, or Enterprise). Until a paid plan is selected, the org is in an upgrade-only state and resource-consuming
 > endpoints (uploads, AI chat, ingestion) return HTTP 402, exactly like an org that has run out of credits. All paid
 > plans include the `content_ai` and `ai_agent` features needed for agentic chat and RAG across indexed files.
 > The [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) has the full plan matrix.
@@ -145,6 +146,8 @@ once and cannot be retrieved later. Direct link: `https://go.fast.io/settings/ap
 
 Use the API key as a Bearer token: `Authorization: Bearer {api_key}`
 
+**What you do is attributed to you as the human's agent.** Files, versions, locks, intents, events, comments, invitations and metadata facts you create carry an `actor` object naming the human and, when the key has a name (or you signed in with `GET /current/user/auth/?agent_name=...`), your agent name — shown as **self-declared** (`verified: false`); only Fastio's own built-in agent is ever `verified: true`.
+
 The API key acts as that human, but it is bounded by its **scopes**. A key created without scopes carries `user:*:rw` —
 whole-account **read and write**, so you can manage their workspaces, shares, and files directly — but it is **not**
 administrative and it cannot change account settings. Anything that needs org / workspace / share admin (including
@@ -176,6 +179,15 @@ queued before the policy tightened is not lost — it is held and resumes automa
 widens again, unless it sits held past a bounded (~5-day) ceiling, in which case it retires and the
 edit must be pushed again once cloud sync is read-write. Do not retry a `cloud_sync_read_only` push in
 a loop; tell the human to ask an org or workspace admin to widen the policy.
+
+**If the human's organization restricts access by location, AI, or MCP** (Enterprise access policies),
+calls into that org's content can be refused with `403` (never `401`, so do not discard the credential)
+and `params.reason` of `geo_restricted` (your network location or IP range is blocked — retrying from the
+same place will not help), `mcp_access_denied` (the org does not allow access through the Fastio MCP for
+this user), or `ai_policy_denied` / `ai_policy_workspace_not_allowed` (the org turned off the AI feature
+named in `params.feature` for this user or workspace). Account-level calls are unaffected, and lists
+that span several orgs simply omit the blocked org's rows. `access_policy_unavailable` (`503`) is
+transient — retry it. Otherwise tell the human; only an org admin can change these policies.
 
 ### Option 3: Agent Account Invited to a Human's Org
 
@@ -547,7 +559,7 @@ summarized, and indexed for RAG. This enables:
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
 > **Plan requirement.** Intelligence requires both the `content_ai` and `ai_agent` plan features (included on every
-> paid plan: Starter, Business, Growth, or Enterprise). On a plan that does not include those features, a new workspace is created
+> paid plan: Starter, Business, or Enterprise). On a plan that does not include those features, a new workspace is created
 > with `intelligence` off and it cannot be switched on — the update endpoint rejects the attempt with
 > `1605 (Invalid Input)`. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
 
@@ -1712,6 +1724,25 @@ Search and filter events with `GET /current/events/search/`:
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
 `GET /current/event/{event_id}/ack/`.
 
+#### Following File Changes Across an Org
+
+To keep a local copy in sync with many workspaces and shares, don't poll each one. Use
+`GET /current/org/{org_id}/events/changes/`, which returns the file and folder changes you can see across
+the whole org after a cursor:
+
+- **Bootstrap** — call with no `cursor` to get a starting cursor, list the workspaces and shares in
+  `profiles.items`, then follow the cursor.
+- **Follow** — pass back `cursor` each call; call again right away while `has_more` is `true`. If `has_more`
+  is `true` but the cursor came back unchanged, wait about 10 seconds first.
+- **Dedupe** by `event_id` (latest wins). When `profiles.version` changes, re-list the affected profiles.
+- **Errors** — any 406 on the cursor (including `cursor_expired`) means start over with a fresh bootstrap.
+- **Nudges** — org members subscribe once to the org's WebSocket activity channel; a content-free
+  `storage` field means "call the feed", and call it once more about a second after handling a nudge.
+  External members and guests keep their per-workspace or per-share sockets but can still use the feed.
+  Also poll slowly as a safety net, and reconcile in full now and then.
+- **Tokens** — unscoped, workspace-scoped and share-scoped API keys are supported; you see only what your
+  key and access allow.
+
 #### Event Categories
 
 Use the `category` parameter to filter by broad area:
@@ -2318,7 +2349,7 @@ form) returns every live node as one flat, cursor-paginated list; trash is exclu
 
 ## Plans & Credits
 
-New organizations — created by humans or agents alike — choose a **paid plan (Starter, Business, Growth, or Enterprise)** to get
+New organizations — created by humans or agents alike — choose a **paid plan (Starter, Business, or Enterprise)** to get
 started. A newly created organization must select a paid plan before it can do work; until then it is in an
 upgrade-only state and resource-consuming endpoints return HTTP 402. There is no free-to-start path for new orgs.
 
@@ -2360,19 +2391,19 @@ allowance and expanded limits.
 
 ### Plan Entitlement Matrix
 
-Starter, Business, Growth, and Enterprise are the paid plans new organizations choose:
+Starter, Business, and Enterprise are the paid plans new organizations choose:
 
-| Feature                  | Starter | Business  | Growth    | Enterprise |
-|--------------------------|---------|-----------|-----------|------------|
-| Monthly included credits | 300,000 | 1,200,000 | 4,500,000 | 15,000,000 |
-| Storage                  | 1 TB    | 10 TB     | 50 TB     | 50 TB      |
-| Included seats           | 5       | 20        | 50        | 150        |
-| Max file size            | 25 GB   | 50 GB     | 100 GB    | 100 GB     |
-| Workspaces               | 10      | 100       | 300       | 1,000      |
-| Members per workspace    | 5       | 20        | 50        | 100        |
-| Shares                   | 50      | 250       | 1,000     | 3,000      |
-| Invitations per share    | 50      | 250       | 500       | 1,000      |
-| Cloud import sources     | 3       | 20        | 50        | 200        |
+| Feature                  | Starter | Business  | Enterprise |
+|--------------------------|---------|-----------|------------|
+| Monthly included credits | 300,000 | 1,200,000 | 4,500,000  |
+| Storage                  | 1 TB    | 10 TB     | 50 TB      |
+| Included seats           | 5       | 20        | 50         |
+| Max file size            | 25 GB   | 50 GB     | 100 GB     |
+| Workspaces               | 10      | 100       | 300        |
+| Members per workspace    | 5       | 20        | 50         |
+| Shares                   | 50      | 250       | 1,000      |
+| Invitations per share    | 50      | 250       | 500        |
+| Cloud import sources     | 3       | 20        | 50         |
 
 ---
 
@@ -2462,7 +2493,7 @@ Starter, Business, Growth, and Enterprise are the paid plans new organizations c
 3. Document ingestion costs 10 credits/page — a 50-page PDF costs 500 credits
 4. Disable intelligence on storage-only workspaces to avoid ingestion costs
 5. Use attach-only AI chat (no intelligence needed) for one-off analysis to save credits
-6. When credits run low, upgrade the org's plan (Starter, Business, Growth, or Enterprise) for a larger monthly credit allowance
+6. When credits run low, upgrade the org's plan (Starter, Business, or Enterprise) for a larger monthly credit allowance
 
 ---
 
@@ -3013,7 +3044,7 @@ It's optional — routing works with just the `custom_name` — but improves lin
 ### Typical Agent Flow: Create and Link
 
 1. **Create org** → API returns `org.domain` (e.g., `"acme"`)
-2. **Select a paid plan** → activates the org so it can do work (Starter, Business, Growth, or Enterprise)
+2. **Select a paid plan** → activates the org so it can do work (Starter, Business, or Enterprise)
 3. **Create workspace** → API returns `workspace.folder_name` (e.g., `"client-docs"`)
 4. **Upload files to folder** → API returns `file.id` for each file
 5. **Create share from folder** → API returns `share.custom_name`
