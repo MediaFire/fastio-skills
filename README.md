@@ -18,42 +18,44 @@ Fastio gives AI agents a complete file management and collaboration platform thr
 
 ## Connecting
 
-| Transport | Endpoint |
-|-----------|----------|
-| Streamable HTTP (recommended) | `https://mcp.fast.io/mcp` |
-| Legacy SSE | `https://mcp.fast.io/sse` |
+| Tool set | Endpoint (Streamable HTTP) |
+|----------|----------|
+| Named mode — one tool per area | `https://mcp.fast.io/mcp/tools` |
+| Code mode — search the API and call it | `https://mcp.fast.io/mcp/code` |
+
+The URL fixes the tool set for the session. A client without an `Authorization` header signs in with OAuth in the browser; a client can instead send `Authorization: Bearer <api-key>`. The earlier URLs `https://mcp.fast.io/mcp`, `/mcp/oauth`, `/mcp/key` and `/sse` keep working; on those the tool set is chosen from the client's `clientInfo.name`.
 
 ## Two Modes
 
-The server exposes one of two tool sets, chosen automatically from the MCP client's `clientInfo.name`:
+The server exposes one of two tool sets, chosen by the URL (see Connecting):
 
-- **Named mode (19 tools)** — action-routed tools covering the full REST surface. Served to named clients (e.g. Claude Desktop, Cline) and as the safe default for unknown clients.
-- **Code mode (5 tools)** — a lightweight set (`auth`, `upload`, `search`, `execute`, `how-to`) for headless coding agents (e.g. Claude Code, Cursor, Codex). `search` discovers content or API endpoints; `execute` makes structured authenticated REST calls.
+- **Named mode (35 tools; 39 where e-signature and cloud import are enabled)** — action-routed tools covering the full REST surface. Each area has a read tool (`storage`) and a `_manage` tool for its create, update and delete actions (`storage_manage`).
+- **Code mode (8 tools)** — a lightweight set (`auth`, `auth_manage`, `upload`, `upload_manage`, `search`, `execute`, `execute_manage`, `how-to`) for headless coding agents (e.g. Claude Code, Cursor, Codex). `search` discovers content or API endpoints; `execute` makes structured authenticated GET calls and `execute_manage` the writes.
 
 ## Tools (Named mode)
 
-Each tool covers a domain and uses an `action` parameter to select the operation. **Every tool supports `action: "describe"`** (no auth required) for the authoritative per-action parameter reference — call it the first time you use an unfamiliar tool instead of guessing.
+Each tool covers a domain and uses an `action` parameter to select the operation. Reads are on the domain tool (`org`), writes on its `_manage` sibling (`org_manage`); `find`, `download` and `how-to` are read-only and have no sibling. **Every tool supports `action: "describe"`** (no auth required), which returns the authoritative per-action parameter reference.
 
 | Tool | Domain |
 |------|--------|
-| `auth` | Sign-in/sign-up, 2FA, API key management, OAuth/PKCE sessions |
-| `user` | Current user profile, contacts, invitations, user assets, account eligibility |
-| `org` | Organization CRUD, members, billing/subscriptions, invitations, assets, org discovery, ownership transfer |
-| `workspace` | Workspace lifecycle & settings, archive, members, notes, share import, async-job status |
-| `share` | Share CRUD (Send / Receive / Exchange), archiving, passwords, members, AI titling |
-| `fileshare` | Durable single-file share links, the replacement for QuickShare (access tiers, password, expiry, per-user grants, version history) |
-| `storage` | Files & folders: list/search/move/copy/rename/delete/restore, versions, locking, previews, per-node metadata |
-| `metadata` | Workspace metadata vocabulary, lexical value search, combined metadata + content matching, extraction eligibility |
+| `auth` / `auth_manage` | Sign-in/sign-up, 2FA, API key management, OAuth/PKCE sessions |
+| `user` / `user_manage` | Current user profile, contacts, invitations, user assets, account eligibility |
+| `org` / `org_manage` | Organization CRUD, members, billing/subscriptions, invitations, assets, org discovery, ownership transfer |
+| `workspace` / `workspace_manage` | Workspace lifecycle & settings, archive, members, notes, share import, async-job status |
+| `share` / `share_manage` | Share CRUD (Send / Receive / Exchange), archiving, passwords, members, AI titling |
+| `fileshare` / `fileshare_manage` | Durable single-file share links, the replacement for QuickShare (access tiers, password, expiry, per-user grants, version history) |
+| `storage` / `storage_manage` | Files & folders: list/search/move/copy/rename/delete/restore, versions, locking, previews, per-node metadata |
+| `metadata` / `metadata_manage` | Workspace metadata vocabulary, lexical value search, combined metadata + content matching, extraction eligibility |
 | `find` | Unified search across a workspace or share — one query, results grouped into files, metadata, and comments |
-| `upload` | File uploads: single-call streaming, chunked, bulk batch, web import from URLs |
+| `upload` / `upload_manage` | File uploads: single-call streaming, chunked, bulk batch, web import from URLs |
 | `download` | Pre-authenticated download / ZIP URLs (MCP cannot stream binary directly) |
-| `ai` (Ripley) | Ask a natural-language question about workspace/share content and get a cited answer; manages chat threads |
-| `comment` | Comments on files, with optional anchoring to regions/timestamps/pages |
-| `event` | Audit & activity log, AI activity summaries, activity polling, per-member dashboard feed |
-| `member` | Member management for workspaces and shares (roles, ownership transfer, join/leave) |
-| `invitation` | Invitation management for workspaces and shares |
-| `asset` | Branding asset upload/list/read/delete for orgs, workspaces, shares, users |
-| `intent` | Agent Intents — announce what you're working on in a workspace so peers see a collision before it happens |
+| `ai` / `ai_manage` (Ripley) | Ask a natural-language question about workspace/share content and get a cited answer; manages chat threads |
+| `comment` / `comment_manage` | Comments on files, with optional anchoring to regions/timestamps/pages |
+| `event` / `event_manage` | Audit & activity log, AI activity summaries, activity polling, per-member dashboard feed |
+| `member` / `member_manage` | Member management for workspaces and shares (roles, ownership transfer, join/leave) |
+| `invitation` / `invitation_manage` | Invitation management for workspaces and shares |
+| `asset` / `asset_manage` | Branding asset upload/list/read/delete for orgs, workspaces, shares, users |
+| `intent` / `intent_manage` | Agent Intents — announce what you're working on in a workspace so peers see a collision before it happens |
 | `how-to` | Built-in product help — ask "how do I…" questions about Fastio (free, explain-only) |
 
 ## The `how-to` tool
@@ -62,7 +64,7 @@ The guide and tool descriptions stay lean by deferring product how-tos to a buil
 
 - **Free** — no credits, no plan gate; requires only an authenticated user.
 - **Explain-only** — it returns guidance; it never creates, updates, or deletes anything.
-- Available in **both modes** (answers are phrased as named-tool calls or `execute` calls to match).
+- Available in **both modes** (answers are phrased as named-tool calls or `execute`/`execute_manage` calls to match).
 
 ## Resources
 
@@ -85,14 +87,14 @@ No MCP prompts are registered.
 
 Four ways to authenticate:
 
-1. **Agent account** — `auth action=signup` creates an agent account. Signup does not auto-sign-in; follow it with `auth action=signin`, then verify the email. Creating an organization requires selecting a plan (`org action=billing-create`).
-2. **API key** — `auth action=set-api-key` with a key from an existing human account; you operate as that human.
-3. **Sign in** — `auth action=signin` with email and password.
-4. **PKCE browser login** — `auth action=pkce-login` → user approves in browser → `auth action=pkce-complete`. Secure OAuth 2.0 flow without sharing a password. Not for headless agents.
+1. **Agent account** — `auth_manage action=signup` creates an agent account. Signup does not auto-sign-in; follow it with `auth_manage action=signin`, then verify the email. Creating an organization requires selecting a plan (`org_manage action=billing-create`).
+2. **API key** — `auth_manage action=set-api-key` with a key from an existing human account; you operate as that human.
+3. **Sign in** — `auth_manage action=signin` with email and password.
+4. **PKCE browser login** — `auth_manage action=pkce-login` → user approves in browser → `auth_manage action=pkce-complete`. Secure OAuth 2.0 flow without sharing a password. Not for headless agents.
 
 ## Plans
 
-New organizations — created by humans or agents alike — choose a paid plan to get started. There is no free-to-start path for new orgs; until a plan is selected the org is in an upgrade-only state and resource-consuming endpoints return HTTP 402.
+New organizations — created by humans or agents alike — need a plan. Until one is selected, resource-consuming endpoints return HTTP 402.
 
 | | Starter | Business | Growth |
 |---|---|---|---|
@@ -133,6 +135,9 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 |------|-------------|
 | `SKILL.md` | Complete agent guide — tool menu, MCP-server mechanics, authentication, and guardrails |
 | `references/REFERENCE.md` | Platform deep-dive — capabilities, plan details, concepts, URL construction |
+| `skills/fast-io/` | The same guide and reference laid out as a plugin skill (generated copy of the two files above) |
+| `.claude-plugin/plugin.json`, `.mcp.json` | Claude Code plugin manifest and its remote MCP server (`/mcp/tools`) |
+| `plugin.json`, `mcp.json` | Portable [Agent Plugins](https://agent-plugins.org) manifest and MCP configuration (`/mcp/tools`) |
 
 ## Links
 

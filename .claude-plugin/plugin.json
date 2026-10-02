@@ -1,0 +1,15 @@
+{
+  "name": "fast-io",
+  "displayName": "Fastio",
+  "version": "2.86.0",
+  "description": "Fastio workspaces for agents and the people they work with: files, shares, comments, metadata and AI search through the Fastio MCP server, plus the agent guide as a skill.",
+  "author": {
+    "name": "Fastio",
+    "url": "https://fast.io"
+  },
+  "homepage": "https://fast.io",
+  "repository": "https://github.com/MediaFire/fastio-skills",
+  "keywords": ["fastio", "files", "storage", "workspaces", "sharing", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
