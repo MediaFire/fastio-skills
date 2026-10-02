@@ -125,7 +125,7 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 
 **Collect documents:** Create a Receive share, send the link, files appear in your workspace.
 
-**Build a knowledge base:** Create a workspace, turn on intelligence (it is off by default and ingestion consumes credits), upload documents, then query across all content with `ai` (Ripley).
+**Build a knowledge base:** Create a workspace, turn on intelligence (it is off by default and ingestion consumes credits), upload documents, then query across all content with `ai_manage action=ask` (Ripley).
 
 **Set up a project for a human:** Create the org, workspaces, and shares, upload content, configure branding, then transfer ownership.
 
