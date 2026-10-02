@@ -34,7 +34,7 @@ needed.
 
 The MCP server exposes consolidated tools using action-based routing — each tool covers a domain (e.g., `auth`,
 `storage`, `upload`) and uses an `action` parameter to select the operation. In Named Mode (Claude Desktop, etc.),
-there are multiple domain-specific tools plus app-specific widget tools. In Code Mode (Claude Code,
+there are multiple domain-specific tools. In Code Mode (Claude Code,
 Cursor, etc.), there is a smaller set of streamlined tools. See the "MCP Tool Architecture" section
 below for the full tool list.
 
@@ -214,13 +214,13 @@ time. Click **Send Invites** — if the agent isn't already an org member and th
 invite separately.
 
 Alternatively, the human can invite the agent programmatically:
-- **Org:** `POST /current/org/{org_id}/members/{agent_email}/` with `permission` level
-- **Workspace:** `POST /current/workspace/{workspace_id}/members/{agent_email}/` with `permission` level
+- **Org:** `POST /current/org/{org_id}/members/{agent_email}/` with `permissions` (`member` or `admin`; required)
+- **Workspace:** `POST /current/workspace/{workspace_id}/members/{agent_email}/` with `permissions` (`member`, `admin` or `guest`; omitted means `member`)
 
 An Enterprise org may restrict who can invite outsiders onto a share, portal or workspace: a `403` with
 `params.reason` of `external_invites_denied` or `external_invites_object_denied` means that policy
 refused the invite, not a bug — tell the human to ask an org or object admin to allow it. Accepting via
-`accept-all-invitations` is partial success under this policy: a refused invitation is returned in the
+`POST /current/user/invitations/acceptall/` is partial success under this policy: a refused invitation is returned in the
 response's `refused` array and stays pending rather than failing the whole call.
 
 ### Option 4: PKCE Browser Login — Secure Authentication Without Sharing Passwords
@@ -340,8 +340,11 @@ part of that org→workspace→share chain.)
 > server keeps it only as a fail-closed tombstone, so a pre-existing token that still carries it resolves to nothing
 > rather than erroring. (This is why the offered set is the seven above, not eight.)
 
-Pass the desired `scope_type` when initiating the PKCE authorization flow (`POST /current/oauth/authorize/`). If
-omitted, the token defaults to full access (equivalent to `all_orgs`) — full **read and write**, never administration.
+Pass the desired type as the `scope` parameter when initiating the PKCE authorization flow (`GET /current/oauth/authorize/`). If
+omitted, the grant is the `user` type — the whole account — at the consented access mode (read and write unless
+`access_mode=rwa` was requested; see below). A `scope` naming none of the seven types is refused with a `406`
+(`invalid_scope`), except one made only of the OpenID Connect words `openid`, `profile`, `email` or `offline_access`,
+which is treated as omitted.
 
 **Access modes and the two ceilings.** Every granted scope carries an `access_mode`: `r` (read), `rw` (read and write)
 or `rwa` (read, write and **administer**). `rwa` implies `rw` implies `r`; there is no `ra`. Two optional parameters on
@@ -403,7 +406,7 @@ you gain org-level access based on your permission level.
 
 ### Pagination
 
-All list endpoints support offset-based pagination via query parameters. Use pagination to keep responses within token
+Most list endpoints support offset-based pagination via query parameters (storage folder listings page with a cursor instead — see the Storage reference). Use pagination to keep responses within token
 limits and iterate through large collections.
 
 **Query parameters:**
@@ -489,7 +492,7 @@ biggest lever you have for keeping agent payloads small without losing informati
   disappears as you move up a tier.
 - **Default:** When `output=` is absent, responses are `full` and byte-for-byte unchanged.
 - **Unknown tokens:** Silently ignored for forward compatibility.
-- **`markdown` modifier:** Add `markdown` to any request (e.g. `?output=terse,markdown` or `?output=markdown` alone) to receive the response as GitHub-flavored Markdown instead of JSON. Response `Content-Type` becomes `text/markdown; charset=UTF-8`. Homogeneous record lists render as GFM pipe tables, associative maps as bullet lists, and error envelopes as a leading `# Error` section — including a nested `params` table that lists every parameter that failed validation when the call was a 406. Validation errors (HTTP 406) render as markdown too when the modifier is present. If the caller is an LLM that reasons better over markdown than JSON, prefer `?output=standard,markdown`.
+- **`markdown` modifier:** Add `markdown` to any request (e.g. `?output=terse,markdown` or `?output=markdown` alone) to receive the response as GitHub-flavored Markdown instead of JSON. Response `Content-Type` becomes `text/markdown; charset=UTF-8`. Homogeneous record lists render as GFM pipe tables, associative maps as bullet lists, and error envelopes as a leading `# Error` section — including a `params` table nested under the error that lists every parameter that failed validation when the call was a 406. Validation errors (HTTP 406) render as markdown too when the modifier is present. If the caller is an LLM that reasons better over markdown than JSON, prefer `?output=standard,markdown`.
 
 Example markdown response body for `GET /current/user/details/?output=terse,markdown`:
 
@@ -497,7 +500,7 @@ Example markdown response body for `GET /current/user/details/?output=terse,mark
 **Result:** success
 
 # user
-- **id:** 1234567890123456789
+- **id:** 2234567890123456789
 - **account_type:** agent
 - **first_name:** Alice
 - **last_name:** Example
@@ -511,15 +514,13 @@ Example markdown response body for a validation error (HTTP 406) — note the ne
 
 # Error
 - **code:** 10022
-- **text:** email: This value should not be blank. domain: This value should not be blank.
+- **text:** email: This value should not be blank.
+- **documentation_url:** https://api.fast.io/llms.txt
 - **resource:** POST /current/user/email/
-
-## params
-
-| name | kind | message | code | expected_type |
-|------|------|---------|------|---------------|
-| email | missing | This value should not be blank. | 10022 | — |
-| domain | invalid | This value is not a valid hostname. | 10023 | string |
+- **params:**
+  | name | kind | message | code |
+  | --- | --- | --- | --- |
+  | email | missing | This value should not be blank. | 10022 |
 ```
 
 Category-specific detail pages (linked from the LLM reference) list exactly which fields appear at each level
@@ -545,7 +546,7 @@ activity feed — a shared environment where agents collaborate with other agent
 - **File versioning** — every edit creates a new version, old versions are recoverable
 - **Folder hierarchy** — organize files however you want
 - **Filename and semantic search** — find files by name (including `find`-style glob patterns) or by meaning. There is no full-text index of file bytes; content matching is the AI's understanding of a file. See *Filename Search* and *`search_in=content` Is Not `grep`*.
-- **Member roles** — Owner, Admin, Editor, Viewer with granular permissions
+- **Member roles** — Owner, Admin, Member, Guest with granular permissions
 - **Real-time sync** — changes appear instantly for all members via WebSockets
 
 #### Intelligence: On or Off
@@ -610,7 +611,7 @@ every exchange pattern:
 
 - **Password protection** — require a password for link access
 - **Expiration dates** — shares auto-expire after a set period
-- **Download security** — three levels: `off` (no restrictions, default), `medium` (file previews are available but direct downloads are restricted for guests), or `high` (downloads completely disabled for guests). Set via `download_security` when creating or updating a share
+- **Download security** — three levels: `off` (no restrictions, default), `medium` (guest downloads require a short-lived nonce obtained through the preview flow), or `high` (downloads completely disabled for guests). Set via `download_security` when creating or updating a share
 - **Access levels** — `'Only members of the Share or Workspace'`, `'Members of the Share, Workspace or Org'`, `'Anyone with a registered account'`, or `'Anyone with the link'`
 - **Custom branding** — background images, gradient colors, accent colors, logos
 - **Post-download messaging** — show custom messages and links after download
@@ -624,7 +625,7 @@ every exchange pattern:
 
 When creating a share, you choose a `storage_mode` that determines how the share's files are managed:
 
-- **`room`** (independent storage, default) — the share has its own isolated storage. Files are added directly to the
+- **`independent`** (portal storage, default) — the share has its own isolated storage. Files are added directly to the
   share and are independent of any workspace. This creates a self-contained portal — changes to workspace files don't
   affect the portal, and vice versa. Perfect for final deliverables, compliance packages, archived reports, or any
   scenario where you want an immutable snapshot.
@@ -639,6 +640,10 @@ When creating a share, you choose a `storage_mode` that determines how the share
 Both modes look the same to share recipients — a branded portal with file preview, download controls, and all share
 features. The difference is whether the content is a snapshot (portal) or a live view (shared folder).
 
+**Share type depends on storage mode.** A portal (`independent`) share is always a **Send** share — a `receive` or
+`exchange` `share_type` is silently overridden to `send`. To create a Receive or Exchange share, use
+`storage_mode=workspace_folder`.
+
 > **Note:** API responses include both `storage_mode` and a response-only `share_category` field.
 > `independent` maps to `share_category: "portal"`; `workspace_folder` maps to `share_category: "shared_folder"`.
 
@@ -649,7 +654,7 @@ expiration, and share the link. The client sees a branded page with instant file
 
 Need to share one file with a stable link that doesn't expire on you? A **File Share** is a durable, link-shareable
 view of a single workspace file. Create it once with `POST /current/workspace/{workspace_id}/create/fileshare/`,
-pointing at the file's node id, and you get a permanent link — no expiration, no per-link transfer cap.
+pointing at the file's node id (`node`), and you get a durable link — no expiration unless you set one (`expires` or `expires_at`), no per-link transfer cap.
 
 Choose how open the link is with `access_option`:
 
@@ -691,8 +696,8 @@ behalf, such as creating documents and notes and organizing your content. It ope
 plan entitlements, and (like the direct MCP/API tools) its actions consume credits. You can delegate work to it
 directly, or use the MCP/API tools yourself.
 
-Fastio's AI lets agents query documents through two chat types, with or without persistent indexing. Both types
-augment file knowledge with information from the web when relevant.
+Fastio's AI lets agents query documents with or without persistent indexing, and can augment file knowledge with
+information from the web when relevant.
 
 #### How the Agent Uses Files
 
@@ -702,10 +707,10 @@ the scope's indexed files and answer with citations (RAG). And you can focus a t
 **reference items**:
 
 1. **File references** — attach specific files directly. The AI reads the full content of the attached files. Does not
-   require intelligence — any AI-eligible file (with a ready preview or summary) can be attached. Max 20 files, 200 MB total.
+   require intelligence — any AI-eligible file (with a ready preview or summary) can be attached. Max 20 files, 2 GB total.
 
 2. **Folder references** — attach a folder so the AI grounds answers in its indexed files (RAG), answering with
-   citations. Requires intelligence enabled and files in `ready` AI state.
+   citations. Requires intelligence enabled and files in the `indexed` AI state.
 
 Both are expressed the same way — as reference items in the `references`, `content_parts`, or `subjects` array of a
 create-chat or send-message request; the backend resolves each item's full details server-side.
@@ -738,19 +743,21 @@ ready preview can be attached directly for one-off analysis.
 
 #### AI State — File Readiness for RAG
 
-Every document and code file in an intelligent workspace has an `ai_state` field that tracks its ingestion progress:
+Every document and code file in an intelligent workspace carries an AI state (`ai.state` in storage list and details
+responses) that tracks its ingestion progress:
 
 | State         | Meaning                                           |
 |---------------|---------------------------------------------------|
 | `disabled`    | AI processing disabled for this file              |
 | `pending`     | Queued for processing                             |
 | `in_progress` | Currently being ingested and indexed              |
-| `ready`       | Processing complete — file is available for RAG   |
+| `ready`       | Usable in AI chat as a file attachment (preview/summary ready) |
+| `indexed`     | Contents indexed for RAG — searchable and used as grounding in scoped chats |
 | `failed`      | Processing failed                                 |
 
-**Only documents and code files with `ai_state: ready` are included in folder/file scope searches.** If you upload files and immediately
-create a scoped chat, recently uploaded files may not yet be indexed. Use the activity polling endpoint to wait for
-`ai_state` changes before querying.
+**Only documents and code files in the `indexed` state are included in folder/workspace scope searches.** In an intelligent
+workspace files progress to `indexed` automatically. If you upload files and immediately create a scoped chat, recently
+uploaded files may not yet be indexed. Use the activity polling endpoint to wait for AI-state changes before querying.
 
 #### Attaching Files and Folders
 
@@ -758,9 +765,9 @@ create a scoped chat, recently uploaded files may not yet be indexed. Use the ac
 |----------------------|--------------------------------------------|------------------------------------------|
 | How it works         | Grounds answers in a folder's indexed files| Files read directly by AI                |
 | Requires intelligence| Yes                                        | No                                       |
-| Requires `ai_state`  | Files must be `ready`                      | File must have a ready preview/summary   |
+| Requires AI state    | Files must be `indexed`                    | File must have a ready preview/summary   |
 | Best for             | Many files, knowledge retrieval            | Specific files, direct analysis          |
-| Limits               | Up to 100 file/folder references total     | 20 files, 200 MB total                   |
+| Limits               | Up to 100 file/folder references total     | 20 files, 2 GB total                     |
 | Default behavior     | Attach nothing = entire workspace          | N/A                                      |
 
 Attach files and folders as **reference items** in the `references`, `content_parts`, or `subjects` array. Each item is a
@@ -1018,7 +1025,7 @@ you need metadata search, run it against the **workspace**.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `search` | string | Yes | — | Search query, 2–1,000 characters |
+| `search` | string | Yes | — | Search query (non-blank). Under a precise `name_match` it is the pattern (at most 256 characters). |
 | `search_in` | string | No | `both` | What to match: `filename`, `content`, or `both`. See *Filename search* below. |
 | `name_match` | string | No | `auto` | How the filename is matched: `auto`, `exact`, `prefix`, `contains`, `glob`. Ignored when `search_in=content`. |
 | `case_sensitive` | string | No | `false` | `true` / `false` / `1` / `0`. Applies to the precise `name_match` values; ignored under `auto`. |
@@ -1195,6 +1202,9 @@ in every mode.
     "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4": {
       "name": "quarterly-report.pdf",
       "parent_id": "2qk7d-kri4y-yievb-q5hri-eq4io-hij5",
+      "path": "Finance",
+      "ancestors": [{ "id": "2qk7d-kri4y-yievb-q5hri-eq4io-hij5", "name": "Finance" }],
+      "path_complete": true,
       "type": "file",
       "relevance_score": 1.0,
       "raw_score": 0.87,
@@ -1204,6 +1214,7 @@ in every mode.
       "media_segment": null,
       "mimetype": "application/pdf",
       "page": { "start_page": 3, "end_page": 3 },
+      "text_indexed": true,
       "summary_short": "Q4 revenue and margin review for the North America segment.",
       "best_chunk": {
         "text": "The quarterly revenue showed a 15% increase...",
@@ -1214,7 +1225,8 @@ in every mode.
         "result_type": "doc",
         "position": 12,
         "sequence": 3001,
-        "indexed_version_id": "3mcys-2dr56-rmgdt-nh36b-prmp7-b47q"
+        "indexed_version_id": "3mcys-2dr56-rmgdt-nh36b-prmp7-b47q",
+        "chunk_hash": "9f2c41ab07"
       },
       "metadata_match": false,
       "metadata_match_field": null
@@ -1270,39 +1282,44 @@ metadata-promoted row the content engine ranked higher reports
 ```json
 {
   "result": true,
-  "response": {
-    "files": {
-      "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4": {
-        "name": "report.pdf",
-        "parent_id": "...",
-        "type": "file",
-        "relevance_score": 1.0,
-        "raw_score": 0.87,
-        "score_source": "semantic",
-        "content_snippet": "Revenue increased 15%...",
-        "match_source": "both",
-        "mimetype": "application/pdf",
-        "summary_short": "Annual revenue and margin review.",
-        "best_chunk": {
-          "text": "Revenue increased 15%...",
-          "same_as_snippet": false,
-          "page": { "start_page": 2, "end_page": 2 },
-          "media_segment": null,
-          "score": 0.87,
-          "result_type": "doc",
-          "position": 7,
-          "sequence": 2000,
-          "indexed_version_id": "3u6cr-vxmyl-4y2pr-5jboz-afoke-k4s5"
+  "files": {
+    "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4": {
+      "name": "report.pdf",
+      "parent_id": "...",
+      "type": "file",
+      "relevance_score": 1.0,
+      "raw_score": 0.87,
+      "score_source": "semantic",
+      "content_snippet": "Revenue increased 15%...",
+      "match_source": "both",
+      "mimetype": "application/pdf",
+      "summary_short": "Annual revenue and margin review.",
+      "best_chunk": {
+        "text": "Revenue increased 15%...",
+        "same_as_snippet": false,
+        "page": {
+          "start_page": 2,
+          "end_page": 2
         },
-        "metadata_match": false,
-        "metadata_match_field": null,
-        "node": {
-          "id": "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4",
-          "name": "report.pdf",
-          "type": "file",
-          "size": 123456,
-          "previews": { "...": "..." },
-          "ai": { "state": "ready" }
+        "media_segment": null,
+        "score": 0.87,
+        "result_type": "doc",
+        "position": 7,
+        "sequence": 2000,
+        "indexed_version_id": "3u6cr-vxmyl-4y2pr-5jboz-afoke-k4s5"
+      },
+      "metadata_match": false,
+      "metadata_match_field": null,
+      "node": {
+        "id": "2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4",
+        "name": "report.pdf",
+        "type": "file",
+        "size": 123456,
+        "previews": {
+          "...": "..."
+        },
+        "ai": {
+          "state": "indexed"
         }
       }
     }
@@ -1331,7 +1348,7 @@ GET /current/workspace/{workspace_id}/search/?search={query}
 GET /current/share/{share_id}/search/?search={query}
 ```
 
-This is a **REST-only** capability — there is no MCP tool for unified search; agents call the endpoint directly. Pass
+Over MCP, the `find` tool wraps this endpoint. Pass
 per-bucket offset/limit params (`files_offset`/`files_limit`, `comments_offset`/`comments_limit`, and likewise for
 `metadata`) to page each bucket independently. Every applicable bucket is always searched (the share
 endpoint omits `metadata`). Each result item carries a `relevance_score` and an `updated` timestamp plus type-specific
@@ -1524,7 +1541,7 @@ Agents upload files through a session-based API. There are two paths depending o
 #### Small Files (Under 4 MB)
 
 For files under 4 MB, upload in a single request. Send the file as `multipart/form-data` with the `chunk` field
-containing the file data, plus `org` (your org domain), `name`, `size`, and `action=create`.
+containing the file data, plus `name`, `size`, and `action=create`.
 
 To have the file automatically added to a workspace or share, include `instance_id` (the workspace or share ID) and
 optionally `folder_id` (the target folder's OpaqueId, or omit for root). No `addfile` step is needed. The file is added
@@ -1536,7 +1553,7 @@ long-polling `GET /current/upload/{session_id}/details/?wait=60` until a termina
 POST /current/upload/
 Content-Type: multipart/form-data
 
-Fields: org, name, size, action=create, instance_id, folder_id, chunk (file)
+Fields: name, size, action=create, instance_id, folder_id, chunk (file)
 → Response: { "result": true, "id": "session-id", "new_file_id": null }
 ```
 
@@ -1544,7 +1561,7 @@ Fields: org, name, size, action=create, instance_id, folder_id, chunk (file)
 
 Large files use chunked uploads. The flow has five steps:
 
-1. **Create a session** — `POST /current/upload/` with `org`, `name`, `size`, `action=create`, `instance_id`, and
+1. **Create a session** — `POST /current/upload/` with `name`, `size`, `action=create`, `instance_id`, and
    optionally `folder_id`. Returns a session `id`.
 
 2. **Upload chunks** — Split the file into chunks (chunk size is plan-dependent — query `/upload/limits/` for the exact
@@ -1566,14 +1583,15 @@ Large files use chunked uploads. The flow has five steps:
    |--------|---------|------------|
    | `ready` | Awaiting chunks | Upload chunks |
    | `uploading` | Receiving chunks | Continue uploading |
+   | `assemble` | Assembly queued | Keep polling |
    | `assembling` | Combining chunks | Keep polling |
-   | `complete` | Assembled, awaiting storage import. Not accessible for download/preview — can only be imported to storage locations. Can be imported to multiple locations. | Keep polling |
    | `storing` | Being added to storage | Keep polling |
-   | **`stored`** | **Done** — file is in storage | Read `new_file_id`, clean up |
+   | **`complete`** | **Done** (terminal success on every path). With a target (`instance_id`) the file is in storage and `new_file_id` is set; with no target the file is held for a later `addfile` call. | Read `new_file_id`, clean up |
    | `assembly_failed` | Assembly error (terminal) | Check `status_message` |
    | `store_failed` | Storage import failed (terminal) | Check `status_message`, handle error |
 
-   Stop polling when status is `stored`, `assembly_failed`, or `store_failed`.
+   Stop polling when status is `complete`, `assembly_failed`, or `store_failed`. (`store` and `stored` are reserved and
+   not emitted by current uploads.)
 
 5. **Clean up** — Delete the session after completion: `DELETE /current/upload/{session_id}/`.
 
@@ -1593,51 +1611,39 @@ If a connection drops mid-upload, the session persists on the server. To resume:
 
 #### Manual Storage Placement
 
-If you omit `instance_id` when creating the session, the file is uploaded but not placed in any workspace or share. You
+If you omit `action` and `instance_id` when creating the session, the file is uploaded but not placed in any workspace or share. You
 can add it to storage manually afterward:
 
 ```
 POST /current/workspace/{id}/storage/{folder}/addfile/
-Body: from={"type":"upload","upload":{"id":"{session_id}"}}
+Body: name={file_name}&from={"type":"upload","upload":{"id":"{session_id}"}}
 ```
 
 This is useful when you need to upload first and decide where to place the file later.
 
-#### MCP Binary Upload — Three Approaches
+#### MCP Binary Upload
 
-MCP agents have three ways to pass binary data when uploading chunks. Each uses the `upload` tool's `chunk` action
-with exactly one of `data`, `blob_ref`, or `content` (for text):
+Over MCP, file bytes do not travel through the JSON-RPC pipe. The default path is the **`POST /blob` sidecar**: a plain
+HTTP request to the MCP server, outside the MCP pipe, carrying the raw bytes (no base64). The `upload` tool's
+`create-session` or `blob-info` action hands you the ready-to-run command.
 
-**1. `data` parameter (base64) — simplest for MCP agents**
+1. `POST /blob` with the `Mcp-Session-Id` header and the raw bytes as the request body → returns `{ blob_id, size }`
+2. `upload` action `stream-upload` with `blob_id` — one call, auto-finalizes, no file size needed. For a file larger than
+   one blob, use `create-session` → `chunk` (with `blob_id`) → `finalize`, where the declared size must equal the bytes
+   actually sent.
 
-Pass base64-encoded binary directly in the `data` parameter of the `chunk` action. No extra steps required. Works
-with any MCP client. Adds ~33% size overhead from base64 encoding.
+Alternatives on `chunk` / `stream` / `stream-upload`: `content` for text you compose on the fly (stored verbatim
+UTF-8), or `content_base64` as a last resort (about 33% larger and limited by the MCP transport, so it fails for all but
+small files). `blob_ref` is a deprecated alias for `blob_id`.
 
-**2. `stage-blob` action — MCP tool-based blob staging**
-
-Use the `upload` tool's `stage-blob` action with `data` (base64) to pre-stage binary data as a blob. Returns a
-`blob_id` that you pass as `blob_ref` in the `chunk` call. Useful when decoupling staging from uploading or preparing
-multiple chunks in advance.
-
-1. `upload` action `stage-blob` with `data` (base64-encoded binary) → returns `{ blob_id, size }`
-2. `upload` action `chunk` with `blob_ref` set to the `blob_id`
-
-**3. `POST /blob` endpoint — HTTP blob staging for non-MCP clients**
-
-A sidecar HTTP endpoint that accepts raw binary data outside the JSON-RPC pipe, avoiding base64 encoding entirely.
-Useful for clients that can make direct HTTP requests alongside MCP tool calls.
-
-1. `POST /blob` with `Mcp-Session-Id` header and raw bytes as the request body → returns `{ blob_id, size }`
-2. `upload` action `chunk` with `blob_ref` set to the `blob_id`
-
-**Blob constraints (apply to both staging methods):**
+**Blob constraints:**
 - Blobs expire after **5 minutes** — stage and consume them promptly
 - Each blob is consumed (deleted) on first use and cannot be reused
 - Maximum blob size: **100 MB**
 
 **Agent use case:** You're generating a 200 MB report. Create an upload session targeting the client's workspace, split
-the file into chunks (size from `/upload/limits/`), upload 3 at a time, trigger assembly, and poll until `stored`. The file appears in the
-workspace with previews generated automatically. Use the activity polling endpoint (section 13) to know when AI indexing
+the file into chunks (size from `/upload/limits/`), upload 3 at a time, trigger assembly, and poll until `complete`. The file appears in the
+workspace with previews generated automatically. Use the activity polling endpoint (section 12) to know when AI indexing
 completes if intelligence is enabled.
 
 ### 9. URL Import — Pull Files From Anywhere
@@ -1646,8 +1652,8 @@ When you need to add a file from the web, use `POST /current/web_upload/` with `
 locally and re-uploading. This is faster because the file transfers server-to-server — your agent never touches the
 bytes.
 
-- Supports any HTTP/HTTPS URL
-- Supports OAuth-protected sources: **Google Drive, OneDrive, Dropbox**
+- Supports public HTTPS URLs (port 443; plain HTTP is refused)
+- Supports OAuth-protected sources such as **Google Drive, OneDrive, Dropbox, Box**
 - Files go through the same processing pipeline (preview generation, AI indexing if intelligence is enabled, virus
   scanning)
 
@@ -1764,7 +1770,7 @@ Search and filter events with `GET /current/events/search/`:
   may not see are removed after the page is read, so a short or empty page mid-walk is normal.
 
 Get full details for a single event with `GET /current/event/{event_id}/details/`, or mark it as read with
-`GET /current/event/{event_id}/ack/`.
+`POST /current/event/{event_id}/ack/`.
 
 #### Following File Changes Across an Org
 
@@ -1817,7 +1823,7 @@ Use the `subcategory` parameter for finer filtering within a category:
 
 | Subcategory      | What It Covers                                       |
 |------------------|------------------------------------------------------|
-| `storage`        | File/folder add, move, copy, delete, restore, download |
+| `storage`        | File/folder move, copy, delete, restore, version restore, folder create/update, lock override (uploads and file updates are `transfer`) |
 | `comments`       | Comment created, updated, deleted, mentioned, replied, reaction |
 | `members`        | Member added/removed from org, workspace, or share   |
 | `lifecycle`      | Profile created, updated, deleted, archived          |
@@ -1829,7 +1835,7 @@ Use the `subcategory` parameter for finer filtering within a category:
 | `billing`        | Subscription and payment events                      |
 | `assets`         | Avatar/asset updates                                 |
 | `upload`         | Upload session management                            |
-| `transfer`       | Cross-profile file transfers                         |
+| `transfer`       | Files added, updated or transferred into storage (uploads, sync, cross-profile), plus download/preview-token issuance and ZIP downloads |
 | `import_export`  | Data import/export operations                        |
 | `quickshare`     | Quick share operations                               |
 | `metadata`       | Metadata operations                                  |
@@ -1961,8 +1967,9 @@ The server holds the connection open for up to 95 seconds and returns **immediat
 entity — file uploads complete, previews finish generating, AI indexing completes, comments are added, etc.
 
 The response includes activity keys that tell you *what* changed (e.g., `storage:{fileId}` for file changes,
-`preview:{fileId}` for preview readiness, `ai_chat:{chatId}` for chat updates, `ai_state:{fileId}` for AI indexing
-state changes, `upload:{uploadId}` for upload completion). Pass the returned `lastactivity` timestamp into your next
+`preview:{fileId}` for preview readiness, `ai_chat:{chatId}` for chat updates, `uploads:{uploadId}` for upload-session
+changes on your user channel; a file's AI-indexing state change arrives as a `storage:{fileId}` key — re-read the file's
+`ai.state`). Pass the returned `lastactivity` timestamp into your next
 poll to receive only newer changes.
 
 This gives you near-instant reactivity with a single open connection per entity, instead of hammering individual
@@ -1986,8 +1993,9 @@ the full frame. Share tokens are also shorter-lived — inspect `expires_in` on 
 elapses.
 
 **Agent use case:** You upload a 500-page PDF and need to know when AI indexing is complete before querying it. Instead
-of polling the file details endpoint every few seconds, open a single long-poll on the workspace. When
-`ai_state:{fileId}` appears in the activity response, the file is indexed and ready for AI chat.
+of polling the file details endpoint every few seconds, open a single long-poll on the workspace. When a
+`storage:{fileId}` key for that file appears, re-read its details; once `ai.state` is `indexed`, it is ready for
+RAG queries.
 
 ### 13. Metadata — Structured Data on Files
 
@@ -2294,7 +2302,7 @@ Transformation states: `rendered`, `rendering`, `unrendered`, `unable to render`
 #### AI File States
 
 When intelligence is enabled, each file progresses through AI processing states (visible in node details `ai.state`):
-`disabled` → `pending` → `inprogress` → `ready` (or `failed`)
+`disabled` → `pending` → `in_progress` → `ready` → `indexed` (or `failed`); `indexed` is the state RAG search needs
 
 #### AI Chat Parameters
 
@@ -2303,14 +2311,12 @@ When intelligence is enabled, each file progresses through AI processing states 
 | `privacy` / `visibility` | `private`, `public` (default: `private`; **`public` is currently disabled platform-wide** -- creating a public chat returns `403`; check `capabilities.can_publish_agent_chat` (currently `false`) first) |
 | `name` | Max 100 characters |
 | `question` | 1–32,000 characters |
-| `references` / `content_parts` / `subjects` / `uploads` | File/folder reference items — max 20 files, 200 MB, 100 references total |
+| `references` / `content_parts` / `subjects` / `uploads` | File/folder reference items — max 20 files, 2 GB, 100 references total |
 
-#### Quick Share Constraints
+#### Quick Share (deprecated)
 
-- Single file only, max file size is plan-dependent (query `/upload/limits/` for exact value)
-- Default expiration: 3 hours, maximum: 24 hours
-- Auto-deleted on expiration, public access (no auth)
-- Can update expiration but not beyond the original 24-hour window
+Creating or extending a QuickShare returns `403` (`10756`); create a durable File Share instead (see section 3).
+Existing QuickShare links can still be viewed, downloaded, and revoked during the drain.
 
 #### Download Tokens
 
@@ -2322,7 +2328,7 @@ Those routes return the file's **bytes**. To read its **text** instead, use the 
 "Reading a File's Extracted Text" below.
 
 **MCP agents** have additional download options: use the `download://` resource templates for direct content retrieval
-(up to 50 MB), or the `/file/` HTTP pass-through endpoint for streaming larger files. See the "MCP Tool Architecture"
+(small files only — up to 100 KB inline), or the `/file/` HTTP pass-through endpoint for anything larger. See the "MCP Tool Architecture"
 section for details.
 
 #### Reading a File's Extracted Text (`content/`)
@@ -2409,6 +2415,8 @@ All platform activity consumes credits from the org's monthly allowance:
 | Audio ingested          | 0.5 credits/second      |
 | Images ingested         | 5 credits/image         |
 | File conversions        | 25 credits/conversion   |
+| Video / audio conversion | 1 credit per 10 seconds of video, 1 credit per 30 seconds of audio |
+| E-signatures            | 100 credits per billable recipient, charged when the envelope is sent |
 | Cloud sync              | 1 credit per 1,000 objects scanned per sync (minimum 1 per sync) |
 | AI index                | 100 credits per 1,000 indexed vectors, sampled daily and charged on the period average |
 
@@ -2423,7 +2431,7 @@ limited until the credits reset or the plan is upgraded. The org is never delete
 
 | Error Code | Description | Meaning |
 |------------|-------------|---------|
-| 1688 | Subscription Required | Org has no active paid plan (a new org that hasn't selected one yet), or its credits are exhausted |
+| 1688 | Subscription Required | Org has no active paid plan (a new org that hasn't selected one yet); for an org without a paid plan, also when its credit allowance is exhausted |
 | 1696 | Credit Limit Exceeded | Credit limit exceeded (error message includes credits used and credit limit) |
 
 You can also check proactively: the `subscriber` field in org details (`GET /current/org/{org_id}/details/`) returns
@@ -2472,7 +2480,7 @@ any current plan.
 
 ### Collect Documents From a User
 
-1. Create a Receive share ("Upload your tax documents here")
+1. Create a Receive share ("Upload your tax documents here") — Receive shares use `storage_mode=workspace_folder`; a portal share is always Send
 2. Share the link
 3. User uploads files through a clean, branded interface
 4. Files appear in your workspace, auto-indexed by AI (if intelligence is on)
@@ -2498,7 +2506,7 @@ any current plan.
 
 ### Collaborative Review Cycle (Exchange Share)
 
-1. Create an Exchange share ("Review these designs and upload your feedback")
+1. Create an Exchange share ("Review these designs and upload your feedback") with `storage_mode=workspace_folder` (a portal share is always Send)
 2. Upload draft files for the recipient
 3. Share the link — recipient can both download your files and upload theirs
 4. Comments and annotations on files enable inline feedback
@@ -2532,12 +2540,14 @@ any current plan.
 - Delivering final, immutable outputs (reports, compliance packages)
 - You want a snapshot that won't change if workspace files are updated
 - Files are "done" and shouldn't reflect future edits
+- A portal is always a **Send** share
 
 **Use a Shared Folder (workspace-backed) when:**
 
 - Files are actively being updated (live data feeds, ongoing projects)
 - You want zero storage duplication
 - Recipients should always see the latest version
+- You need a **Receive** or **Exchange** share
 
 ### Manage Credit Budget
 
@@ -2567,7 +2577,7 @@ npx @vividengine/fastio-cli --help
 # Shell script
 curl -fsSL https://raw.githubusercontent.com/MediaFire/fastio_cli/main/install.sh | sh
 
-# From source (Rust 1.85+)
+# From source (Rust 1.88+)
 cargo install --path .
 ```
 
@@ -2608,7 +2618,7 @@ export FASTIO_API_KEY=your-key-here
 ```bash
 fastio auth 2fa status
 fastio auth 2fa setup --channel totp
-fastio auth 2fa verify <code>
+fastio auth 2fa verify --code <code>
 ```
 
 ### Quick Start
@@ -2642,7 +2652,7 @@ fastio ai chat --workspace <workspace_id> "What files do I have?"
 | | `event` | Activity events, search, polling |
 | | `preview` | File preview URLs and transforms |
 | | `asset` | Org/workspace/user asset management |
-| **AI** | `ai` | Chat, search, history, message management, summarize |
+| **AI** | `ripley` (alias `ai`) | Ask, chat, search, history, message management, summarize |
 | **Platform** | `apps` | App listing, details, launching |
 | | `import` | Cloud sync providers, identities, sources, jobs |
 | | `mcp` | Built-in MCP server for AI agents |
@@ -2669,13 +2679,15 @@ fastio configure set-default work      # Set default profile
 fastio configure list                  # List all profiles
 ```
 
-Configuration is stored in `~/.fastio/` (`config.json` for settings, `credentials.json` for tokens).
+Configuration is stored in the platform's user config directory under `fastio-cli/` (for example `~/.config/fastio-cli/`
+on Linux) — `config.json` for settings, `credentials.json` for tokens.
 
 ### Global Flags
 
 | Flag | Purpose |
 |------|---------|
-| `--format json\|table\|csv` | Output format |
+| `--format json\|table\|csv\|markdown` | Output format (auto-detected when omitted) |
+| `--detail terse\|standard\|full` | Server-side response verbosity (`?output=`) |
 | `--fields name,id,...` | Filter output fields |
 | `--no-color` | Disable colored output |
 | `--quiet` / `-q` | Suppress output |
@@ -2738,20 +2750,22 @@ a manageable set of tools with clearly named actions.
 |--------------|---------------------------------|-------------------------------------------------------------------------------|
 | `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
 | `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces                      | `list`, `details`, `create`, `update`, `check-name`. (Its legacy `metadata-*` actions are **deprecated forwarding shims** to the `metadata` tool and will be removed next release — use `metadata` instead.) |
+| `workspace`  | Workspaces                      | `list`, `details`, `update`, `check-name`, `create-note`, `jobs-status` (workspaces are created with `org` action `create-workspace`) |
 | `metadata`   | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible`, `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` tool. |
 | `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
-| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `create-note`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) |
-| `upload`     | File uploads                    | `create-session`, `stage-blob`, `chunk`, `finalize`, `text-file`, `web-import` |
+| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) |
+| `upload`     | File uploads                    | `stream-upload`, `create-session`, `chunk`, `finalize`, `batch`, `web-import`, `blob-info` |
 | `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
 | `ai`         | AI chat (defaults to the entire workspace — attach nothing to search all indexed documents). Attach file/folder reference items to ground answers in specific files or folders. | `chat-create`, `message-send`, `message-read`, `chat-list` |
 | `member`     | Members                         | `add`, `update`, `remove`, `details`                                          |
-| `invitation` | Invitations                     | `list`, `send`, `revoke`, `accept-all`                                        |
+| `invitation` | Invitations                     | `list`, `list-by-state`, `update`, `delete`                                   |
 | `asset`      | Branding assets                 | `types`, `list`, `upload`, `delete`                                           |
-| `comment`    | Comments                        | `list`, `create`, `details`, `delete`                                         |
+| `comment`    | Comments                        | `list`, `add`, `edit`, `details`, `delete`                                    |
 | `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
 | `intent`     | Agent coordination — workspace-scoped, short-lived declarations of what an agent is working on, so peers see a collision before it happens. Workspace-only (no share variant). `fill` is also the heartbeat, and is compare-and-set: send back the `version` you last read. | `allocate`, `fill`, `browse`, `expand`, `release`                             |
-| `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `allowed`                                  |
+| `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `accept-all-invitations`, `allowed`        |
+| `fileshare`  | Durable single-file share links | `create`, `list`, `details`, `update`, `delete`, `grant-add`, `download-url` |
+| `find`       | Unified search across a workspace or share, grouped by type | `search`                                  |
 | `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` |
 
 > **Note on tool naming:** the tools above are listed without a vendor prefix (`auth`, `share`, `ai`, `how-to`, …),
@@ -2774,7 +2788,8 @@ Tools that return `web_url`:
 | `share` | `list`, `details`, `create`, `update`, `public-details`, `available` |
 | `storage` | `list`, `details`, `search`, `trash-list`, `create-folder`, `copy`, `move`, `rename`, `restore`, `add-file`, `version-list`, `version-restore`, `preview-url`, `preview-transform` |
 | `ai` | `chat-create`, `chat-details`, `chat-list` |
-| `upload` | `text-file`, `finalize` |
+| `upload` | `stream-upload`, `stream`, `finalize` |
+| `fileshare` | (entity-returning actions) |
 | `download` | `file-url`, `quickshare-details` |
 
 When presenting links to users, always use `web_url` from tool responses. Never construct URLs manually.
@@ -2782,19 +2797,20 @@ When presenting links to users, always use `web_url` from tool responses. Never 
 **Resources** available via `resources/read`:
 - `skill://guide` — full tool documentation with parameters and examples
 - `session://status` — current authentication state
-- `download://workspace/{workspace_id}/{node_id}` — download a workspace file (returns base64 content up to 50 MB)
-- `download://share/{share_id}/{node_id}` — download a share file (returns base64 content up to 50 MB)
-- `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, up to 50 MB)
+- `download://workspace/{workspace_id}/{node_id}` — download a workspace file (inline up to 100 KB)
+- `download://share/{share_id}/{node_id}` — download a share file (inline up to 100 KB)
+- `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, inline up to 100 KB)
+- `download://fileshare/{fileshare_id}` — download a File Share's file (inline up to 100 KB; a password-protected File Share is never served inline — use the `fileshare` tool's `download-url` action)
 
 The `download://` resource templates provide direct file content retrieval via the MCP `resources/read` protocol.
-Files up to 50 MB are returned inline as base64 blobs. Larger files return a fallback message directing to the HTTP
+Only small files (up to 100 KB) are returned inline. Larger files return a fallback message directing to the HTTP
 pass-through endpoint (see below). The `download` tool's `file-url` and `quickshare-details` actions include a
 `resource_uri` field in their response that points to the corresponding `download://` resource URI.
 
 **HTTP pass-through endpoint** for file downloads:
 
 The MCP server exposes a `/file/` HTTP endpoint that streams file content directly with proper `Content-Type`,
-`Content-Length`, and `Content-Disposition` headers — useful for large files that exceed the 50 MB MCP resource limit
+`Content-Length`, and `Content-Disposition` headers — use it for any file larger than the 100 KB MCP resource limit
 or when streaming is preferred over base64 encoding.
 
 | Path | Auth | Description |
@@ -2802,6 +2818,7 @@ or when streaming is preferred over base64 encoding.
 | `GET /file/workspace/{workspace_id}/{node_id}` | `Mcp-Session-Id` header required | Stream a workspace file |
 | `GET /file/share/{share_id}/{node_id}` | `Mcp-Session-Id` header required | Stream a share file |
 | `GET /file/quickshare/{quickshare_id}` | None (public) | Stream a quickshare file |
+| `GET /file/fileshare/{fileshare_id}` | Follows the File Share's access rules | Stream a File Share's file |
 
 For workspace and share downloads, include the `Mcp-Session-Id` header from your active MCP session. The server uses
 the session's auth token to fetch the file and streams it back.
@@ -2809,7 +2826,7 @@ the session's auth token to fetch the file and streams it back.
 **Query parameters:**
 - `?error=html` — returns error pages as HTML instead of JSON (useful for browser-facing links)
 
-**Size limits:** The `download://` resource templates return file content inline (base64) for files up to **50 MB**.
+**Size limits:** The `download://` resource templates return file content inline for files up to **100 KB**.
 Larger files return a fallback message directing to the `/file/` HTTP pass-through endpoint.
 
 **`web_url` in download responses:** The `download` tool's `file-url` and `quickshare-details` actions include both
@@ -2825,20 +2842,20 @@ All tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiv
 `openWorldHint`) so agents and agent frameworks can make informed decisions about confirmation prompts, retries, and
 automated execution.
 
-**Read-only tools** (safe, no confirmation needed, `idempotentHint: true`):
-- `download`, `event` — these tools only read data, never modify state, and are safe to retry
+**Read-only tools** (`readOnlyHint: true`):
+- `download`, `find`, `how-to` — these tools only read data and never modify state
 
-**Non-destructive mutation tools** (create or update, no delete actions):
-- `upload`, `invitation` — these tools create or modify resources but cannot delete them
+**Non-destructive tools** (`destructiveHint: false`, not read-only):
+- `event` — acknowledges events and dismisses dashboard cards, but removes nothing
 
-**Destructive tools** (include delete, purge, or close actions — require user confirmation):
-- `auth`, `user`, `org`, `workspace`, `share`, `storage`, `ai`, `comment`, `member`, `asset`, `intent` — these tools have at
-  least one action that permanently removes or closes a resource. Agent frameworks should prompt for confirmation before
-  executing destructive actions.
+**Destructive tools** (include delete, purge, cancel, or close actions — require user confirmation):
+- `auth`, `user`, `org`, `workspace`, `share`, `fileshare`, `storage`, `metadata`, `upload`, `ai`, `comment`, `member`,
+  `invitation`, `asset`, `intent` — these tools have at least one action that removes, cancels, or closes something.
+  Agent frameworks should prompt for confirmation before executing destructive actions.
 
 **Discovery tools** (`openWorldHint: true`):
-- `org`, `user`, `workspace`, `share`, `storage` — these tools can discover resources beyond the agent's current
-  context. Agents may encounter resources they haven't seen before in list/search results.
+- `org`, `user`, `workspace`, `share`, `fileshare`, `storage`, `metadata`, `find`, `intent`, `how-to` — these tools can
+  discover resources beyond the agent's current context.
 
 **Credit-consuming operations** to be aware of:
 - AI chat: 1 credit per 100 tokens
@@ -2850,7 +2867,7 @@ automated execution.
 
 The MCP server (v2026.02.102+) detects the connecting client and serves one of two tool sets:
 
-**Named Mode** (Claude Desktop, Cline, unknown clients): All core tools listed above plus app-specific widget tools — the full interactive experience with action-based routing across every
+**Named Mode** (Claude Desktop, Cline, unknown clients): All core tools listed above — the full interactive experience with action-based routing across every
 domain.
 
 **Code Mode** (Claude Code, Cursor, Continue): A streamlined set of tools optimized for programmatic workflows:
@@ -2858,23 +2875,26 @@ domain.
 | Tool       | Purpose                                                                                     |
 |------------|---------------------------------------------------------------------------------------------|
 | `auth`     | Authentication — same as Named Mode (`signin`, `signup`, `set-api-key`, `pkce-login`, etc.) |
-| `upload`   | File uploads — same as Named Mode (`create-session`, `chunk`, `finalize`, `text-file`, etc.)|
-| `search`   | Keyword/tag search across the public API endpoint catalog                                   |
+| `upload`   | File uploads — same as Named Mode (`stream-upload`, `create-session`, `chunk`, `finalize`, etc.)|
+| `search`   | Two modes: `target=content` (default) searches files, folders and notes in one workspace or share; `target=api` discovers REST endpoints for `execute` |
 | `execute`  | Make authenticated API calls to Fastio (structured method/path/body/params)                |
 
 #### `search` Tool
 
-Discovers API endpoints by keyword and tag. Returns scored matches with method, path, summary, parameters, and relevant
-concept docs (pagination, error codes, etc.).
+With `target=content` (the default) it searches the user's files, folders and notes — a scope (`workspace_id`,
+`workspace_name`, or `share_id`) is required. With `target=api` it discovers API endpoints by keyword and tag, returning
+matches with method, path, summary, parameters, and relevant concept docs (pagination, error codes, etc.). The table
+below lists the endpoint-discovery parameters.
 
 **Parameters:**
 
 | Parameter          | Type    | Required | Description                                                    |
 |--------------------|---------|----------|----------------------------------------------------------------|
-| `query`            | string  | Yes      | Keyword search query (e.g., "list workspaces", "upload file")  |
+| `query`            | string  | Yes*     | Keyword search query (e.g., "list workspaces", "upload file"); not needed when `tag` browses a tag |
+| `target`           | string  | No       | `content` (default) or `api`                                   |
 | `tag`              | string  | No       | Filter results by API tag (e.g., "workspace", "storage", "ai") |
 | `include_concepts` | boolean | No       | Include related concept docs (pagination, error codes, etc.)   |
-| `max_results`      | number  | No       | Maximum number of endpoint matches to return                   |
+| `max_results`      | number  | No       | Maximum number of endpoint matches to return (1–50)            |
 
 #### `execute` Tool
 
@@ -2886,18 +2906,15 @@ boilerplate. Non-JSON responses (text, binary) are handled gracefully.
 
 | Parameter    | Type   | Required | Description                                                        |
 |--------------|--------|----------|--------------------------------------------------------------------|
-| `method`     | enum   | Yes      | HTTP method: `get`, `post`, `postJson`, `delete`, `put`, `putJson`, `patch`, `patchJson` |
+| `method`     | enum   | Yes (unless `requests`) | HTTP method: `get`, `post`, `postJson`, `delete`, `put`, `putJson`, `patch`, `patchJson` |
 | `path`       | string | Yes      | API endpoint path (e.g., `/current/org/{id}/list/workspaces/`)     |
 | `body`       | object | No       | Request body — form-encoded for `post`/`put`/`patch` (nested values are JSON-encoded for you), JSON for `postJson`/`putJson`/`patchJson`; not accepted on `get`/`delete` |
 | `params`     | object | No       | Query string parameters                                            |
-| `timeout_ms` | number | No       | Request timeout in milliseconds                                    |
+| `timeout_ms` | number | No       | Request timeout in milliseconds (1–60000)                          |
+| `requests`   | array  | No       | Batch form, replacing `method`/`path`: 1–10 `get` items (`{method, path, params}`), answered in order as `results[]` — read-only |
 
-**Special paths:**
-
-| Path                           | Purpose                                           |
-|--------------------------------|---------------------------------------------------|
-| `/readnote/`                   | Read note content in code mode                    |
-| `download://{file_id}`         | MCP resource path for reading file content        |
+`execute` does not stream file bytes — fetch them through the `download://` resource templates or the `/file/` HTTP
+pass-through route described above.
 
 #### Code Mode Workflow Pattern
 
@@ -2932,8 +2949,9 @@ Successful tool responses include a `_next` array of contextual next-step sugges
 names, and IDs from the response. Agents should follow these hints instead of guessing the next step or consulting
 docs. Present on many actions across the tool set.
 
-Example: after `storage` action `list`, `_next` might suggest `["storage folder-details {node_id}",
-"download file-url {node_id}", "ai chat"]` with actual IDs from the response populated in the suggestions.
+Example: after `storage` action `list`, `_next` carries short instructions such as
+`"Download a file: download action file-url with profile_type=\"workspace\", profile_id=\"…\", node_id=\"<file node id>\""`,
+with the IDs from the response filled in.
 
 **`_warnings` — Destructive or gated action warnings:**
 
@@ -2946,7 +2964,6 @@ the following actions:
 - `share`: delete, archive, update (type change)
 - `ai`: chat-delete
 - `download`: file-url (token expiry), zip-url
-- `upload`: stage-blob (5-minute expiry)
 
 **`_recovery` — Error recovery hints:**
 
@@ -2957,12 +2974,12 @@ correct resolution. All errors also include `(during: <tool> <action>)` so agent
 | Status | Recovery hint |
 |--------|---------------|
 | 400    | Bad request — check required parameters and value formats |
-| 401    | Re-authenticate using `auth` action `signin` or `pkce-login` |
-| 402    | Credits exhausted — check with `org` action `limits` |
-| 403    | Permission denied — check role with `org` action `details` |
-| 404    | Resource not found — verify the ID is correct |
-| 405    | Method not allowed — check the action name is valid for this tool |
-| 409    | Conflict — resource may already exist |
+| 401    | Re-authenticate using `auth` action `signin` or `set-api-key` |
+| 402    | No active paid plan or credits exhausted — check with `org` action `limits`; select or upgrade with `billing-plans` / `billing-create` |
+| 403    | Permission denied — check role with `org` / `workspace` action `details`; for a scoped credential, check `auth` action `scopes` |
+| 404    | Resource not found — not proof of absence; verify the ID and re-read once before acting on it |
+| 406    | Not acceptable — duplicate name, invalid credentials, or invalid state; read the error text |
+| 409    | Conflict — read the error text: some conflicts clear on their own, others never will; re-read state, do not blind-retry |
 | 413    | Payload too large — reduce file size or use chunked upload |
 | 422    | Validation failed — check field values against documented constraints |
 | 429    | Rate limited — wait 2–4 seconds, retry with exponential backoff |
@@ -2974,14 +2991,15 @@ use `auth` action `email-verify`; "workspace not found" → check workspace ID w
 
 Included in `workspace` action `details` responses. Shows the available AI modes for the workspace:
 - **Intelligence ON:** file and folder references (full RAG with indexed search — attach folder references to ground answers in a folder's indexed files), plus the `search` action for semantic search (vector-based document chunk retrieval with relevance scores — no LLM round-trip, returns ranked snippets). Use search for fast retrieval/lookup; use chat for synthesis/analysis.
-- **Intelligence OFF:** direct file references only (max 20 files, 200 MB total). Semantic search is not available.
+- **Intelligence OFF:** direct file references only (max 20 files, 2 GB total). Semantic search is not available.
 
 **`_ai_state_legend` — File AI processing state:**
 
 Included in `storage` action `list` and `search` responses when files have AI state. Describes the possible states:
-- `ready` — file is indexed and available for AI queries
+- `indexed` — file is summarized, vector-indexed, and available for RAG/semantic search (intelligence on)
+- `ready` — file has a summary and can be attached to an AI chat, but is not vector-indexed
 - `pending` — file is queued for AI processing
-- `inprogress` — file is currently being processed
+- `inprogress` — file is currently being processed (the storage API itself reports this state as `in_progress`)
 - `disabled` — AI processing is disabled for this file
 - `failed` — AI processing failed for this file
 
@@ -3068,7 +3086,8 @@ These are the URLs you send to humans. Access depends on share settings, not aut
 | Public share           | `https://go.fast.io/shared/{share.custom_name}/{title-slug}`                      |
 | Org-branded share      | `https://{org.domain}.fast.io/shared/{share.custom_name}/{title-slug}`            |
 | File within a share    | `https://go.fast.io/shared/{share.custom_name}/{title-slug}/preview/{file.id}`    |
-| QuickShare             | `https://go.fast.io/quickshare/{quickshare.id}`                                   |
+| File Share             | `https://go.fast.io/fileshare/{fileshare.id}`                                     |
+| QuickShare (deprecated) | `https://go.fast.io/quickshare/{quickshare.id}`                                   |
 
 The `{title-slug}` is the share title converted to a URL slug (lowercase, spaces to hyphens, special chars removed).
 It's optional — routing works with just the `custom_name` — but improves link readability.
@@ -3147,10 +3166,10 @@ chain and OTP gate only exist on the SignEnvelope surface.
 | **SignTemplate** | OpaqueId (`sa…` prefix, 30-char) | A reusable signing configuration capturing recipient slots, document slots, field placements, and policy. Instantiate to produce a draft envelope. Soft-deleted (tombstoned), never purged. |
 | **Document** | OpaqueId | One PDF inside the envelope. Up to 20 per envelope. Carries `source_node_id` / `source_version_id` (the storage node it was copied from), `signed_pdf_node_id` (set when signing completes), `source_sha256`, `completed_sha256`, `display_order`, `signed_at`. |
 | **Recipient** | OpaqueId | One signer / cc / viewer / approver / certified-recipient on the envelope. Carries `role`, `routing_order`, `auth_method` (`none` / `email_otp` / `sms_otp`), and per-recipient lifecycle timestamps. Status flows `pending` → `sent` → `viewed` → `authenticated` → `signing_in_progress` → `signed` (with `declined` / `expired` / `voided` / `failed` terminal). |
-| **Field** | OpaqueId | A field placement on a `(document_id, page)`. Normalized `0..1` coordinates. Type is one of `signature` / `initial` / `date` / `text` / `checkbox`. Belongs to exactly one recipient. |
+| **Field** | OpaqueId | A field placement on a `(document_id, page)`. Normalized `0..1` coordinates. Common types are `signature` / `initial` / `date` / `text` / `checkbox`; the full accepted set (including `radio`, `dropdown`, `attachment`, `full_name`, `email`, `approve`, …) is in the Signing reference. Belongs to exactly one recipient. |
 | **Signer token** | compact JWT | Short-lived path-token JWT bound to a `(envelope_id, recipient_id)`. The recipient's signing link is `/sign_envelopes/signer/{token}/view/`. The token is consumed (single-use) on the state-changing actions (`/sign`, `/decline`, OTP-verify). |
-| **Audit certificate** | OpaqueId (node) | The per-envelope audit certificate (JSON evidence record), generated when the envelope reaches a terminal state (completed, voided, or declined). `audit_certificate_node_id` on the envelope resource goes non-null when the certificate is in place; both the owner `/audit/download/` and signer `/sign_envelopes/signer/{token}/audit/download/` endpoints stream the JSON bytes directly (no read-token round-trip). |
-| **Activity events** | event type | `sign_envelope_drafted`, `sign_envelope_sent`, `sign_envelope_voided`, `sign_envelope_viewed`, `sign_envelope_recipient_signed`, `sign_envelope_recipient_declined`, `sign_envelope_document_signed`, `sign_envelope_completed`, `sign_envelope_expired`. Visible through `/events/search/` and outbound webhook subscriptions. |
+| **Audit certificate** | OpaqueId (node) | The per-envelope audit certificate (JSON evidence record), generated when the envelope reaches any terminal state (completed, declined, voided, expired, or failed). `audit_certificate_node_id` on the envelope resource goes non-null when the certificate is in place; both the owner `/audit/download/` and signer `/sign_envelopes/signer/{token}/audit/download/` endpoints stream the JSON bytes directly (no read-token round-trip). |
+| **Activity events** | event type | `sign_envelope_drafted`, `sign_envelope_sent`, `sign_envelope_voided`, `sign_envelope_viewed`, `sign_envelope_recipient_signed`, `sign_envelope_recipient_declined`, `sign_envelope_document_signed`, `sign_envelope_completed`, `sign_envelope_expired`, `sign_envelope_failed`. Visible through `/events/search/`; envelope transitions also nudge the workspace activity stream with a `sign_envelopes:{envelope_id}` key. |
 
 **ID format note:** Envelope id is **19-digit numeric** (profile id format). Document / recipient / field / node ids
 are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`). Sign template ids are 30-character
@@ -3162,10 +3181,9 @@ are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`)
 |------------------|------|
 | Sender / admin (workspace-parented) | `Authorization: Bearer {api_key}` (JWT / OAuth / API key) |
 | Signer surface | signer session token carried in the URL path — no session required |
-| Provider webhook receiver | Provider's HMAC signature header — no Fastio session |
 
-Workspace **view** is required for read endpoints; workspace **admin** for the
-mutating endpoints (`/send`, `/void`, document downloads on a signed envelope, audit download). Signing availability
+Workspace membership covers the read endpoints, `/send`, document downloads (original and signed PDFs) and the
+audit-certificate download; workspace **admin** is required only for `/void` and `/retry`. Signing availability
 depends on your organization's plan and enabled features.
 
 ### Pattern Cookbook
@@ -3215,14 +3233,17 @@ curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes
 #### Pattern 2: Catch a void or decline, react accordingly
 
 ```bash
-# Subscribe to the relevant activity events via an outbound webhook subscription with event types
-# `sign_envelope_voided`, `sign_envelope_recipient_declined`, or `sign_envelope_completed`.
+# Watch for the relevant events — poll the events feed for `sign_envelope_voided`,
+# `sign_envelope_recipient_declined` or `sign_envelope_completed`, or long-poll the workspace activity stream and react
+# to a `sign_envelopes:{envelope_id}` key:
+curl -X GET "https://api.fast.io/current/events/search/?workspace_id={workspace_id}&event=sign_envelope_voided" \
+  -H "Authorization: Bearer {api_key}"
 #
 # When the event lands, look up the envelope's current state via:
 curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/details/" \
   -H "Authorization: Bearer {api_key}"
-# -> envelope.envelope_status is one of `voided` / `declined` / `completed` / `expired` / `failed`.
-# -> envelope.voided_reason carries the operator's void reason; recipient[].decline_reason carries the signer's reason.
+# -> sign_envelope.envelope_status is one of `voided` / `declined` / `completed` / `expired` / `failed`.
+# -> sign_envelope.voided_reason carries the operator's void reason; sign_envelope.recipients[].decline_reason carries the signer's reason.
 ```
 
 ### What to Tell the Recipient
@@ -3233,7 +3254,7 @@ form `/sign_envelopes/signer/{token}/view/`. The recipient's flow is:
 1. **Click the link** → renders the envelope state, documents, fields, and consent disclosure via `GET /sign_envelopes/signer/{token}/view/`.
 2. **Authenticate (OTP recipients only)** → enter the 6-digit code that the platform sent. The verify response carries a new elevated token; the client uses it for the rest of the flow.
 3. **Review and accept consent**, **fill in field values**, **click sign** → `POST /sign_envelopes/signer/{token}/sign/` submits the values; the platform queues the async PAdES-LT signing job and returns a polling token.
-4. **Wait for completion** → the client polls `/status/` and respects the adaptive `next_poll_seconds` (2s for the first 10s after sign, 5s for the next 60s, 15s thereafter).
+4. **Wait for completion** → the client polls `/status/` and respects the adaptive `next_poll_seconds` (2s for the first 10s after signing, 5s until 60s, 15s thereafter, and `0` — stop polling — once the envelope is terminal or every document is signed).
 5. **Or decline** → `POST /sign_envelopes/signer/{token}/decline/` with an optional reason cascades the envelope to `declined`.
 
 Path tokens are **single-use** on the consume-style actions (`/sign`, `/decline`, OTP verify). The landing token works
@@ -3246,10 +3267,10 @@ multiple times on `/view` and `/status` until it has been consumed by one of the
   pending recipients but does not refund. This matches industry convention.
 - **A single decline kills the envelope.** Pending recipients in later routing slots never get notified once the
   envelope cascades to `declined`. Plan around this for sequential multi-signer flows.
-- **The signed PDF endpoint 404s until the document completes.** Drive on the document's `signed_at` timestamp on the
-  envelope resource — when it's non-null, the signed PDF is downloadable.
-- **The audit certificate 404s until the envelope completes.** Drive on `audit_certificate_node_id` on the envelope
-  resource — it goes non-null when the certificate is ready.
+- **The signed PDF endpoint 404s until the document completes.** Drive on the document's `signed_document_available`
+  flag on the envelope resource — when it is `true`, the signed PDF is downloadable.
+- **The audit certificate 404s until the envelope reaches a terminal state** (completed, declined, voided, expired, or
+  failed). Drive on `audit_certificate_node_id` on the envelope resource — it goes non-null when the certificate is ready.
 - **OTP issuance and verification are throttled per-(envelope, recipient).** Back off on a throttle response
   instead of retrying immediately; the verify throttle protects against brute-force across multiple issuances.
 - **Path tokens are short-lived.** Don't store the signer token longer than the envelope's lifetime. The OTP-elevation
