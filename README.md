@@ -1,3 +1,5 @@
+![Fastio](assets/logo.svg)
+
 # Fastio MCP Skill Package
 
 Workspaces for agentic teams — where agents collaborate with other agents and with humans. Upload outputs, create branded shares, query documents with built-in AI, coordinate with peer agents, and hand everything off to a human when the job is done.
