@@ -139,7 +139,7 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 | `references/REFERENCE.md` | Platform deep-dive — capabilities, plan details, concepts, URL construction |
 | `skills/fast-io/` | The same guide and reference laid out as a plugin skill (generated copy of the two files above) |
 | `.claude-plugin/plugin.json`, `.mcp.json` | Claude Code plugin manifest and its remote MCP server (`/mcp/tools`) |
-| `plugin.json`, `mcp.json` | Portable [Agent Plugins](https://agent-plugins.org) manifest and MCP configuration (`/mcp/tools`) |
+| `plugin.json`, `mcp.json` | Portable [Agent Plugins](https://agent-plugins.org) manifest and MCP configuration (`/mcp/tools`; the OpenAI package uses `/mcp/apps`) |
 
 ## Links
 

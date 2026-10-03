@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP: /mcp/tools for the named tool set, /mcp/code for code mode.
 metadata:
   author: fast-io
-  version: 2.89.0
+  version: 2.90.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.89
+**Version:** 2.90
 **Last Updated:** 2026-10-02
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and plans, see [references/REFERENCE.md](references/REFERENCE.md).
@@ -57,7 +57,7 @@ The set is fixed for the life of the session; connecting with the other URL give
 - **Named mode (35 tools)** — one read tool and one `_manage` tool per domain, covering the full REST surface (see Section 4). **Four more are env-gated and appear only where enabled:** `import`/`import_manage` (cloud-sync) and `sign`/`sign_manage` (e-signature). Each pair is registered only where its deployment enables it, so the named menu is 35, 37 or 39 tools depending on the deployment, and a Ripley session sees four fewer (`ai`, `ai_manage`, `auth` and `auth_manage` are not served — its credential comes from the connection). `action=describe` on a tool reflects what this deployment serves.
 - **Code mode (8 tools: `auth`, `auth_manage`, `upload`, `upload_manage`, `search`, `execute`, `execute_manage`, `how-to`)** — a lightweight set for headless agents. See Section 6.
 
-**What `/mcp/tools` and `/mcp/code` leave out.** No action there takes or returns a credential or handles billing: sign-up, `set-api-key`, `api-key-create`, password reset, email verification, the 2FA code actions, `share action=password-auth`, the `org` billing actions and `download action=zip-url` (its result carries the session bearer) are not served, nor are the `password` and `plan` params; in code mode, `execute` refuses the matching REST paths. Sign-in there is `auth_manage action=pkce-login` or the connection's own OAuth. Those two URLs also route no earlier tool or action names: a write sent to a read tool (`storage action=delete`, `execute` with `method=post`) is refused and names the `_manage` tool. The earlier URLs below keep all of it.
+**What `/mcp/tools` and `/mcp/code` leave out.** No action there takes or returns a credential or handles billing: sign-up, `set-api-key`, `api-key-create`, password reset, email verification, the 2FA code actions, `share action=password-auth` and the `org` billing actions are not served, nor are the `password` and `plan` params; in code mode, `execute` refuses the matching REST paths. Sign-in there is `auth_manage action=pkce-login` or the connection's own OAuth. Those two URLs also route no earlier tool or action names: a write sent to a read tool (`storage action=delete`, `execute` with `method=post`) is refused and names the `_manage` tool. The earlier URLs below keep all of it.
 
 **Earlier URLs** — `/mcp`, `/mcp/oauth`, `/mcp/key` and `/sse` keep working. On those, the set is chosen from the MCP client's `clientInfo.name`:
 
@@ -277,7 +277,7 @@ Three mechanisms, most-to-least preferred: **`event action=activity-poll`** (lon
 
 ### Downloads
 
-MCP never streams binary — tools return URLs. **In code mode (there is no `download` tool), download a file in 2 calls:** `execute` GET `…/storage/{node_id}/requestread/` → `{token}`, then fetch `https://api.fast.io/current/workspace/{ws}/storage/{node_id}/read/?token=<jwt>` out-of-band (curl) — the `?token=` JWT is the auth, so **no Authorization header** (share variant: `/share/{share_id}/…`). Do NOT use the `/preview/{preview_type}/read/` path form for a plain download (that is for previews and 406s without a valid `preview_type`). **In named mode,** `download action=file-url` (needs `profile_type`) returns that same temporary pre-authenticated URL; `download action=zip-url` returns the URL **plus the required `Authorization` header value** (the zip fetch needs it). For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **100 KB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` **with a session-STORED token** OR `Authorization: Bearer` — a connection-only Bearer is NOT stored in the session, so pass it explicitly on the request; a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
+MCP never streams binary — tools return URLs. **In code mode (there is no `download` tool), download a file in 2 calls:** `execute` GET `…/storage/{node_id}/requestread/` → `{token}`, then fetch `https://api.fast.io/current/workspace/{ws}/storage/{node_id}/read/?token=<jwt>` out-of-band (curl) — the `?token=` JWT is the auth, so **no Authorization header** (share variant: `/share/{share_id}/…`). A folder ZIP works the same way: GET `…/storage/{folder_id|root}/requestzip/` → `{token}`, then fetch `…/storage/{folder_id|root}/zip/?token=<jwt>` for the same folder, with no Authorization header. Do NOT use the `/preview/{preview_type}/read/` path form for a plain download (that is for previews and 406s without a valid `preview_type`). **In named mode,** `download action=file-url` (needs `profile_type`) returns that same temporary pre-authenticated URL; `download action=zip-url` (`download_zip_url` on `/mcp/apps`) returns a `zip_url` carrying the same kind of `?token=` JWT, bound to that folder and valid for about 2 hours, so the ZIP fetch needs **no Authorization header**. On a deployment that cannot issue ZIP tokens yet, `/mcp/tools` refuses the action and the earlier URLs return the plain URL plus an `auth_header` value. For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **100 KB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` **with a session-STORED token** OR `Authorization: Bearer` — a connection-only Bearer is NOT stored in the session, so pass it explicitly on the request; a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
 
 ### Response hints & envelope
 
