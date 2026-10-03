@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP: /mcp/tools for the named tool set, /mcp/code for code mode.
 metadata:
   author: fast-io
-  version: 2.90.0
+  version: 2.91.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.90
-**Last Updated:** 2026-10-02
+**Version:** 2.91
+**Last Updated:** 2026-10-03
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and plans, see [references/REFERENCE.md](references/REFERENCE.md).
 
@@ -277,7 +277,7 @@ Three mechanisms, most-to-least preferred: **`event action=activity-poll`** (lon
 
 ### Downloads
 
-MCP never streams binary — tools return URLs. **In code mode (there is no `download` tool), download a file in 2 calls:** `execute` GET `…/storage/{node_id}/requestread/` → `{token}`, then fetch `https://api.fast.io/current/workspace/{ws}/storage/{node_id}/read/?token=<jwt>` out-of-band (curl) — the `?token=` JWT is the auth, so **no Authorization header** (share variant: `/share/{share_id}/…`). A folder ZIP works the same way: GET `…/storage/{folder_id|root}/requestzip/` → `{token}`, then fetch `…/storage/{folder_id|root}/zip/?token=<jwt>` for the same folder, with no Authorization header. Do NOT use the `/preview/{preview_type}/read/` path form for a plain download (that is for previews and 406s without a valid `preview_type`). **In named mode,** `download action=file-url` (needs `profile_type`) returns that same temporary pre-authenticated URL; `download action=zip-url` (`download_zip_url` on `/mcp/apps`) returns a `zip_url` carrying the same kind of `?token=` JWT, bound to that folder and valid for about 2 hours, so the ZIP fetch needs **no Authorization header**. On a deployment that cannot issue ZIP tokens yet, `/mcp/tools` refuses the action and the earlier URLs return the plain URL plus an `auth_header` value. For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **100 KB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` **with a session-STORED token** OR `Authorization: Bearer` — a connection-only Bearer is NOT stored in the session, so pass it explicitly on the request; a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
+MCP never streams binary — tools return URLs. **In code mode (there is no `download` tool), download a file in 2 calls:** `execute` GET `…/storage/{node_id}/requestread/` → `{token}`, then fetch `https://api.fast.io/current/workspace/{ws}/storage/{node_id}/read/?token=<jwt>` out-of-band (curl) — the `?token=` JWT is the auth, so **no Authorization header** (share variant: `/share/{share_id}/…`). A folder ZIP works the same way: GET `…/storage/{folder_id|root}/requestzip/` → `{token}`, then fetch `…/storage/{folder_id|root}/zip/?token=<jwt>` for the same folder, with no Authorization header. Do NOT use the `/preview/{preview_type}/read/` path form for a plain download (that is for previews and 406s without a valid `preview_type`). **In named mode,** `download action=file-url` (needs `profile_type`) returns that same temporary pre-authenticated URL; `download action=zip-url` (`download_zip_url` on `/mcp/operations`) returns a `zip_url` carrying the same kind of `?token=` JWT, bound to that folder and valid for about 2 hours, so the ZIP fetch needs **no Authorization header**. On a deployment that cannot issue ZIP tokens yet, `/mcp/tools` refuses the action and the earlier URLs return the plain URL plus an `auth_header` value. For inline reads, the `download://workspace/{ws}/{node}` / `download://share/{share}/{node}` resources return up to **100 KB** as base64; larger files fall back to a text response pointing at the `GET /file/...` pass-through (accepts `Mcp-Session-Id` **with a session-STORED token** OR `Authorization: Bearer` — a connection-only Bearer is NOT stored in the session, so pass it explicitly on the request; a caller Bearer overrides a stale session token). **Password-protected fileshares** can't use the inline `download://fileshare/{id}` resource (no header channel) — use `fileshare action=download-url` or `GET /file/fileshare/{id}` with the `Authorization`/`x-ve-password` headers.
 
 ### Response hints & envelope
 
