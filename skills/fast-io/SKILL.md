@@ -14,13 +14,13 @@ compatibility: >-
   via Streamable HTTP: /mcp/tools for the named tool set, /mcp/code for code mode.
 metadata:
   author: fast-io
-  version: 2.88.0
+  version: 2.89.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.88
+**Version:** 2.89
 **Last Updated:** 2026-10-02
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and plans, see [references/REFERENCE.md](references/REFERENCE.md).
@@ -54,8 +54,10 @@ The server exposes one of two tool sets, and the URL decides which:
 
 The set is fixed for the life of the session; connecting with the other URL gives the other set.
 
-- **Named mode (35 tools)** — one read tool and one `_manage` tool per domain, covering the full REST surface (see Section 4). **Four more are env-gated and appear only where enabled:** `import`/`import_manage` (cloud-sync) and `sign`/`sign_manage` (e-signature). Each pair is registered only where its deployment enables it, so the named menu is 35, 37 or 39 tools depending on the deployment, and a Ripley session sees two fewer (`ai` and `ai_manage` are hidden). `action=describe` on a tool reflects what this deployment serves.
+- **Named mode (35 tools)** — one read tool and one `_manage` tool per domain, covering the full REST surface (see Section 4). **Four more are env-gated and appear only where enabled:** `import`/`import_manage` (cloud-sync) and `sign`/`sign_manage` (e-signature). Each pair is registered only where its deployment enables it, so the named menu is 35, 37 or 39 tools depending on the deployment, and a Ripley session sees four fewer (`ai`, `ai_manage`, `auth` and `auth_manage` are not served — its credential comes from the connection). `action=describe` on a tool reflects what this deployment serves.
 - **Code mode (8 tools: `auth`, `auth_manage`, `upload`, `upload_manage`, `search`, `execute`, `execute_manage`, `how-to`)** — a lightweight set for headless agents. See Section 6.
+
+**What `/mcp/tools` and `/mcp/code` leave out.** No action there takes or returns a credential or handles billing: sign-up, `set-api-key`, `api-key-create`, password reset, email verification, the 2FA code actions, `share action=password-auth`, the `org` billing actions and `download action=zip-url` (its result carries the session bearer) are not served, nor are the `password` and `plan` params; in code mode, `execute` refuses the matching REST paths. Sign-in there is `auth_manage action=pkce-login` or the connection's own OAuth. Those two URLs also route no earlier tool or action names: a write sent to a read tool (`storage action=delete`, `execute` with `method=post`) is refused and names the `_manage` tool. The earlier URLs below keep all of it.
 
 **Earlier URLs** — `/mcp`, `/mcp/oauth`, `/mcp/key` and `/sse` keep working. On those, the set is chosen from the MCP client's `clientInfo.name`:
 
@@ -114,13 +116,15 @@ In **code mode**, the `search` tool (`target="api"`) discovers endpoints, and `e
 
 ## 3. Authentication (Critical First Step)
 
+On `/mcp/tools` and `/mcp/code`, sign-in is `auth_manage action=pkce-login` (a human with a browser) or the connection's own OAuth; the in-band credential actions below (`signup`, `set-api-key`, password reset, email verification, 2FA codes, `api-key-create`) are served on the earlier URLs only (Section 1).
+
 Authentication is required before any tool except these **unauthenticated** ones: `auth_manage` actions `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `password-reset-request`, `password-reset`; `auth` action `email-check`; and `download` action `quickshare-details`.
 
 ### Which approach?
 
 | Situation | Approach |
 |---|---|
-| **Operating autonomously** (storing files, building for users) | Create your own agent account: `auth_manage action=signup` (sends `agent=true` automatically — never sign up as a human). A new org needs a plan selected before it can be used (Section 8). |
+| **Operating autonomously** (storing files, building for users) | Create your own agent account: `auth_manage action=signup` (sends `agent=true` automatically — never sign up as a human). A new org cannot consume resources until it has an active plan (Section 8). |
 | **Assisting a human** who already has an account | Use their API key: `auth_manage action=set-api-key`. You operate as the human; the key is validated and stored in the session. Keys can be scoped/tagged/expiring. Keys are managed with `auth_manage` actions `api-key-create/-update/-delete`; `api-key-list/-get` are on `auth`. |
 | **Running headless / no browser** | Use signup, an API key (`auth_manage action=set-api-key`), or connect with an existing OAuth access token / API key as `Authorization: Bearer` on the connection — do **NOT** use PKCE. |
 | **A human with a browser signs in** (no password ever reaches this server) | Browser-based PKCE: `auth_manage action=pkce-login` → the human opens `login_url`, signs in and approves → the browser returns to this server, which signs this session in on its own → confirm with `auth_manage action=pkce-complete`. Supports scoped access via `scope_type`, plus `admin=true` (admin access mode `rwa`) and `account_settings=true` (`userdetails:*:rw`) as consent-screen CEILINGS the human must still tick. Not for headless agents. |
@@ -144,13 +148,13 @@ Authentication is required before any tool except these **unauthenticated** ones
 
 Action-routed; `<tool> action=describe` returns the per-action reference.
 
-**Reads and writes are separate tools.** Each domain that has both is split in two: `<domain>` carries the read-only actions (annotated `readOnlyHint`), and `<domain>_manage` carries every create, update and delete action, destructive ones included (annotated `destructiveHint`). `find`, `download` and `how-to` are single read tools. `describe` works on either half and covers that half's actions; a `describe_action` naming the other half's action returns the other half's describe. Earlier tool and action names (for example `storage action=delete`) still route to the right tool but are not listed. A read-only session lists no `_manage` tool except `auth_manage`.
+**Reads and writes are separate tools.** Each domain that has both is split in two: `<domain>` carries the read-only actions (annotated `readOnlyHint`), and `<domain>_manage` carries every create, update and delete action, destructive ones included (annotated `destructiveHint`). `find`, `download` and `how-to` are single read tools. `describe` works on either half and covers that half's actions; a `describe_action` naming the other half's action returns the other half's describe. On the earlier URLs, earlier tool and action names (for example `storage action=delete`) still route to the right tool but are not listed; `/mcp/tools` and `/mcp/code` refuse them (Section 1). A read-only session lists no `_manage` tool except `auth_manage`.
 
 - **`auth`** / **`auth_manage`** — Browser (PKCE) sign-in, sign-up, API keys, 2FA enrolment, OAuth sessions. The starting point.
 - **`user`** / **`user_manage`** — Current user profile, contacts, invitations, user assets, account eligibility, shares you belong to. `user_manage action=report-bug` reports a suspected Fastio **platform** defect (wrong data, docs contradicting behaviour, an unexpected 5xx) straight to the Fastio team — one-way, not for your own rejected params, ordinary 401/403/429, or "how do I" questions (use `how-to`). Send a minimal excerpt, never secrets or file content, and include the failed result's `request_id`.
-- **`org`** / **`org_manage`** — Organization CRUD, members, billing/subscriptions, workspace creation, invitations, assets, org discovery, ownership transfer.
+- **`org`** / **`org_manage`** — Organization CRUD, members, usage limits, workspace creation, invitations, assets, org discovery, ownership transfer (and, on the earlier URLs, the billing actions).
 - **`workspace`** / **`workspace_manage`** — Workspace settings & lifecycle (update/delete/archive), shares listing/import, assets, discovery, notes (create/read/update), and async-job status. **No `metadata-*` actions** — the deprecated one-release shims were removed: node-level metadata is on `storage`, the field vocabulary and search on `metadata`.
-- **`share`** / **`share_manage`** — Share CRUD (Send / Receive / Exchange), public details, archiving, password auth, members, name checks, and AI titling.
+- **`share`** / **`share_manage`** — Share CRUD (Send / Receive / Exchange), public details, archiving, members, name checks, AI titling, and (on the earlier URLs) password auth.
 - **`fileshare`** / **`fileshare_manage`** — Durable, single-file share links (replaces deprecated QuickShare). Binds to one file; access tiers, password, expiry, per-user grants, version history, external-editor write-back.
 - **`storage`** / **`storage_manage`** — Files & folders in workspaces and shares: list/search/move/copy/rename/delete/purge/restore, versions, locking, preview URLs, node-level metadata. Requires `profile_type` (`workspace`|`share`). **`storage action=search` is the semantic engine** — semantic search runs *inside* it, there is no separate semantic endpoint, and `search_in` defaults to `both` (filename **and** content blended into one ranked list), so it is not a filename-only surface. It is also the only file search with `files_scope`/`folders_scope` (both profile types) and `metadata_filters` (**workspace only** — refused on a share, because a share has no metadata vocabulary to filter on). **Every search hit carries the file's OWN extracted fields as `facts`** — whatever this workspace's extraction actually wrote, not a fixed vocabulary: `author` and `doi` on a paper, `camera_make` and `captured_at` on a photo, `document_title` and `effective_date` on a contract. **Every hit also says WHERE it lives once the platform reports it:** `path` is the folder chain root→parent (`""` at the workspace root, and null where the platform could not resolve the whole chain, which `path_complete:false` marks). A title-like field comes first, then the platform's own extraction order, up to about 900 characters of `field=value` text per row; nothing is shortened to make room, so a field either appears whole or is counted. `facts_more` is an EXACT count of the fields this row left off. `facts_truncated` means the PLATFORM had more than its own tier cap would send and carries **no number of its own** — the cap bounds what it read, so nothing upstream counted what it skipped (`output=standard` sends at most 8 facts per row, `output=full` at most 100); where the platform reports the node's whole fact count, `facts_total` sits beside it and the row reads as "8 shown of 14". To get the rest: re-run at `detail='full'` for every row at once, or `storage action=metadata-facts` for one file, which is uncapped. **`detail` and `details` are independent knobs:** `detail='full'` raises the fact cap (100 a row instead of 8) and still returns no node body; the legacy `details='true'` is what attaches the hydrated `node` per hit. Asking for `full` because you want the node gets you neither an error nor the node. That is what tells five identically-named contracts apart **without a second call per file**. `detail` now defaults to **`standard`** here rather than `terse`, because the terse dialect returns those fields as bare NAMES with no values. A page that would render past what a client accepts is **reduced, not rejected**: the lowest-ranked rows lose their quoted text first (`rows_degraded`), then their `facts` are trimmed (`rows_facts_trimmed`, each row's `facts_more` recounted), and only then are rows dropped (`rows_dropped`) with `_next` naming the exact `offset` to page to. **On the code-mode `search` tool the dropped rows are still NAMED** — `dropped_rows` lists their `id`, `type` and `name` in ranking order, so you can see which files fell off and read one straight from its `id` (`dropped_unnamed` counts any the list itself had no room for). Top hits are never the ones reduced, and an absent counter means that pass never fired.
 - **`storage` metadata reads come in TWO DIALECTS, and the difference is not cosmetic:** `metadata-get` (`/metadata/details/`) is a **capped preview** — it carries `is_truncated`, drops provenance at `output=standard`, and at `terse` collapses to a `fields` STRING with **no values**. `metadata-facts` (the dedicated endpoint) is **uncapped**, has no `is_truncated`, and keeps `value` at **every** tier. They agree exactly only at `output=full`. Use `metadata-facts` when you need the complete fact list or values below `full`.
@@ -368,7 +372,7 @@ Cross-cutting product traps an agent hits silently. These belong here, not defer
 
 ## 8. Billing / 402 awareness
 
-A new org (`org_manage action=create`) returns **402** on resource-consuming calls until a plan is selected with `org_manage action=billing-create` (`org action=billing-plans` lists the offered plan IDs and limits). A **402** mid-work means the org's credits are exhausted. `org action=limits` reports usage. Full billing flow, credit costs, and plan details: ask `how-to` or `org action=describe`.
+A new org (`org_manage action=create`) returns **402** on resource-consuming calls until it has an active plan (its `subscriber` field shows the state). A **402** mid-work means the org's credits for the period are used up. `org action=limits` reports usage and limits.
 
 ---
 
