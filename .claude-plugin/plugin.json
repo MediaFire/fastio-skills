@@ -8,6 +8,7 @@
     "url": "https://fast.io"
   },
   "homepage": "https://fast.io",
+  "license": "MIT",
   "repository": "https://github.com/MediaFire/fastio-skills",
   "keywords": ["fastio", "files", "storage", "workspaces", "sharing", "mcp"],
   "skills": "./skills/",
