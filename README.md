@@ -1,4 +1,4 @@
-![Fastio](assets/logo.svg)
+![Fastio](assets/fastio-logo.png)
 
 # Fastio MCP Skill Package
 
