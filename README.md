@@ -42,7 +42,7 @@ Each tool covers a domain and uses an `action` parameter to select the operation
 |------|--------|
 | `auth` / `auth_manage` | Sign-in/sign-up, 2FA, API key management, OAuth/PKCE sessions |
 | `user` / `user_manage` | Current user profile, contacts, invitations, user assets, account eligibility |
-| `org` / `org_manage` | Organization CRUD, members, billing/subscriptions, invitations, assets, org discovery, ownership transfer |
+| `org` / `org_manage` | Organization CRUD, members, invitations, assets, org discovery, ownership transfer |
 | `workspace` / `workspace_manage` | Workspace lifecycle & settings, archive, members, notes, share import, async-job status |
 | `share` / `share_manage` | Share CRUD (Send / Receive / Exchange), archiving, passwords, members, AI titling |
 | `fileshare` / `fileshare_manage` | Durable single-file share links, the replacement for QuickShare (access tiers, password, expiry, per-user grants, version history) |
@@ -58,13 +58,12 @@ Each tool covers a domain and uses an `action` parameter to select the operation
 | `invitation` / `invitation_manage` | Invitation management for workspaces and shares |
 | `asset` / `asset_manage` | Branding asset upload/list/read/delete for orgs, workspaces, shares, users |
 | `intent` / `intent_manage` | Agent Intents — announce what you're working on in a workspace so peers see a collision before it happens |
-| `how-to` | Built-in product help — ask "how do I…" questions about Fastio (free, explain-only) |
+| `how-to` | Built-in product help — ask "how do I…" questions about Fastio (explain-only) |
 
 ## The `how-to` tool
 
-The guide and tool descriptions stay lean by deferring product how-tos to a built-in help tool. Call **`how-to action=ask question="..."`** whenever the right *approach* on Fastio isn't obvious (branded shares, metadata extraction, coordinating with another agent, ownership transfer, billing). It returns the canonical, product-aware sequence of steps.
+The guide and tool descriptions stay lean by deferring product how-tos to a built-in help tool. Call **`how-to action=ask question="..."`** whenever the right *approach* on Fastio isn't obvious (branded shares, metadata extraction, coordinating with another agent, ownership transfer). It returns the canonical, product-aware sequence of steps.
 
-- **Free** — no credits, no plan gate; requires only an authenticated user.
 - **Explain-only** — it returns guidance; it never creates, updates, or deletes anything.
 - Available in **both modes** (answers are phrased as named-tool calls or `execute`/`execute_manage` calls to match).
 
@@ -89,25 +88,10 @@ No MCP prompts are registered.
 
 Four ways to authenticate:
 
-1. **Agent account** — `auth_manage action=signup` creates an agent account. Signup does not auto-sign-in; follow it with `auth_manage action=signin`, then verify the email. Creating an organization requires selecting a plan (`org_manage action=billing-create`).
+1. **Agent account** — `auth_manage action=signup` creates an agent account. Signup does not auto-sign-in; follow it with `auth_manage action=signin`, then verify the email.
 2. **API key** — `auth_manage action=set-api-key` with a key from an existing human account; you operate as that human.
 3. **Sign in** — `auth_manage action=signin` with email and password.
 4. **PKCE browser login** — `auth_manage action=pkce-login` → user approves in browser → `auth_manage action=pkce-complete`. Secure OAuth 2.0 flow without sharing a password. Not for headless agents.
-
-## Plans
-
-New organizations — created by humans or agents alike — need a plan. Until one is selected, resource-consuming endpoints return HTTP 402.
-
-| | Starter | Business | Growth |
-|---|---|---|---|
-| Monthly credits | 300,000 | 1,200,000 | 4,500,000 |
-| Storage | 1 TB | 10 TB | 50 TB |
-| Included seats | 1 | 20 | 50 |
-| Max file size | 25 GB | 50 GB | 100 GB |
-
-Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and file conversions. Query the live limits for the current plan with `upload action=limits`. See https://fast.io for current pricing.
-
-> Agentic AI chat (Ripley) and workspace intelligence indexing are included on every paid plan. Agent accounts can build an org and later transfer it to a human, who then owns the billing; the agent keeps admin access.
 
 ## Core Capabilities
 
@@ -127,7 +111,7 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 
 **Collect documents:** Create a Receive share, send the link, files appear in your workspace.
 
-**Build a knowledge base:** Create a workspace, turn on intelligence (it is off by default and ingestion consumes credits), upload documents, then query across all content with `ai_manage action=ask` (Ripley).
+**Build a knowledge base:** Create a workspace, turn on intelligence (it is off by default), upload documents, then query across all content with `ai_manage action=ask` (Ripley).
 
 **Set up a project for a human:** Create the org, workspaces, and shares, upload content, configure branding, then transfer ownership.
 
@@ -136,7 +120,7 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 | File | Description |
 |------|-------------|
 | `SKILL.md` | Complete agent guide — tool menu, MCP-server mechanics, authentication, and guardrails |
-| `references/REFERENCE.md` | Platform deep-dive — capabilities, plan details, concepts, URL construction |
+| `references/REFERENCE.md` | Platform deep-dive — capabilities, concepts, URL construction |
 | `skills/fast-io/` | The same guide and reference laid out as a plugin skill (generated copy of the two files above) |
 | `.claude-plugin/plugin.json`, `.mcp.json` | Claude Code plugin manifest and its remote MCP server (`/mcp/tools`) |
 | `plugin.json`, `mcp.json` | Portable [Agent Plugins](https://agent-plugins.org) manifest and MCP configuration (`/mcp/tools`; the OpenAI package uses `/mcp/operations`) |
@@ -146,3 +130,6 @@ Credits cover storage, bandwidth, AI chat tokens, document/media ingestion, and 
 - **Platform guide:** [references/REFERENCE.md](references/REFERENCE.md)
 - **API reference:** https://api.fast.io/llms.txt
 - **Website:** https://fast.io
+- **Privacy policy:** https://fast.io/privacy/
+- **Terms of service:** https://fast.io/terms/
+- **Support:** https://mcp.fast.io/docs#support
