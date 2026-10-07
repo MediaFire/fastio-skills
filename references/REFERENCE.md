@@ -1,6 +1,6 @@
 # Fastio for AI Agents
 
-> **Version:** 1.39.0 | **Last updated:** 2026-09-14
+> **Version:** 1.40.0 | **Last updated:** 2026-10-02
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -18,7 +18,7 @@ There are three ways to integrate with Fastio:
 | Integration | Best For | Get Started |
 |-------------|----------|-------------|
 | **CLI** | Terminal workflows, scripting, CI/CD pipelines, human operators | `npm install -g @vividengine/fastio-cli` |
-| **MCP Server** | AI agents (Claude Desktop, Claude Code, Cursor, etc.) | Connect to `https://mcp.fast.io/mcp` |
+| **MCP Server** | AI agents (Claude, ChatGPT, Claude Code, Cursor, etc.) | Connect to `https://mcp.fast.io/mcp/tools` (ChatGPT: `/mcp/operations`; coding agents: `/mcp/code`) |
 | **REST API** | Custom applications, languages without MCP support | See API endpoints throughout this guide |
 
 **CLI** — The `fastio` command-line tool provides full platform access from the terminal. Install with
@@ -28,15 +28,23 @@ MCP server mode (`fastio mcp`) for local AI agent integration. See the "CLI Tool
 **MCP-enabled agents** should connect via the Model Context Protocol for the simplest integration — no raw HTTP calls
 needed.
 
-**MCP connection endpoints:**
-- **Streamable HTTP (recommended):** `https://mcp.fast.io/mcp`
-- **Legacy SSE:** `https://mcp.fast.io/sse`
+**MCP connection endpoints** (Streamable HTTP; the first connection signs in with OAuth in the browser, and the URL
+fixes the tool set for the whole session):
 
-The MCP server exposes consolidated tools using action-based routing — each tool covers a domain (e.g., `auth`,
-`storage`, `upload`) and uses an `action` parameter to select the operation. In Named Mode (Claude Desktop, etc.),
-there are multiple domain-specific tools. In Code Mode (Claude Code,
-Cursor, etc.), there is a smaller set of streamlined tools. See the "MCP Tool Architecture" section
-below for the full tool list.
+| Client | URL | Tools |
+|--------|-----|-------|
+| Claude and most chat clients | `https://mcp.fast.io/mcp/tools` | One read tool and one `_manage` write tool per area (`storage` / `storage_manage`, …) |
+| ChatGPT | `https://mcp.fast.io/mcp/operations` | One tool per operation (`storage_list`, `share_create`, …) |
+| Coding agents (Claude Code, Cursor, Codex, …) | `https://mcp.fast.io/mcp/code` | Code mode: search the Fastio API and call it |
+
+The earlier URLs — `https://mcp.fast.io/mcp`, `/mcp/oauth`, `/mcp/key` and the legacy SSE endpoint `/sse` — keep
+working; on those, the tool set is chosen from the name the client reports, and earlier tool and action names are still
+accepted.
+
+On `/mcp/tools` the server uses action-based routing: each domain (e.g., `storage`) is split into a read tool
+(`storage`) and a write tool (`storage_manage`), and an `action` parameter selects the operation. Code Mode
+(`/mcp/code`) is a smaller set of streamlined tools. See the "MCP Tool Architecture" section below for the full tool
+list.
 
 MCP-connected agents receive comprehensive workflow guidance through SERVER_INSTRUCTIONS at connection time, and can
 read resources (`resources/read`) including `skill://guide` for full tool documentation, `session://status` for current
@@ -68,8 +76,8 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and intelligence indexing require a paid plan — Starter, Business, or Enterprise) |
-| Building a RAG pipeline from scratch         | Enable intelligence on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and Deep Indexing require a paid plan — Starter, Business, or Enterprise) |
+| Building a RAG pipeline from scratch         | Enable Deep Indexing on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
 | Turning unstructured files into data         | AI metadata extraction pulls typed fields from documents, images, and spreadsheets into a sortable table |
@@ -549,15 +557,15 @@ activity feed — a shared environment where agents collaborate with other agent
 - **Member roles** — Owner, Admin, Member, Guest with granular permissions
 - **Real-time sync** — changes appear instantly for all members via WebSockets
 
-#### Intelligence: On or Off
+#### Deep Indexing: On or Off
 
-Workspaces have an **intelligence** toggle that controls whether AI features are active. This is a critical decision:
+Workspaces have a **Deep Indexing** toggle that controls whether AI features are active. This is a critical decision:
 
-**Intelligence OFF** — the workspace stores files without AI indexing. You can still attach files directly to an AI chat
+**Deep Indexing OFF** — the workspace stores files without AI indexing. You can still attach files directly to an AI chat
 conversation (up to 20 files), but files are not persistently indexed. This is fine for coordination workflows where
 you don't need to query your content.
 
-**Intelligence ON** — the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested,
+**Deep Indexing ON** — the workspace becomes an AI-powered knowledge base. Every document and code file uploaded is automatically ingested,
 summarized, and indexed for RAG. This enables:
 
 - **RAG (retrieval-augmented generation)** — scope AI chat to entire folders or the full workspace and ask questions
@@ -572,12 +580,12 @@ summarized, and indexed for RAG. This enables:
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-> **Plan requirement.** Intelligence requires both the `content_ai` and `ai_agent` plan features (included on every
+> **Plan requirement.** Deep Indexing requires both the `content_ai` and `ai_agent` plan features (included on every
 > paid plan: Starter, Business, or Enterprise). On a plan that does not include those features, a new workspace is created
 > with `intelligence` off and it cannot be switched on — the update endpoint rejects the attempt with
 > `1605 (Invalid Input)`. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
 
-**New workspaces default to intelligence ON** whenever the plan supports it. Omitting `intelligence` on the create call
+**New workspaces default to Deep Indexing ON** whenever the plan supports it. Omitting `intelligence` on the create call
 means on; **send `intelligence=false` to opt out at create time.** You can also change it later with
 `POST /current/workspace/{id}/update/`. On a plan lacking `content_ai` or `ai_agent` the workspace is created with it off
 whatever you send, and the create still succeeds.
@@ -592,7 +600,7 @@ agents and human stakeholders. Everything is organized, searchable, and versione
 Indexing is on from the start, so RAG and semantic search work without a separate setup step; disable it up front if
 this workspace is storage-only.
 
-> **Cost-saving tips:** Turn intelligence off via `update` on storage-only workspaces, before uploading, to avoid
+> **Cost-saving tips:** Turn Deep Indexing off via `update` on storage-only workspaces, before uploading, to avoid
 > ingestion costs. Attach-only AI chat (up to 20 files without indexing) requires a plan with `ai_agent` (included on
 > every paid plan), so make sure the org is on a plan that includes it before relying on file Q&A.
 
@@ -634,7 +642,7 @@ When creating a share, you choose a `storage_mode` that determines how the share
   the live contents of that folder — any files added, updated, or removed in the workspace folder are immediately
   reflected in the share. No file duplication, so no extra storage cost. To create a shared folder, pass
   `storage_mode=workspace_folder` and `folder_node_id={folder_opaque_id}` when creating the share. Note: expiration dates
-  are not allowed on shared folder shares since the content is live. **Intelligence is not available** on shared folder
+  are not allowed on shared folder shares since the content is live. **Deep Indexing is not available** on shared folder
   shares — files are indexed through the parent workspace instead.
 
 Both modes look the same to share recipients — a branded portal with file preview, download controls, and all share
@@ -702,28 +710,28 @@ information from the web when relevant.
 #### How the Agent Uses Files
 
 There is no chat "type" to choose — a single agent surface handles every conversation and adapts to what you send. Ask
-a general question and it answers from its own knowledge. When the workspace has **intelligence enabled**, it can search
+a general question and it answers from its own knowledge. When the workspace has **Deep Indexing enabled**, it can search
 the scope's indexed files and answer with citations (RAG). And you can focus a turn on specific files by attaching
 **reference items**:
 
 1. **File references** — attach specific files directly. The AI reads the full content of the attached files. Does not
-   require intelligence — any AI-eligible file (with a ready preview or summary) can be attached. Max 20 files, 2 GB total.
+   require Deep Indexing — any AI-eligible file (with a ready preview or summary) can be attached. Max 20 files, 2 GB total.
 
 2. **Folder references** — attach a folder so the AI grounds answers in its indexed files (RAG), answering with
-   citations. Requires intelligence enabled and files in the `indexed` AI state.
+   citations. Requires Deep Indexing enabled and files in the `indexed` AI state.
 
 Both are expressed the same way — as reference items in the `references`, `content_parts`, or `subjects` array of a
 create-chat or send-message request; the backend resolves each item's full details server-side.
 
-#### Intelligence Setting — On By Default, and When To Turn It Off
+#### Deep Indexing Setting — On By Default, and When To Turn It Off
 
-The `intelligence` toggle on a workspace controls whether uploaded documents and code files are automatically ingested,
+The Deep Indexing toggle (API field: `intelligence`) on a workspace controls whether uploaded documents and code files are automatically ingested,
 summarized, and indexed for RAG. **New workspaces default to it ON** whenever the plan carries the AI features, so
 omitting `intelligence` on create means on. Ingestion costs 10 credits/page and is non-refundable — a 100-page document
 costs 1,000 credits — so this can be the largest credit consumer for agent accounts. Creating the workspace costs
 nothing; the charge begins with the first document or code file uploaded.
 
-**Keep intelligence on when:**
+**Keep Deep Indexing on when:**
 - You have many files and need RAG queries across them to answer questions
 - You want scoped RAG queries against folders or the entire workspace
 - You need AI-powered semantic search across large document sets
@@ -731,19 +739,19 @@ nothing; the charge begins with the first document or code file uploaded.
 
 **Turn it off — pass `intelligence=false` on create, or `update` before uploading — when:**
 - You're using the workspace for file storage, sharing, or team coordination
-- You only need to analyze specific files (use file attachments instead — no intelligence needed)
+- You only need to analyze specific files (use file attachments instead — no Deep Indexing needed)
 - You're uploading deliverables, reports, or outputs that don't need to be queried
 - You want to conserve credits — disabling avoids all ingestion costs
 
 Turning it off after content is already indexed flushes the embeddings, and switching it back on re-indexes every file
 at full cost, so decide before you upload rather than after.
 
-Even with intelligence disabled, you can still attach **file references** to a chat — any file that has a
+Even with Deep Indexing disabled, you can still attach **file references** to a chat — any file that has a
 ready preview can be attached directly for one-off analysis.
 
 #### AI State — File Readiness for RAG
 
-Every document and code file in an intelligent workspace carries an AI state (`ai.state` in storage list and details
+Every document and code file in a workspace with Deep Indexing enabled carries an AI state (`ai.state` in storage list and details
 responses) that tracks its ingestion progress:
 
 | State         | Meaning                                           |
@@ -755,7 +763,7 @@ responses) that tracks its ingestion progress:
 | `indexed`     | Contents indexed for RAG — searchable and used as grounding in scoped chats |
 | `failed`      | Processing failed                                 |
 
-**Only documents and code files in the `indexed` state are included in folder/workspace scope searches.** In an intelligent
+**Only documents and code files in the `indexed` state are included in folder/workspace scope searches.** With Deep Indexing enabled,
 workspace files progress to `indexed` automatically. If you upload files and immediately create a scoped chat, recently
 uploaded files may not yet be indexed. Use the activity polling endpoint to wait for AI-state changes before querying.
 
@@ -764,7 +772,7 @@ uploaded files may not yet be indexed. Use the activity polling endpoint to wait
 | Feature              | Folder references (RAG)                     | File references (direct)                 |
 |----------------------|--------------------------------------------|------------------------------------------|
 | How it works         | Grounds answers in a folder's indexed files| Files read directly by AI                |
-| Requires intelligence| Yes                                        | No                                       |
+| Requires Deep Indexing| Yes                                        | No                                       |
 | Requires AI state    | Files must be `indexed`                    | File must have a ready preview/summary   |
 | Best for             | Many files, knowledge retrieval            | Specific files, direct analysis          |
 | Limits               | Up to 100 file/folder references total     | 20 files, 2 GB total                     |
@@ -796,7 +804,7 @@ that is not permitted in a share returns `1680 (Access Denied)`). References are
 #### Notes as Knowledge Grounding
 
 Notes are markdown documents created directly in workspace storage via the API
-(`POST /current/workspace/{id}/storage/{folder}/createnote/`). In an intelligent workspace, notes are ingested and
+(`POST /current/workspace/{id}/storage/{folder}/createnote/`). In a workspace with Deep Indexing enabled, notes are ingested and
 indexed just like uploaded files. This makes notes a way to store long-term knowledge that becomes grounding material
 for future AI queries.
 
@@ -804,7 +812,7 @@ for future AI queries.
 "What was the rationale for choosing vendor X?", the note containing that decision is retrieved and cited — even months
 later.
 
-Notes within a folder scope are included in RAG queries when intelligence is enabled.
+Notes within a folder scope are included in RAG queries when Deep Indexing is enabled.
 
 #### How to Write Effective Questions
 
@@ -896,7 +904,7 @@ This opens the workspace with the specified chat visible in the AI panel.
 
 #### Supported Content Types
 
-**Indexed for RAG** (requires Intelligence ON):
+**Indexed for RAG** (requires Deep Indexing ON):
 - Documents (PDF, Word, text, markdown)
 - Code files (all common languages)
 
@@ -912,7 +920,7 @@ Generate temporary download URLs for your files, formatted as markdown, for past
 ChatGPT or Claude. Up to 25 files, 50MB per file, 100MB total. Links expire after 5 minutes. This is separate from the
 built-in AI chat — use it when you want to analyze files with a different model or tool.
 
-**Agent use case:** A user asks "What were Q3 margins?" You have 50 financial documents in an intelligent workspace.
+**Agent use case:** A user asks "What were Q3 margins?" You have 50 financial documents in a workspace with Deep Indexing enabled.
 Instead of downloading and parsing all 50, create a chat scoped to the finance folder and ask. The AI
 searches the indexed content, retrieves relevant passages, and answers with citations. Pass the cited answer — with
 source references — back to the user.
@@ -941,7 +949,7 @@ GET /current/workspace/{workspace_id}/storage/search/?search={query}
 GET /current/share/{share_id}/storage/search/?search={query}
 ```
 
-When workspace intelligence is enabled, results automatically include semantic matches with `relevance_score`, `raw_score`, `score_source`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, `summary_short`, `best_chunk`, `metadata_match`, `metadata_match_field`, and `search_metadata` fields.
+When workspace Deep Indexing is enabled, results automatically include semantic matches with `relevance_score`, `raw_score`, `score_source`, `content_snippet`, `match_source`, `mimetype`, `media_segment`, `summary_short`, `best_chunk`, `metadata_match`, `metadata_match_field`, and `search_metadata` fields.
 
 **Every hit says where it lives.** `path` is the ancestor folder names joined with
 `/` (`"Finance/Invoices/AR"`, `""` at the root, the file's own name excluded);
@@ -1036,7 +1044,7 @@ you need metadata search, run it against the **workspace**.
 | `details` | string | No | false | When `"true"`, each result includes a `node` field with the full node resource (previews, AI state, versions, metadata, size). Default limit drops to 10 (enrichment is expensive). An explicit `limit` overrides this default. |
 
 The **semantic** channel described above requires `intelligence=true` on the workspace or share, and contributes only
-files that have reached `ai.state: indexed`. The endpoint itself does not: with intelligence off it still answers, as a
+files that have reached `ai.state: indexed`. The endpoint itself does not: with Deep Indexing off it still answers, as a
 keyword search over filenames and over any AI-generated summaries already indexed — just without the semantic fields.
 See *`search_in=content` Is Not `grep`* below.
 
@@ -1049,7 +1057,7 @@ either — so wherever summary search is open to you, a scoped `content` request
 `match_source: "keyword"` hits. Summary search is always open on **workspace** routes, so `search_in=content` never
 bounds the result set there; on a **share** it depends on that share's permissions for you. `match_source` filtering
 is the only approach that holds everywhere. Because the scope applies to the semantic leg alone, it changes nothing
-when that leg does not run — intelligence off, `search_in=filename`, or the leg failing
+when that leg does not run — Deep Indexing off, `search_in=filename`, or the leg failing
 — and `search_metadata.scoped` says so: it reports the narrowing that was **applied**, not the parameter you sent, so
 `scoped: false` on a scoped request means the scope had no effect. A scope that resolves to no files returns **no**
 semantic results rather than falling back to the whole workspace, and an entry that is simply wrong — a `versionId`
@@ -1138,7 +1146,7 @@ full-text search, and not a substring scan of file contents. Two consequences:
   what a document is *about*. If you need an exact string, that string is almost
   always in the filename — use `search_in=filename`.
 - `content` matches **two** channels — the AI-generated summary and the
-  meaning-based index — and intelligence gates only the meaning-based one.
+  meaning-based index — and Deep Indexing gates only the meaning-based one.
   Switching AI features off stops new semantic matching; it does not un-index
   summaries already written, so `content` still returns hits for files summarized
   earlier and returns nothing when there are none. Either way the file must have
@@ -1185,10 +1193,10 @@ query, ranking, and response keys.
 so `/storage/search/` returns the **keyword-only** item shape — `name`,
 `parent_id`, `type`, `content_snippet: null`, `match_source: "keyword"`, plus
 `summary_short: null`, `best_chunk: null`, `metadata_match` and
-`metadata_match_field: null` — even on a workspace with intelligence enabled. The hybrid-only fields
+`metadata_match_field: null` — even on a workspace with Deep Indexing enabled. The hybrid-only fields
 (`relevance_score`, `raw_score`, `score_source`, `mimetype`, `media_segment`, `page`)
 are **absent**. That is
-the same shape you already get whenever intelligence is off, so no new parsing is
+the same shape you already get whenever Deep Indexing is off, so no new parsing is
 needed — but do not require `relevance_score` when you asked for `filename`. The
 unified endpoints are unaffected: their `files` bucket keeps its usual item shape
 in every mode.
@@ -1244,7 +1252,7 @@ The response is a **map of node id → file entry**, not a `results` array. Ever
 entry carries `name`, `parent_id` and `type`; pass `details=true` to attach the
 full node resource.
 
-With intelligence enabled, the `/storage/search` response also includes:
+With Deep Indexing enabled, the `/storage/search` response also includes:
 - `content_snippet` — the matching text from the highest-scoring passage. On a `semantic`/`both` hit it's the passage the content leg ranked the file by; a `keyword`-only hit now carries one too, quoted from the file's indexed text for the **top few results of the page** and only where `text_indexed` is `true`. `null` past that cut-off, where nothing in the text matched, or at `?output=terse`.
 - `mimetype` — file MIME type (e.g., `application/pdf`, `audio/mpeg`). Populated on a `semantic`/`both` hit as before; a `keyword`-only hit now carries it too, filled from the file itself — except at `?output=terse` (that tier skips the per-hit file read that supplies it).
 - `text_indexed` — whether the file has **any indexed text** at all — the question a `null` `content_snippet` can't answer on its own. `false` means there is nothing indexed to quote. `true` means the file's current version has indexed text (or, where the current version cannot be determined for the row, any still-active indexed version) — but **not** that this query matched it. `null` means this response could not determine coverage — never that the file is unindexed. Present on every result row, in both hybrid and keyword-only mode.
@@ -1327,13 +1335,13 @@ metadata-promoted row the content engine ranked higher reports
 }
 ```
 
-**Agent memory pattern:** Upload context documents (meeting notes, research, reference material) to an intelligent
-workspace. Later, use `storage/search` to retrieve relevant chunks without burning LLM credits. This is significantly
+**Agent memory pattern:** Upload context documents (meeting notes, research, reference material) to a workspace with
+Deep Indexing enabled. Later, use `storage/search` to retrieve relevant chunks without burning LLM credits. This is significantly
 cheaper than creating a chat for every lookup and is ideal for agents that need to recall information across sessions —
-treat the intelligent workspace as a persistent memory store and search as the retrieval mechanism.
+treat that workspace as a persistent memory store and search as the retrieval mechanism.
 
 **Agent use case — multi-step research:** An agent researching a topic uploads 200 papers to a workspace with
-intelligence enabled. For each research question, it calls `storage/search` to find the most relevant passages, reads the
+Deep Indexing enabled. For each research question, it calls `storage/search` to find the most relevant passages, reads the
 top results, and only escalates to AI chat when it needs the LLM to synthesize across multiple sources. This approach
 uses a fraction of the credits compared to chatting for every question.
 
@@ -1467,7 +1475,7 @@ Notes can also be moved, copied, deleted, and restored using the same storage en
 
 #### Notes as Long-Term Knowledge Grounding
 
-In an intelligent workspace, notes are automatically ingested and indexed just like uploaded documents. This makes notes a
+In a workspace with Deep Indexing enabled, notes are automatically ingested and indexed just like uploaded documents. This makes notes a
 powerful way to **bank knowledge over time** — any facts, context, or decisions stored in notes become grounding
 material for future AI queries.
 
@@ -1624,11 +1632,11 @@ This is useful when you need to upload first and decide where to place the file 
 #### MCP Binary Upload
 
 Over MCP, file bytes do not travel through the JSON-RPC pipe. The default path is the **`POST /blob` sidecar**: a plain
-HTTP request to the MCP server, outside the MCP pipe, carrying the raw bytes (no base64). The `upload` tool's
-`create-session` or `blob-info` action hands you the ready-to-run command.
+HTTP request to the MCP server, outside the MCP pipe, carrying the raw bytes (no base64). `upload_manage` action
+`create-session` or `upload` action `blob-info` hands you the ready-to-run command.
 
 1. `POST /blob` with the `Mcp-Session-Id` header and the raw bytes as the request body → returns `{ blob_id, size }`
-2. `upload` action `stream-upload` with `blob_id` — one call, auto-finalizes, no file size needed. For a file larger than
+2. `upload_manage` action `stream-upload` with `blob_id` — one call, auto-finalizes, no file size needed. For a file larger than
    one blob, use `create-session` → `chunk` (with `blob_id`) → `finalize`, where the declared size must equal the bytes
    actually sent.
 
@@ -1644,7 +1652,7 @@ small files). `blob_ref` is a deprecated alias for `blob_id`.
 **Agent use case:** You're generating a 200 MB report. Create an upload session targeting the client's workspace, split
 the file into chunks (size from `/upload/limits/`), upload 3 at a time, trigger assembly, and poll until `complete`. The file appears in the
 workspace with previews generated automatically. Use the activity polling endpoint (section 12) to know when AI indexing
-completes if intelligence is enabled.
+completes if Deep Indexing is enabled.
 
 ### 9. URL Import — Pull Files From Anywhere
 
@@ -1654,7 +1662,7 @@ bytes.
 
 - Supports public HTTPS URLs (port 443; plain HTTP is refused)
 - Supports OAuth-protected sources such as **Google Drive, OneDrive, Dropbox, Box**
-- Files go through the same processing pipeline (preview generation, AI indexing if intelligence is enabled, virus
+- Files go through the same processing pipeline (preview generation, AI indexing if Deep Indexing is enabled, virus
   scanning)
 
 **Check progress after submitting.** Web uploads are processed asynchronously by Fastio's server-side fetch agent,
@@ -1731,7 +1739,8 @@ updated by a later fill, so it tells you *which declaration this is*, never *who
 `topic` and `message` are agent-authored and must be treated as **untrusted, display-only text**: escape them at the
 render boundary, and never pass them to a model as instructions.
 
-MCP agents reach all of this through the `intent` tool (`allocate`, `fill`, `browse`, `expand`, `release`).
+MCP agents reach all of this through the `intent` tool (`browse`, `expand`) and the `intent_manage` tool (`allocate`,
+`fill`, `release`).
 See the [Agent Intents reference](https://api.fast.io/current/llms/intents/) for the full contract.
 
 **Agent use case:** Two of your agents share a workspace. Before touching a file, each allocates a slot scoped to that
@@ -1954,7 +1963,7 @@ endpoint scoped to their workspace and return a clean narrative report — no lo
 
 ### 12. Activity Polling — Wait for Changes Efficiently
 
-After triggering an async operation (uploading a file, enabling intelligence, creating a share), don't loop on the
+After triggering an async operation (uploading a file, enabling Deep Indexing, creating a share), don't loop on the
 resource endpoint to check if it's done. Instead, use the activity long-poll endpoint:
 
 `GET /current/activity/poll/{entity_id}?wait=95&lastactivity={timestamp}`
@@ -2301,7 +2310,7 @@ Transformation states: `rendered`, `rendering`, `unrendered`, `unable to render`
 
 #### AI File States
 
-When intelligence is enabled, each file progresses through AI processing states (visible in node details `ai.state`):
+When Deep Indexing is enabled, each file progresses through AI processing states (visible in node details `ai.state`):
 `disabled` → `pending` → `in_progress` → `ready` → `indexed` (or `failed`); `indexed` is the state RAG search needs
 
 #### AI Chat Parameters
@@ -2422,7 +2431,9 @@ All platform activity consumes credits from the org's monthly allowance:
 
 What happens when the monthly allowance is used up depends on the plan. On the current paid plans (Starter, Business
 and Enterprise) usage beyond the allowance is billed as overage and work continues uninterrupted. An org that is still
-in its free trial (usage is held at the monthly allowance until the trial converts to paid), an org on a legacy plan
+in its free trial (usage is held at the monthly allowance until the trial converts to paid — unless a cancellation
+is already scheduled on it, in which case usage stays held at the allowance and the trial simply ends without
+converting), an org on a legacy plan
 that stops at its allowance, and an org without a paid plan instead enter a reduced-capability state — file storage
 and access continue to work, but credit-consuming operations (AI chat, file ingestion, bandwidth-heavy downloads) are
 limited until the credits reset or the plan is upgraded. The org is never deleted.
@@ -2483,12 +2494,12 @@ any current plan.
 1. Create a Receive share ("Upload your tax documents here") — Receive shares use `storage_mode=workspace_folder`; a portal share is always Send
 2. Share the link
 3. User uploads files through a clean, branded interface
-4. Files appear in your workspace, auto-indexed by AI (if intelligence is on)
+4. Files appear in your workspace, auto-indexed by AI (if Deep Indexing is on)
 5. Ask the AI: "Are all required forms present?"
 
 ### Build a Knowledge Base
 
-1. Create a workspace **with intelligence enabled** (this is one of the workflows that justifies the ingestion cost)
+1. Create a workspace **with Deep Indexing enabled** (this is one of the workflows that justifies the ingestion cost)
 2. Upload all reference documents
 3. AI auto-indexes and summarizes everything on upload
 4. Use **semantic search** (`storage/search`) for fast, low-cost retrieval — find relevant document chunks by meaning without an LLM round-trip. Best for lookup, recall, and memory workflows
@@ -2510,11 +2521,11 @@ any current plan.
 2. Upload draft files for the recipient
 3. Share the link — recipient can both download your files and upload theirs
 4. Comments and annotations on files enable inline feedback
-5. AI summarizes what changed between rounds (if intelligence is on)
+5. AI summarizes what changed between rounds (if Deep Indexing is on)
 
 ### Extract Structured Metadata From Documents
 
-1. Create a workspace **with intelligence enabled** (metadata extraction requires ingestion — budget for ingestion costs)
+1. Create a workspace **with Deep Indexing enabled** (metadata extraction requires ingestion — budget for ingestion costs)
 2. Upload files to the workspace — no schema to define first
 3. Metadata is extracted automatically during ingestion; every file is a candidate, and each one also
    receives a broad `category` and `sub_category` so it can be narrowed by document kind
@@ -2525,9 +2536,9 @@ any current plan.
 6. Query with `filters` on `GET .../storage/search/`, or save the predicate as a filter via
    `POST .../metadata/filters/` and run it with its `/nodes/` endpoint
 
-### One-Off Document Analysis (No Intelligence Needed)
+### One-Off Document Analysis (No Deep Indexing Needed)
 
-1. Create a workspace (intelligence off is fine)
+1. Create a workspace (Deep Indexing off is fine)
 2. Upload the files you want to analyze
 3. Create an AI chat and attach the specific files directly (up to 20 files)
 4. Ask questions — AI reads the attachments and responds with citations
@@ -2554,8 +2565,8 @@ any current plan.
 1. Check current usage: `GET /current/org/{org_id}/billing/usage/limits/credits/`
 2. Storage costs 150 credits/GB — a 10 GB workspace costs 1,500 credits/month
 3. Document ingestion costs 10 credits/page — a 50-page PDF costs 500 credits
-4. Disable intelligence on storage-only workspaces to avoid ingestion costs
-5. Use attach-only AI chat (no intelligence needed) for one-off analysis to save credits
+4. Disable Deep Indexing on storage-only workspaces to avoid ingestion costs
+5. Use attach-only AI chat (no Deep Indexing needed) for one-off analysis to save credits
 6. When credits run low, upgrade the org's plan (Starter, Business, or Enterprise) for a larger monthly credit allowance
 
 ---
@@ -2742,33 +2753,52 @@ fastio completions powershell > _fastio.ps1
 
 ## MCP Tool Architecture
 
-The MCP server exposes consolidated domain-specific tools, each covering a domain. Every tool uses
-an `action` parameter to select the specific operation — agents don't need to discover hundreds of separate tools, just
-a manageable set of tools with clearly named actions.
+The MCP server exposes consolidated domain-specific tools. Every tool uses an `action` parameter to select the specific
+operation — agents don't need to discover hundreds of separate tools, just a manageable set of tools with clearly named
+actions. The tables below describe the named tool set served at `https://mcp.fast.io/mcp/tools`.
 
-| Tool         | Domain                          | Example Actions                                                               |
-|--------------|---------------------------------|-------------------------------------------------------------------------------|
-| `auth`       | Authentication                  | `signin`, `signup`, `set-api-key`, `pkce-login`, `pkce-complete`, `status`, `signout` |
-| `org`        | Organizations                   | `list`, `details`, `create`, `update`, `discover-all`                         |
-| `workspace`  | Workspaces                      | `list`, `details`, `update`, `check-name`, `create-note`, `jobs-status` (workspaces are created with `org` action `create-workspace`) |
-| `metadata`   | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible`, `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` tool. |
-| `share`      | Shares                          | `list`, `create`, `update`, `delete`, `quickshare-create`                     |
-| `storage`    | Files, folders, locks, previews, search (keyword + semantic when intelligence is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `create-folder`, `move`, `delete`, `lock-acquire`, `lock-status`, `lock-release`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) |
-| `upload`     | File uploads                    | `stream-upload`, `create-session`, `chunk`, `finalize`, `batch`, `web-import`, `blob-info` |
-| `download`   | Downloads                       | `file-url`, `zip-url`, `quickshare-details`                                   |
-| `ai`         | AI chat (defaults to the entire workspace — attach nothing to search all indexed documents). Attach file/folder reference items to ground answers in specific files or folders. | `chat-create`, `message-send`, `message-read`, `chat-list` |
-| `member`     | Members                         | `add`, `update`, `remove`, `details`                                          |
-| `invitation` | Invitations                     | `list`, `list-by-state`, `update`, `delete`                                   |
-| `asset`      | Branding assets                 | `types`, `list`, `upload`, `delete`                                           |
-| `comment`    | Comments                        | `list`, `add`, `edit`, `details`, `delete`                                    |
-| `event`      | Events & audit                  | `search`, `details`, `summarize`, `activity-poll`                             |
-| `intent`     | Agent coordination — workspace-scoped, short-lived declarations of what an agent is working on, so peers see a collision before it happens. Workspace-only (no share variant). `fill` is also the heartbeat, and is compare-and-set: send back the `version` you last read. | `allocate`, `fill`, `browse`, `expand`, `release`                             |
-| `user`       | Account mgmt                    | `me`, `update`, `invitation-list`, `accept-all-invitations`, `allowed`        |
-| `fileshare`  | Durable single-file share links | `create`, `list`, `details`, `update`, `delete`, `grant-add`, `download-url` |
-| `find`       | Unified search across a workspace or share, grouped by type | `search`                                  |
-| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` |
+**Reads and writes are separate tools.** Each domain that has both is split in two: `<domain>` carries the read-only
+actions, and `<domain>_manage` carries every create, update and delete action, destructive ones included. `find`,
+`download` and `how-to` are single read tools. Every tool answers `action="describe"` with its own actions and
+parameters — call it the first time you use a tool rather than guessing. A read-only session lists no `_manage` tool
+except `auth_manage`. A write sent to a read tool (for example `storage` action `delete`) is refused on `/mcp/tools`
+and `/mcp/code` and the error names the `_manage` tool; the earlier URLs still route earlier tool and action names.
 
-> **Note on tool naming:** the tools above are listed without a vendor prefix (`auth`, `share`, `ai`, `how-to`, …),
+| Tools | Domain | Example read actions (`<tool>`) | Example write actions (`<tool>_manage`) |
+|-------|--------|---------------------------------|-----------------------------------------|
+| `auth` / `auth_manage` | Authentication (OAuth) | `status`, `check`, `scopes`, `api-key-list`, `oauth-list` | `pkce-login`, `pkce-complete`, `signout`, `oauth-revoke` |
+| `org` / `org_manage` | Organizations | `list`, `details`, `limits`, `members`, `discover-all` | `create`, `update`, `create-workspace`, `invite-member` |
+| `workspace` / `workspace_manage` | Workspaces (workspaces are created with `org_manage` action `create-workspace`) | `list`, `details`, `check-name`, `read-note`, `jobs-status` | `update`, `archive`, `create-note`, `update-note`, `delete` |
+| `metadata` / `metadata_manage` | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible` | `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` / `storage_manage` tools. |
+| `share` / `share_manage` | Shares | `list`, `details`, `members`, `check-name` | `create`, `update`, `delete`, `quickshare-create` |
+| `storage` / `storage_manage` | Files, folders, locks, previews, search (keyword + semantic when Deep Indexing is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `lock-status`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) | `create-folder`, `move`, `rename`, `delete`, `lock-acquire`, `lock-release` |
+| `upload` / `upload_manage` | File uploads | `blob-info`, `status`, `limits` | `stream-upload`, `create-session`, `chunk`, `finalize`, `batch`, `web-import` |
+| `download` | Downloads (read-only) | `file-url`, `zip-url`, `quickshare-details` | — |
+| `ai` / `ai_manage` | AI chat (defaults to the entire workspace — attach nothing to search all indexed documents). Attach file/folder reference items to ground answers in specific files or folders. | `chat-list`, `chat-details`, `message-read` | `chat-create`, `message-send` |
+| `member` / `member_manage` | Members | `list`, `details` | `add`, `update`, `remove` |
+| `invitation` / `invitation_manage` | Invitations | `list`, `list-by-state` | `update`, `delete` |
+| `asset` / `asset_manage` | Branding assets | `types`, `list` | `upload`, `delete` |
+| `comment` / `comment_manage` | Comments | `list`, `details` | `add`, `edit`, `delete` |
+| `event` / `event_manage` | Events & audit | `search`, `details`, `activity-poll` | `summarize`, `acknowledge` |
+| `intent` / `intent_manage` | Agent coordination — workspace-scoped, short-lived declarations of what an agent is working on, so peers see a collision before it happens. Workspace-only (no share variant). `fill` is also the heartbeat, and is compare-and-set: send back the `version` you last read. | `browse`, `expand` | `allocate`, `fill`, `release` |
+| `user` / `user_manage` | Account mgmt | `me`, `invitation-list`, `allowed` | `update`, `accept-all-invitations` |
+| `fileshare` / `fileshare_manage` | Durable single-file share links | `list`, `details`, `download-url` | `create`, `update`, `delete`, `grant-add` |
+| `find` | Unified search across a workspace or share, grouped by type (read-only) | `search` | — |
+| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` | — |
+
+**Sign-in and account credentials on `/mcp/tools`, `/mcp/code` and `/mcp/operations`.** Sign-in is OAuth: the connection's own
+browser sign-in, or `auth_manage` action `pkce-login` when a human with a browser signs this session in. These URLs take
+no passwords, API-key secrets, two-factor or email codes, or share passwords, and they do not handle billing — sign-up,
+password sign-in and reset, email verification, two-factor codes, API-key creation, share password entry and the
+billing actions are not served there. Manage plans, billing and account credentials in the Fastio web app.
+
+**Folder ZIP downloads.** `download` action `zip-url` returns a temporary `zip_url` carrying a `?token=` download token,
+bound to that one folder and valid for about 2 hours, so the ZIP is fetched with **no `Authorization` header**. (Code
+Mode agents mint the token with `execute` on `requestzip/`, then fetch the returned `zip/?token=` URL over plain HTTP,
+since `execute` does not stream file bytes — see the
+[Storage reference](https://api.fast.io/current/llms/storage/).)
+
+> **Note on tool naming:** the tools above are listed without a vendor prefix (`auth`, `storage_manage`, `ai`, `how-to`, …),
 > matching the names the MCP server advertises. The built-in help tool shipped as `how-to` (prefix-free, hyphenated —
 > not `fastio_howto`). As a general practice, agents should discover the exact tool names from the MCP `tools/list`
 > at connection time rather than hardcoding them.
@@ -2783,13 +2813,18 @@ Tools that return `web_url`:
 
 | Tool | Actions |
 |------|---------|
-| `org` | `list`, `details`, `create`, `update`, `public-details`, `list-workspaces`, `list-shares`, `create-workspace`, `discover-all`, `discover-available`, `discover-external` |
-| `workspace` | `list`, `details`, `update`, `available`, `list-shares`, `create-note`, `update-note`, `quickshare-get`, `quickshares-list` |
-| `share` | `list`, `details`, `create`, `update`, `public-details`, `available` |
-| `storage` | `list`, `details`, `search`, `trash-list`, `create-folder`, `copy`, `move`, `rename`, `restore`, `add-file`, `version-list`, `version-restore`, `preview-url`, `preview-transform` |
-| `ai` | `chat-create`, `chat-details`, `chat-list` |
-| `upload` | `stream-upload`, `stream`, `finalize` |
-| `fileshare` | (entity-returning actions) |
+| `org` | `list`, `details`, `public-details`, `list-workspaces`, `list-shares`, `discover-all`, `discover-available`, `discover-external` |
+| `org_manage` | `create`, `update`, `create-workspace` |
+| `workspace` | `list`, `details`, `available`, `list-shares`, `quickshare-get`, `quickshares-list` |
+| `workspace_manage` | `update`, `create-note`, `update-note` |
+| `share` | `list`, `details`, `public-details`, `available` |
+| `share_manage` | `create`, `update` |
+| `storage` | `list`, `details`, `search`, `trash-list`, `version-list`, `preview-url`, `preview-transform` |
+| `storage_manage` | `create-folder`, `copy`, `move`, `rename`, `restore`, `add-file`, `version-restore` |
+| `ai` | `chat-details`, `chat-list` |
+| `ai_manage` | `chat-create` |
+| `upload_manage` | `stream-upload`, `stream`, `finalize` |
+| `fileshare` / `fileshare_manage` | (entity-returning actions) |
 | `download` | `file-url`, `quickshare-details` |
 
 When presenting links to users, always use `web_url` from tool responses. Never construct URLs manually.
@@ -2800,7 +2835,7 @@ When presenting links to users, always use `web_url` from tool responses. Never 
 - `download://workspace/{workspace_id}/{node_id}` — download a workspace file (inline up to 100 KB)
 - `download://share/{share_id}/{node_id}` — download a share file (inline up to 100 KB)
 - `download://quickshare/{quickshare_id}` — download a quickshare file (public, no auth required, inline up to 100 KB)
-- `download://fileshare/{fileshare_id}` — download a File Share's file (inline up to 100 KB; a password-protected File Share is never served inline — use the `fileshare` tool's `download-url` action)
+- `download://fileshare/{fileshare_id}` — download a File Share's file (inline up to 100 KB; a password-protected File Share is never served inline, and `/mcp/tools`, `/mcp/code` and `/mcp/operations` do not accept File Share passwords)
 
 The `download://` resource templates provide direct file content retrieval via the MCP `resources/read` protocol.
 Only small files (up to 100 KB) are returned inline. Larger files return a fallback message directing to the HTTP
@@ -2843,41 +2878,43 @@ All tools include explicit MCP annotations (`title`, `readOnlyHint`, `destructiv
 automated execution.
 
 **Read-only tools** (`readOnlyHint: true`):
-- `download`, `find`, `how-to` — these tools only read data and never modify state
+- every read tool (`auth`, `org`, `workspace`, `storage`, `ai`, `event`, …) plus `find`, `download` and `how-to` —
+  these tools only read data and never modify state.
 
-**Non-destructive tools** (`destructiveHint: false`, not read-only):
-- `event` — acknowledges events and dismisses dashboard cards, but removes nothing
-
-**Destructive tools** (include delete, purge, cancel, or close actions — require user confirmation):
-- `auth`, `user`, `org`, `workspace`, `share`, `fileshare`, `storage`, `metadata`, `upload`, `ai`, `comment`, `member`,
-  `invitation`, `asset`, `intent` — these tools have at least one action that removes, cancels, or closes something.
-  Agent frameworks should prompt for confirmation before executing destructive actions.
+**Destructive tools** (`destructiveHint: true` — require user confirmation):
+- every `_manage` tool (`storage_manage`, `workspace_manage`, `share_manage`, …) — these tools carry the create, update
+  and delete actions, including at least one that removes, cancels, or closes something. Agent frameworks should prompt
+  for confirmation before executing destructive actions.
 
 **Discovery tools** (`openWorldHint: true`):
-- `org`, `user`, `workspace`, `share`, `fileshare`, `storage`, `metadata`, `find`, `intent`, `how-to` — these tools can
-  discover resources beyond the agent's current context.
+- every tool — each can reach resources beyond the agent's current context.
 
 **Credit-consuming operations** to be aware of:
 - AI chat: 1 credit per 100 tokens
 - File uploads: storage credits (150 credits/GB)
 - Downloads: bandwidth credits (400 credits/GB)
-- Document ingestion: 10 credits/page (when intelligence is enabled) — this can be the largest credit consumer. A 100-page document costs 1,000 credits to ingest.
+- Document ingestion: 10 credits/page (when Deep Indexing is enabled) — this can be the largest credit consumer. A 100-page document costs 1,000 credits to ingest.
 
 ### Code Mode — Streamlined Tools for Headless Agents
 
-The MCP server (v2026.02.102+) detects the connecting client and serves one of two tool sets:
+The URL decides which of two tool sets a session gets: `https://mcp.fast.io/mcp/tools` serves Named Mode and
+`https://mcp.fast.io/mcp/code` serves Code Mode. (On the earlier URLs, the mode is chosen from the name the client
+reports.)
 
-**Named Mode** (Claude Desktop, Cline, unknown clients): All core tools listed above — the full interactive experience with action-based routing across every
-domain.
+**Named Mode** (`/mcp/tools`): All core tools listed above — the full interactive experience with action-based routing
+across every domain.
 
-**Code Mode** (Claude Code, Cursor, Continue): A streamlined set of tools optimized for programmatic workflows:
+**Code Mode** (`/mcp/code` — Claude Code, Cursor, Codex and other coding agents): A streamlined set of tools optimized for
+programmatic workflows:
 
 | Tool       | Purpose                                                                                     |
 |------------|---------------------------------------------------------------------------------------------|
-| `auth`     | Authentication — same as Named Mode (`signin`, `signup`, `set-api-key`, `pkce-login`, etc.) |
-| `upload`   | File uploads — same as Named Mode (`stream-upload`, `create-session`, `chunk`, `finalize`, etc.)|
-| `search`   | Two modes: `target=content` (default) searches files, folders and notes in one workspace or share; `target=api` discovers REST endpoints for `execute` |
-| `execute`  | Make authenticated API calls to Fastio (structured method/path/body/params)                |
+| `auth` / `auth_manage` | Authentication — same as Named Mode (`status`, `scopes` on `auth`; `pkce-login`, `pkce-complete`, `signout` on `auth_manage`) |
+| `upload` / `upload_manage` | File uploads — same as Named Mode (`stream-upload`, `create-session`, `chunk`, `finalize`, etc. on `upload_manage`) |
+| `search`   | Two modes: `target=content` (default) searches files, folders and notes in one workspace or share; `target=api` discovers REST endpoints for `execute` / `execute_manage` |
+| `execute`  | Make authenticated read (`get`) API calls to Fastio (structured method/path/params)        |
+| `execute_manage` | Make one authenticated write API call per call (`post`, `put`, `patch`, `delete` and the JSON forms) |
+| `how-to`   | Built-in product help — same as Named Mode (`ask`)                                          |
 
 #### `search` Tool
 
@@ -2896,9 +2933,11 @@ below lists the endpoint-discovery parameters.
 | `include_concepts` | boolean | No       | Include related concept docs (pagination, error codes, etc.)   |
 | `max_results`      | number  | No       | Maximum number of endpoint matches to return (1–50)            |
 
-#### `execute` Tool
+#### `execute` and `execute_manage` Tools
 
-Makes authenticated API calls to the Fastio API using structured parameters. The tool automatically injects the
+Make authenticated API calls to the Fastio API using structured parameters: `execute` makes reads (`get`), and
+`execute_manage` makes one write per call (plus the few GETs that have a side effect, such as an AI summary that consumes
+credits). The tools automatically inject the
 session token, unwraps the API response envelope, and extracts errors — agents receive clean response data without
 boilerplate. Non-JSON responses (text, binary) are handled gracefully.
 
@@ -2906,12 +2945,15 @@ boilerplate. Non-JSON responses (text, binary) are handled gracefully.
 
 | Parameter    | Type   | Required | Description                                                        |
 |--------------|--------|----------|--------------------------------------------------------------------|
-| `method`     | enum   | Yes (unless `requests`) | HTTP method: `get`, `post`, `postJson`, `delete`, `put`, `putJson`, `patch`, `patchJson` |
+| `method`     | enum   | Yes (unless `requests`) | HTTP method: `get` on `execute`; `post`, `postJson`, `delete`, `put`, `putJson`, `patch`, `patchJson` on `execute_manage` |
 | `path`       | string | Yes      | API endpoint path (e.g., `/current/org/{id}/list/workspaces/`)     |
 | `body`       | object | No       | Request body — form-encoded for `post`/`put`/`patch` (nested values are JSON-encoded for you), JSON for `postJson`/`putJson`/`patchJson`; not accepted on `get`/`delete` |
 | `params`     | object | No       | Query string parameters                                            |
 | `timeout_ms` | number | No       | Request timeout in milliseconds (1–60000)                          |
-| `requests`   | array  | No       | Batch form, replacing `method`/`path`: 1–10 `get` items (`{method, path, params}`), answered in order as `results[]` — read-only |
+| `requests`   | array  | No       | `execute` only. Batch form, replacing `method`/`path`: 1–10 `get` items (`{method, path, params}`), answered in order as `results[]` — read-only |
+
+`execute_manage` does not reach sign-in, password, two-factor, API-key or other credential endpoints, billing, or account
+deletion, and refuses a request carrying a credential field — use the Fastio web app for those.
 
 `execute` does not stream file bytes — fetch them through the `download://` resource templates or the `/file/` HTTP
 pass-through route described above.
@@ -2922,7 +2964,8 @@ Code Mode agents follow a **search → review → execute → iterate** loop:
 
 1. **Search** — use the `search` tool to discover relevant API endpoints by keyword or tag
 2. **Review** — examine the returned endpoint details (method, path, parameters, summary)
-3. **Execute** — call the endpoint with structured parameters (`method`, `path`, `body`, `params`)
+3. **Execute** — call the endpoint with structured parameters (`method`, `path`, `body`, `params`): reads with
+   `execute`, writes with `execute_manage`
 4. **Iterate** — refine based on results, search for additional endpoints as needed
 
 This pattern replaces the need for many individually named tools. Agents discover endpoints dynamically via search and
@@ -2958,12 +3001,12 @@ with the IDs from the response filled in.
 Actions that are destructive, irreversible, or have significant side effects include `_warnings` strings in their
 response. Agents should read these warnings before proceeding and present them to the user when appropriate. Present on
 the following actions:
-- `storage`: purge, bulk copy/move/delete/restore (partial failure warnings)
-- `workspace`: update (intelligence disable), archive, delete
-- `org`: close, billing-create
-- `share`: delete, archive, update (type change)
-- `ai`: chat-delete
-- `download`: file-url (token expiry), zip-url
+- `storage_manage`: purge, bulk copy/move/delete/restore (partial failure warnings)
+- `workspace_manage`: update (disabling Deep Indexing, `intelligence=false`), archive, delete
+- `org_manage`: close
+- `share_manage`: delete, archive, update (type change)
+- `ai_manage`: chat-delete
+- `download`: file-url and zip-url (link expiry)
 
 **`_recovery` — Error recovery hints:**
 
@@ -2974,8 +3017,8 @@ correct resolution. All errors also include `(during: <tool> <action>)` so agent
 | Status | Recovery hint |
 |--------|---------------|
 | 400    | Bad request — check required parameters and value formats |
-| 401    | Re-authenticate using `auth` action `signin` or `set-api-key` |
-| 402    | No active paid plan or credits exhausted — check with `org` action `limits`; select or upgrade with `billing-plans` / `billing-create` |
+| 401    | Session expired or invalid — re-authenticate with `auth_manage` action `pkce-login` (a human with a browser) or by reconnecting so the client signs in again |
+| 402    | No active paid plan or credits exhausted — check with `org` action `limits`; plans and billing are managed in the Fastio web app |
 | 403    | Permission denied — check role with `org` / `workspace` action `details`; for a scoped credential, check `auth` action `scopes` |
 | 404    | Resource not found — not proof of absence; verify the ID and re-read once before acting on it |
 | 406    | Not acceptable — duplicate name, invalid credentials, or invalid state; read the error text |
@@ -2984,19 +3027,20 @@ correct resolution. All errors also include `(during: <tool> <action>)` so agent
 | 422    | Validation failed — check field values against documented constraints |
 | 429    | Rate limited — wait 2–4 seconds, retry with exponential backoff |
 
-Error message pattern matching provides additional context-specific recovery steps (e.g., "email not verified" →
-use `auth` action `email-verify`; "workspace not found" → check workspace ID with `workspace` action `list`).
+Error message pattern matching provides additional context-specific recovery steps (e.g., "email not verified" → the
+account's email address must be verified from the emailed link first; "workspace not found" → check workspace ID with
+`workspace` action `list`).
 
 **`ai_capabilities` — AI mode availability:**
 
 Included in `workspace` action `details` responses. Shows the available AI modes for the workspace:
-- **Intelligence ON:** file and folder references (full RAG with indexed search — attach folder references to ground answers in a folder's indexed files), plus the `search` action for semantic search (vector-based document chunk retrieval with relevance scores — no LLM round-trip, returns ranked snippets). Use search for fast retrieval/lookup; use chat for synthesis/analysis.
-- **Intelligence OFF:** direct file references only (max 20 files, 2 GB total). Semantic search is not available.
+- **Deep Indexing ON:** file and folder references (full RAG with indexed search — attach folder references to ground answers in a folder's indexed files), plus the `search` action for semantic search (vector-based document chunk retrieval with relevance scores — no LLM round-trip, returns ranked snippets). Use search for fast retrieval/lookup; use chat for synthesis/analysis.
+- **Deep Indexing OFF:** direct file references only (max 20 files, 2 GB total). Semantic search is not available.
 
 **`_ai_state_legend` — File AI processing state:**
 
 Included in `storage` action `list` and `search` responses when files have AI state. Describes the possible states:
-- `indexed` — file is summarized, vector-indexed, and available for RAG/semantic search (intelligence on)
+- `indexed` — file is summarized, vector-indexed, and available for RAG/semantic search (Deep Indexing on)
 - `ready` — file has a summary and can be attached to an AI chat, but is not vector-indexed
 - `pending` — file is queued for AI processing
 - `inprogress` — file is currently being processed (the storage API itself reports this state as `in_progress`)
@@ -3005,8 +3049,8 @@ Included in `storage` action `list` and `search` responses when files have AI st
 
 **`_context` — Contextual metadata:**
 
-Certain responses include `_context` with additional metadata specific to the operation. For example, `comment` action
-`add` responses include `anchor_formats` describing supported anchor types for positioning comments on files (image
+Certain responses include `_context` with additional metadata specific to the operation. For example, `comment_manage`
+action `add` responses include `anchor_formats` describing supported anchor types for positioning comments on files (image
 regions, video/audio timestamps, PDF pages).
 
 ---

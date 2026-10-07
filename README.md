@@ -14,7 +14,7 @@ Fastio gives AI agents a complete file management and collaboration platform thr
 | Sharing files with humans is awkward | Purpose-built shares (Send / Receive / Exchange) with passwords, expiration, and branding |
 | Collecting files from humans is harder | Receive shares let humans upload directly into your workspace |
 | Understanding document contents | Built-in AI (Ripley) reads, summarizes, and answers questions about your files with citations |
-| Building a RAG pipeline from scratch | Enable workspace intelligence and files are automatically indexed and queryable |
+| Building a RAG pipeline from scratch | Enable Deep Indexing on a workspace and files are automatically indexed and queryable |
 | Two agents colliding on the same work | Agent Intents — announce what you're working on so peers see the conflict before it happens |
 | Handing a project off to a human | One-step ownership transfer — the human gets the org, the agent keeps admin access |
 
@@ -111,7 +111,7 @@ Four ways to authenticate:
 
 **Collect documents:** Create a Receive share, send the link, files appear in your workspace.
 
-**Build a knowledge base:** Create a workspace, turn on intelligence (it is off by default), upload documents, then query across all content with `ai_manage action=ask` (Ripley).
+**Build a knowledge base:** Create a workspace, turn on Deep Indexing (it is off by default), upload documents, then query across all content with `ai_manage action=ask` (Ripley).
 
 **Set up a project for a human:** Create the org, workspaces, and shares, upload content, configure branding, then transfer ownership.
 
