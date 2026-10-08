@@ -1595,7 +1595,7 @@ Large files use chunked uploads. The flow has five steps:
    | `assembling` | Combining chunks | Keep polling |
    | `storing` | Being added to storage | Keep polling |
    | **`complete`** | **Done** (terminal success on every path). With a target (`instance_id`) the file is in storage and `new_file_id` is set; with no target the file is held for a later `addfile` call. | Read `new_file_id`, clean up |
-   | `assembly_failed` | Assembly error (terminal) | Check `status_message` |
+   | `assembly_failed` | Assembly error (terminal), including a whole-file CRC-32C mismatch | Check `status_message` and `integrity_failure` |
    | `store_failed` | Storage import failed (terminal) | Check `status_message`, handle error |
 
    Stop polling when status is `complete`, `assembly_failed`, or `store_failed`. (`store` and `stored` are reserved and
@@ -1605,8 +1605,13 @@ Large files use chunked uploads. The flow has five steps:
 
 #### Optional Integrity Hashing
 
-Include `hash` (SHA-256 hex digest) and `hash_algo=sha256` on each chunk for server-side integrity verification. You can
-also provide a full-file hash in the session creation request instead.
+CRC-32C is the recommended checksum. Include `hash` (the chunk's CRC-32C as 8 lowercase hex digits, e.g. `e3069283`)
+and `hash_algo=crc32c` on each chunk for server-side integrity verification. To have the whole file checked as well,
+combine your per-chunk CRCs in order (zlib `crc32_combine` method, no second pass) and send the result as `file_crc32c`
+on the first send of the chunk whose CRC you finish last (for sequential uploads, the last chunk) and on retries of that
+chunk only — or declare it at session creation with `hash_algo=crc32c`. A whole-file mismatch stores nothing and ends
+the session `assembly_failed` with error `10778`: upload the file again in a new session. Stored files report their
+CRC-32C as `crc32c` in node details. `md5`, `sha1`, `sha256` and `sha384` remain supported as before.
 
 #### Resuming Interrupted Uploads
 
