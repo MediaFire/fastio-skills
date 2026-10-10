@@ -1,6 +1,6 @@
 # Fastio for AI Agents
 
-> **Version:** 1.40.0 | **Last updated:** 2026-10-02
+> **Version:** 1.41.0 | **Last updated:** 2026-10-09
 >
 > This guide is available at the `/current/agents/` endpoint on the connected API server.
 
@@ -9,7 +9,7 @@
 Fastio provides workspaces for agentic teams — where agents collaborate with other agents and with humans. Upload
 outputs, create branded portals, ask questions about documents using built-in AI, and collaborate with humans on a
 shared platform. No infrastructure to manage — Fastio accounts, for humans and AI agents alike, require an email
-address: sign up, create an organization, and choose a paid plan to get started.
+address: sign up, create an organization, and activate it to get started.
 
 The platform is organized around two things you do with your files: **Intelligence** — ask across them and get cited answers, turn documents and images into structured data with AI metadata extraction, and research, analyze, and draft with the built-in agent, **Ripley**; and **Secure collaboration** — files belong to the project, not the person, with granular permissions, scoped agent tokens, branded portals, and an append-only audit log. Storage is step zero; Fastio provides the rest.
 
@@ -76,8 +76,8 @@ simple question: "What does this document say?"
 | Agent-to-agent coordination lacks structure  | Shared workspaces with activity feeds, comments, and real-time sync across team members           |
 | Sharing outputs with humans is awkward       | Purpose-built shares (Send, Receive, Exchange) with link sharing, passwords, expiration           |
 | Collecting files from humans is harder       | Receive shares let humans upload directly to your workspace — no email attachments                |
-| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and Deep Indexing require a paid plan — Starter, Business, or Enterprise) |
-| Building a RAG pipeline from scratch         | Enable Deep Indexing on a workspace and documents are automatically indexed, summarized, and queryable (requires a paid plan) |
+| Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and Deep Indexing must be available for the organization) |
+| Building a RAG pipeline from scratch         | Enable Deep Indexing on a workspace and documents are automatically indexed, summarized, and queryable |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
 | Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
 | Turning unstructured files into data         | AI metadata extraction pulls typed fields from documents, images, and spreadsheets into a sortable table |
@@ -85,7 +85,6 @@ simple question: "What does this document say?"
 | Knowing what needs attention                 | A per-workspace dashboard ranks @mentions and file activity |
 | Collaborating with humans on a shared org    | Invite humans (or be invited) as org/workspace members — everyone sees the same files and activity |
 | Tracking what happened                       | Full audit trail with AI-powered activity summaries                                               |
-| Plans                                        | New organizations choose a paid plan (Starter, Business, or Enterprise); credits cover storage, bandwidth, and AI usage |
 
 ---
 
@@ -93,7 +92,7 @@ simple question: "What does this document say?"
 
 Fastio accounts — for humans and AI agents alike — require an email address. There is one kind of account; an agent
 account is an ordinary account tagged `account_type=agent` for identification. The getting-started flow is the same for
-everyone: sign up, create an organization, choose a paid plan, then build. There are a few access patterns depending on
+everyone: sign up, create an organization, activate it, then build. There are a few access patterns depending on
 whether you're operating autonomously or working inside a human's existing organization.
 
 ### Option 1: Autonomous Agent — Create Your Own Account
@@ -102,32 +101,29 @@ If you're operating as part of an agentic team (collaborating with other agents,
 coordinating shared work), create your own account and your own organization:
 
 1. `POST /current/user/` with `email_address`, `password`, `tos_agree=true`. Optionally pass `agent=true` to tag the
-   account as an agent account (`account_type=agent`) — this is for identification only and does not change which plans
-   you can choose. A request from a geo-restricted location is refused (error `1697`) unless `email_address` already
+   account as an agent account (`account_type=agent`) — this is for identification only and does not change what the
+   account can do. A request from a geo-restricted location is refused (error `1697`) unless `email_address` already
    holds a pending invitation to an org, workspace, or share — if you were invited, sign up with the invited address.
    A newly created account gets a session in the same response: use its `auth_token` as
    `Authorization: Bearer {auth_token}`. A response without `auth_token` (just `result: true`) means check your email
    to finish: either the address already has an account, or the new account's session could not be issued — then
    sign in.
-2. Keep access beyond that session: use the session token through org creation and plan selection (steps 3-5) —
-   a default `user:*:rw` API key cannot manage billing — then create an API key with `POST /current/user/auth/key/`
+2. Keep access beyond that session: use the session token through org creation and activation (steps 3-5) —
+   a default `user:*:rw` API key cannot perform org billing setup — then create an API key with `POST /current/user/auth/key/`
    and use it for ongoing, unattended work (or sign in later with the PKCE browser login, Option 4). HTTP Basic sign-in (`GET /current/user/auth/` with `email:password`) still works but is **deprecated and
    will be retired** — do not build on it.
 3. Verify your email address (required before using most endpoints):
    - `POST /current/user/email/validate/` with `email` — sends a verification code to your email
    - `POST /current/user/email/validate/` with `email` and `email_token` — validates the code and marks your account as verified
 4. `POST /current/org/create/` with `domain` (required, 2-63 chars lowercase alphanumeric + hyphens) — an org is a collector of workspaces that can represent a company, team, business unit, or personal collection
-5. **Select a paid plan to activate the organization.** A newly created organization must select a paid plan
-   (Starter, Business, or Enterprise) before it can be used; until then it is in an upgrade-only state — the same state as an
-   org that has exhausted its credits, returning HTTP 402 on resource-consuming endpoints. Choose a plan via the
-   billing API or direct the owner to `https://go.fast.io/onboarding`.
+5. **Activate the organization.** A newly created organization must complete billing setup before it can be used;
+   until then resource-consuming endpoints return HTTP 402 — the same response as an org whose credits are exhausted.
+   The org owner completes setup in the Fastio web app at `https://go.fast.io/onboarding`.
 6. `POST /current/org/{org_id}/create/workspace/` with `folder_name`, `name`, `perm_join`, `perm_member_manage` (all required — see Permission Values below)
 
-> **A new organization needs a paid plan before it can do work.** New organizations select one of the paid plans
-> (Starter, Business, or Enterprise). Until a paid plan is selected, the org is in an upgrade-only state and resource-consuming
-> endpoints (uploads, AI chat, ingestion) return HTTP 402, exactly like an org that has run out of credits. All paid
-> plans include the `content_ai` and `ai_agent` features needed for agentic chat and RAG across indexed files.
-> The [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) has the full plan matrix.
+> **A new organization must be activated before it can do work.** Until the org owner completes billing setup,
+> resource-consuming endpoints (uploads, AI chat, ingestion) return HTTP 402, exactly like an org that has run out of
+> credits. Treat a 402 as "this operation was refused for this organization" and surface the error to the user.
 
 #### Permission Values
 
@@ -171,7 +167,7 @@ holding an `rwa` scope, and returns `403` (`10767`) otherwise. Changing the acco
 separate `userdetails:*:rw` scope, and returns `403` (`10769`) otherwise. Ask the human to create the key with the
 scopes you need — only a signed-in web session can widen a credential, and a key can never widen itself.
 
-**If the human's organization caps what credentials may hold** (an Enterprise `credential_policy`
+**If the human's organization caps what credentials may hold** (an org `credential_policy`
 setting), a call you make with their key can be refused with `403` and `params.reason` of
 `credential_policy_mode`, `credential_policy_scope`, or `credential_policy_sso` — even for a key that
 worked a moment ago and that you did not change. This means the org tightened its policy, or (for
@@ -195,7 +191,7 @@ widens again, unless it sits held past a bounded (~5-day) ceiling, in which case
 edit must be pushed again once cloud sync is read-write. Do not retry a `cloud_sync_read_only` push in
 a loop; tell the human to ask an org or workspace admin to widen the policy.
 
-**If the human's organization restricts access by location, AI, or MCP** (Enterprise access policies),
+**If the human's organization restricts access by location, AI, or MCP** (org access policies),
 calls into that org's content can be refused with `403` (never `401`, so do not discard the credential)
 and `params.reason` of `geo_restricted` (your network location or IP range is blocked — retrying from the
 same place will not help), `mcp_access_denied` (the org does not allow access through the Fastio MCP for
@@ -212,7 +208,9 @@ If you want your own agent identity but need to work within a human's existing o
 
 Go to **Settings → Your Organization → [Org Name] → Manage People** and click **Invite People**. Enter the agent's
 email address, choose a permission level (Member or Admin), and click **Send Invites**. The agent account will receive
-the invitation and can accept it via `POST /current/user/invitations/acceptall/`.
+the invitation and can accept it via `POST /current/user/invitations/acceptall/`. To act on one invitation only, use
+`POST /current/user/invitation/{invitation_id}/accept/` or `.../decline/` (MCP: `user_manage` actions
+`invitation-accept` / `invitation-decline`).
 
 **How the human invites the agent to a workspace:**
 
@@ -225,7 +223,7 @@ Alternatively, the human can invite the agent programmatically:
 - **Org:** `POST /current/org/{org_id}/members/{agent_email}/` with `permissions` (`member` or `admin`; required)
 - **Workspace:** `POST /current/workspace/{workspace_id}/members/{agent_email}/` with `permissions` (`member`, `admin` or `guest`; omitted means `member`)
 
-An Enterprise org may restrict who can invite outsiders onto a share, portal or workspace: a `403` with
+An org may restrict who can invite outsiders onto a share, portal or workspace: a `403` with
 `params.reason` of `external_invites_denied` or `external_invites_object_denied` means that policy
 refused the invite, not a bug — tell the human to ask an org or object admin to allow it. Accepting via
 `POST /current/user/invitations/acceptall/` is partial success under this policy: a refused invitation is returned in the
@@ -262,10 +260,10 @@ This is the recommended approach when:
 
 | Scenario | Recommended Approach |
 |----------|---------------------|
-| Operating autonomously, storing files, building for users | Create your own account and org (your personal collection of workspaces) and select a paid plan |
+| Operating autonomously, storing files, building for users | Create your own account and org (your personal collection of workspaces) and activate it |
 | Helping a human manage their existing account | Ask the human to create an API key for you — with `rwa` scopes if you must administer, and `userdetails:*:rw` if you must change account settings |
 | Working within a human's org with your own identity | Create an account, have the human invite you to their org or workspace |
-| Building inside a human's already-paid organization | Be invited as a member of the human's org or workspace and build there |
+| Building inside a human's existing, active organization | Be invited as a member of the human's org or workspace and build there |
 | Human wants to authorize an agent without sharing credentials | Use PKCE browser login (Option 4) |
 | Terminal workflows, scripting, or CI/CD pipelines | Install the CLI: `npm install -g @vividengine/fastio-cli` |
 | Local AI agent needing Fastio access | Use the CLI's built-in MCP server: `fastio mcp` |
@@ -297,6 +295,16 @@ does not apply to API keys, OAuth tokens, or MCP sessions — only interactive p
 **API keys (human accounts):** API keys are long-lived and do not expire unless the human revokes them. No refresh flow
 needed.
 
+**2FA-protected actions with an API key:** closing the account, API-key create/read/update/delete, and the
+2FA-protected workspace routes (delete, archive, unarchive, workspace assets, workspace name check) ask an API key whose
+account holds a second factor to prove it. An account with an authenticator-app or phone factor sends the 6-digit code
+as `token`. A **passkey-only** account's API key must step up first: `POST /current/user/auth/2factor/stepup/` with
+exactly one of a passkey assertion (`credential`, obtained from the stepup passkey options call) or a backup `code`
+— the grant lasts 300 seconds for that same key, then retry the action. A refusal carries
+`error.params.reason` = `stepup_required`. Backup codes are finite, so automation that does this regularly should use an
+authenticator-app factor or an OAuth session. Browser, OAuth and MCP sessions are not prompted on the workspace routes.
+See *Step-up for protected actions* in the [Auth reference](https://api.fast.io/current/llms/auth/).
+
 **Verify your token:** Call `GET /current/user/auth/check/` at any time to validate your current token and get the
 authenticated user's ID. This is useful at startup to confirm your credentials are valid before beginning work, or to
 detect an expired token without waiting for a 401 error on a real request.
@@ -308,7 +316,7 @@ Read `admin` at startup and branch on it: an administrative call made without it
 account-settings call without `userdetails:*:rw` fails with `403` (`10769`). Checking once is cheaper than discovering
 the gap mid-workflow.
 
-**Enterprise SSO can require sign-in through the org's identity provider.** An org on the Enterprise plan may enforce
+**Org SSO can require sign-in through the org's identity provider.** An org may enforce
 single sign-on for the email domains it has verified. If your agent account's email sits on a domain that org has
 enforced, password/social sign-in, password reset or set, email change, and creating a *new* API key all refuse with
 `403` and `params.reason` set to `sso_required`.
@@ -484,7 +492,7 @@ biggest lever you have for keeping agent payloads small without losing informati
   Use for tree traversal, pickers, autocomplete, mention suggestions, and any prefetch step that will follow up
   with a detail call only on user (or agent) interest.
 - **`standard`** — `terse` plus the operational context most list/detail views render: timestamps, lifecycle
-  flags, short descriptions, plan/status fields, creator/owner refs, member status, short summaries. **This is
+  flags, short descriptions, status fields, creator/owner refs, member status, short summaries. **This is
   the recommended default for most agent list and detail workflows** — it covers the fields a typical agent
   needs to reason about a resource without pulling branding, capability matrices, or long-form AI summaries.
 - **`full`** — the complete resource shape; equivalent to omitting `?output=` entirely. Use when you need
@@ -549,9 +557,14 @@ As of 2026-05-05, error codes `136957`, `249170`, `279705`, `295625` are retired
 Workspaces are where agentic teams do their work. Each workspace has its own storage, member list, AI chat, and
 activity feed — a shared environment where agents collaborate with other agents and with humans.
 
-- **Included storage scales with your plan** — query org billing/usage for your org's storage allowance
-- **File size limits are plan-dependent** (25 GB, 50 GB, or 100 GB by plan — see *Plans & Credits* below) — query `/upload/limits/` for exact values
-- **File versioning** — every edit creates a new version, old versions are recoverable
+- **Storage allowance is set per organization** — an org admin can read it from the org's usage details
+- **File size limits vary by organization** — query `/upload/limits/` for the exact values that apply to you
+- **File versioning** — every edit creates a new version, old versions are recoverable: restore one with
+  `POST /current/workspace/{id}/storage/{node_id}/restore-version/` and `version_id` (MCP: `storage_manage` action `version-restore`)
+- **Guarded rename** — `POST /current/workspace/{id}/storage/{node_id}/update/` with `name` and `if_version_id` renames
+  only if the node is still at the version you read; otherwise it answers `409` with `reason: "conflict_version_mismatch"`
+  and `current_version_id` on an entry of the `error.params` list (MCP: `storage_manage` action `rename`; a note's content changes through `updatenote`). A link
+  node cannot be renamed with `if_version_id`.
 - **Folder hierarchy** — organize files however you want
 - **Filename and semantic search** — find files by name (including `find`-style glob patterns) or by meaning. There is no full-text index of file bytes; content matching is the AI's understanding of a file. See *Filename Search* and *`search_in=content` Is Not `grep`*.
 - **Member roles** — Owner, Admin, Member, Guest with granular permissions
@@ -580,17 +593,18 @@ summarized, and indexed for RAG. This enables:
 
 > **Coming soon:** RAG indexing support for images, video, and audio files. Currently only documents and code are indexed.
 
-> **Plan requirement.** Deep Indexing requires both the `content_ai` and `ai_agent` plan features (included on every
-> paid plan: Starter, Business, or Enterprise). On a plan that does not include those features, a new workspace is created
-> with `intelligence` off and it cannot be switched on — the update endpoint rejects the attempt with
-> `1605 (Invalid Input)`. See the [AI reference](https://api.fast.io/current/llms/ai/#plan-requirements) for the full matrix.
+> **Availability.** Deep Indexing needs both the `content_ai` and `ai_agent` features to be available for the
+> organization. When they are not, a new workspace is created with `intelligence` off and it cannot be switched on —
+> the update endpoint rejects the attempt with `1605 (Invalid Input)`. Tell the user Deep Indexing is not available for
+> this organization.
 
-**New workspaces default to Deep Indexing ON** whenever the plan supports it. Omitting `intelligence` on the create call
+**New workspaces default to Deep Indexing ON** whenever the organization has those features. Omitting `intelligence` on the create call
 means on; **send `intelligence=false` to opt out at create time.** You can also change it later with
-`POST /current/workspace/{id}/update/`. On a plan lacking `content_ai` or `ai_agent` the workspace is created with it off
+`POST /current/workspace/{id}/update/` — `intelligence=true` turns it on for an existing workspace (MCP:
+`workspace_manage` action `update` with `deep_indexing`). When `content_ai` or `ai_agent` is unavailable the workspace is created with it off
 whatever you send, and the create still succeeds.
 
-**Budget for this.** Ingestion costs 10 credits/page and is non-refundable — a 100-page document costs 1,000 credits.
+**Budget for this.** Ingestion consumes credits for every page and is non-refundable, so a long document costs far more than a short one.
 Nothing is charged for creating the workspace itself; the cost starts on the first document or code file you upload. If
 the workspace is for coordination or plain storage rather than RAG queries, **create it with `intelligence=false`** —
 that is cheaper and simpler than creating it on and turning it off before you upload.
@@ -601,8 +615,8 @@ Indexing is on from the start, so RAG and semantic search work without a separat
 this workspace is storage-only.
 
 > **Cost-saving tips:** Turn Deep Indexing off via `update` on storage-only workspaces, before uploading, to avoid
-> ingestion costs. Attach-only AI chat (up to 20 files without indexing) requires a plan with `ai_agent` (included on
-> every paid plan), so make sure the org is on a plan that includes it before relying on file Q&A.
+> ingestion costs. Attach-only AI chat (up to 20 files without indexing) needs the `ai_agent` feature to be available
+> for the organization; if chat is refused, tell the user AI chat is not available for this organization.
 
 ### 2. Shares — Structured Agent-Human Exchange
 
@@ -628,6 +642,9 @@ every exchange pattern:
 - **AI-powered auto-titling** — shares automatically generate smart titles from their contents
 - **Activity notifications** — get notified when files are sent or received
 - **Comment controls** — configure who can see and post comments (owners, guests, or both)
+- **Change settings later** — `POST /current/share/{share_id}/update/` accepts the create-time settings (`invite`,
+  `notify`, `display_type`, `guest_chat_enabled`, `intelligence`, `custom_url`, `external_invites`, branding colors and
+  links), so there is no need to recreate a share to change them (MCP: `share_manage` action `update`)
 
 #### Two Storage Modes
 
@@ -701,7 +718,7 @@ so they can push a corrected version straight back — your agent sees a `file_s
 
 Fastio's AI is a **full agent** — beyond reading and analyzing your file contents, it can take actions on your
 behalf, such as creating documents and notes and organizing your content. It operates within your permissions and
-plan entitlements, and (like the direct MCP/API tools) its actions consume credits. You can delegate work to it
+the features available to your organization, and (like the direct MCP/API tools) its actions consume credits. You can delegate work to it
 directly, or use the MCP/API tools yourself.
 
 Fastio's AI lets agents query documents with or without persistent indexing, and can augment file knowledge with
@@ -726,9 +743,9 @@ create-chat or send-message request; the backend resolves each item's full detai
 #### Deep Indexing Setting — On By Default, and When To Turn It Off
 
 The Deep Indexing toggle (API field: `intelligence`) on a workspace controls whether uploaded documents and code files are automatically ingested,
-summarized, and indexed for RAG. **New workspaces default to it ON** whenever the plan carries the AI features, so
-omitting `intelligence` on create means on. Ingestion costs 10 credits/page and is non-refundable — a 100-page document
-costs 1,000 credits — so this can be the largest credit consumer for agent accounts. Creating the workspace costs
+summarized, and indexed for RAG. **New workspaces default to it ON** whenever the organization has the AI features, so
+omitting `intelligence` on create means on. Ingestion consumes credits per page and is non-refundable, so this can be
+the largest credit consumer for agent accounts. Creating the workspace costs
 nothing; the charge begins with the first document or code file uploaded.
 
 **Keep Deep Indexing on when:**
@@ -1396,7 +1413,7 @@ plus optional free-text `context` (≤8000 chars, treated as background data onl
 
 Branch on `status`; treat `needs_clarification` as a normal prompt for more detail, not an error. The endpoint is
 a **top-level, user-authenticated endpoint** — no org in the URL. Access is **open**: there is **no org-membership
-requirement, no AI-Agent plan-feature gate, no active-subscription requirement, and no billable entity** — any
+requirement, no AI-Agent feature gate, no billing requirement, and no billable entity** — any
 authenticated, available user may ask. How-to is **free**: no org, user, or any entity is charged; the LLM call runs
 with skip-billing. Abuse is bounded solely by a per-user rate limit (429 + `x-ve-limit-*` headers) plus a per-user
 fail-fast mutex — only one how-to request per user runs at a time, so a concurrent second call returns
@@ -1424,7 +1441,7 @@ still counts toward the rate limit, so back off on `429` rather than retrying im
 
 The credential must be signed-in, verified, and write-capable for the account (a user, org, or workspace write
 grant) — a read-only API key or scope, a share-scoped credential, or a resource token is refused — but no org
-membership or plan is required. A successful submission returns `report: {id, status: "received",
+membership or billing setup is required. A successful submission returns `report: {id, status: "received",
 created}`; `"received"` means stored for review, not confirmed or triaged. There is no endpoint to list or
 read a report back, and submitted text is never echoed. Never include passwords, API keys, tokens, cookies, or
 customer file contents in a report. "How do I…" questions belong to How-To above, not bug reports; and do not
@@ -1464,12 +1481,22 @@ live in the same folder hierarchy as files, are versioned like any other node, a
 
 - `name` (required) — filename, must end in `.md`, max 255 characters (e.g., `"project-context.md"`)
 - `content` (required) — markdown text, max 100 KB. Must be valid UTF-8 (UTF8MB4). Control characters (`\p{C}` except `\t`, `\n`, `\r`) are stripped.
+- If a file, folder or note with that name already exists in the folder, the note is created under the next free name (for example `meeting-notes (2).md`) — read `note.name` in the response for the name actually used.
+
+**Read:** `GET /current/workspace/{id}/storage/{node_id}/readnote/` (in a share: `GET /current/share/{share_id}/storage/{node_id}/readnote/`)
+returns the markdown content and the `note` node; `note.version` is the version whose content was returned (pass
+`version_id` to read an older one).
 
 **Update:** `POST /current/workspace/{id}/storage/{node_id}/updatenote/`
 
 - `name` (optional) — rename the note (must end in `.md`)
 - `content` (optional) — replace the markdown content (max 100 KB). Must be valid UTF-8 (UTF8MB4). Control characters (`\p{C}` except `\t`, `\n`, `\r`) are stripped.
 - At least one of `name` or `content` must be provided
+- `if_version_id` (optional) — compare-and-swap: send the `note.version` you last read. If the note changed since,
+  the update is refused with HTTP `409`, nothing is written, and `error.params` (a list) carries an entry with
+  `reason: "conflict_version_mismatch"` and `current_version_id` — re-read the note, merge, and retry.
+
+MCP: `workspace` action `read-note`; `workspace_manage` actions `create-note` and `update-note` (which takes `if_version_id`).
 
 Notes can also be moved, copied, deleted, and restored using the same storage endpoints as files and folders.
 
@@ -1513,7 +1540,8 @@ Humans can leave feedback directly on files, anchored to specific content:
 - **Threaded replies** — single-level threads under each comment (replies to replies are auto-flattened)
 - **Emoji reactions** — one reaction per user per comment, new replaces previous
 - **Mentions** — tag users with `@[user:USER_ID:Display Name]` syntax in the comment body
-- **Attachments** — attach up to 25 objects (a file or folder, a sign envelope, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints. Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
+- **Attachments** — attach up to 25 objects (a file or folder, a sign envelope, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints (`GET` / `POST /current/comments/{comment_id}/attachments/` to list / attach, `POST .../attachments/detach/` to detach; MCP: `comment` action `attachment-list`, `comment_manage` actions `attachment-add` / `attachment-detach`). Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
+- **File Share comments** — recipients of a File Share comment on its file through `GET` / `POST /current/comments/fileshare/{fileshare_id}/{node_id}/` (MCP: the `comment` / `comment_manage` tools with `profile_type=fileshare`); see *File Share* above for how they surface to the owning workspace
 
 **A mention inside code is quoted, not a hail — behaviour change.** A mention that sits inside markdown code is treated as text the author is SHOWING, not as a hail: it does **not** notify the named user, and it counts in FULL against the display-text cap instead of being discounted as mention markup. Two consequences worth planning for: someone who is notified today by a mention inside a fence stops being notified, and a long body that hid markup inside fences may now be rejected by the cap that previously discounted it. Only two constructs count as code, both matched per line — a fenced block opened by a run of three or more backticks (or three or more tildes) indented at most three spaces and closed by a run of the same character at least as long, alone on its line (an unclosed fence runs to the end of the body); and a single-line inline backtick span, a run of N backticks closed by a run of exactly N on the SAME line. Everything else is NOT recognised as code and still notifies exactly as before: a fence carrying a blockquote or other container prefix, a fence indented four or more spaces, an indented code block with no fence markers, and a backtick span whose opening and closing runs sit on different lines. The bias is deliberate — failing to recognise code is the behaviour that was already live, while inventing code where there is none would silently drop a real person's notification. When in doubt, it is not code.
 
@@ -1572,7 +1600,7 @@ Large files use chunked uploads. The flow has five steps:
 1. **Create a session** — `POST /current/upload/` with `name`, `size`, `action=create`, `instance_id`, and
    optionally `folder_id`. Returns a session `id`.
 
-2. **Upload chunks** — Split the file into chunks (chunk size is plan-dependent — query `/upload/limits/` for the exact
+2. **Upload chunks** — Split the file into chunks (chunk size varies by organization — query `/upload/limits/` for the exact
    value; last chunk may be smaller). For each chunk, send
    `POST /current/upload/{session_id}/chunk/` as `multipart/form-data` with the `chunk` field (binary data), `order`
    (1-based — first chunk is `order=1`), and `size`. You can upload up to **3 chunks in parallel** per session.
@@ -1769,7 +1797,7 @@ precise diff. This is especially valuable in large workspaces where full directo
 - **Membership changes** — new members added, roles changed, members removed
 - **Share activity** — share created, accessed, files downloaded by recipients
 - **Settings updates** — workspace or org configuration changes
-- **Billing events** — credit usage, plan changes
+- **Billing events** — credit usage and billing changes
 - **AI operations** — ingestion started, indexing complete, chat activity
 
 #### Querying Events
@@ -1818,7 +1846,7 @@ Use the `category` parameter to filter by broad area:
 | `node`        | AI indexing pipeline only (not file operations)        |
 | `ai`          | AI chat, summaries, RAG indexing                       |
 | `invitation`  | Member invitations sent, accepted, declined            |
-| `billing`     | Subscriptions, trials, credit usage                    |
+| `billing`     | Billing changes and credit usage                       |
 | `apps`        | Application integrations                               |
 | `metadata`    | Metadata extraction and key-value updates              |
 
@@ -1846,7 +1874,7 @@ Use the `subcategory` parameter for finer filtering within a category:
 | `authentication` | Login, SSO, session events                           |
 | `ai`             | AI processing, chat, indexing                        |
 | `invitations`    | Invitation management                                |
-| `billing`        | Subscription and payment events                      |
+| `billing`        | Billing and payment events                           |
 | `assets`         | Avatar/asset updates                                 |
 | `upload`         | Upload session management                            |
 | `transfer`       | Files added, updated or transferred into storage (uploads, sync, cross-profile), plus download/preview-token issuance and ZIP downloads |
@@ -1918,9 +1946,6 @@ the past; do not wait on them.
 
 **Org:**
 `org_created`, `org_updated`, `org_closed`
-
-**Billing:**
-`subscription_created`, `subscription_cancelled`, `billing_free_trial_ended`
 
 #### Example Queries
 
@@ -2132,7 +2157,16 @@ at most **5**. **An empty predicate is valid and means match all.**
 | `GET /current/workspace/{id}/metadata/filters/{filter_id}/nodes/` | Execute one and list the files it matches |
 
 Saved filters are **workspace-shared** — any member may read, edit and delete them — and names are unique
-per workspace. A name stays reserved after deletion, so re-using one returns `1660 (Conflict)`.
+per workspace. A name stays reserved after deletion, so re-using one returns `1660 (Conflict)`. `PUT` replaces the
+whole filter: send `name` and `predicate` every time, plus any `description` / `projection` you want to keep. MCP:
+`metadata` actions `filters-list`, `filter-details`, `filter-nodes`; `metadata_manage` actions `filter-create`,
+`filter-update`, `filter-delete`.
+
+**Before merging fields, ask for candidates.** `GET /current/workspace/{id}/metadata/fields/merge-candidates/` (admin)
+proposes pairs of field names that differ only in punctuation and capitalisation, each already oriented as a
+`source` / `target` that `POST /current/workspace/{id}/metadata/fields/merge/` accepts. It does not detect synonyms or
+abbreviations, and an empty list is not proof there are no near-duplicates. The merge itself is irreversible — check
+the candidates first (MCP: `metadata` action `fields-merge-candidates`, then `metadata_manage` action `fields-merge`).
 
 For a one-off selection, pass the same predicate inline as `filters` on
 `GET /current/workspace/{id}/storage/search/` instead of saving anything.
@@ -2149,7 +2183,7 @@ For a one-off selection, pass the same predicate inline as `filters` on
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/facts/` | Every typed fact on the file, joined to its canonical field name |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/details/` | The file's metadata — `metadata_facts` (returned first), plus the node pointer, `template_id` and extraction eligibility |
 | `POST /current/workspace/{id}/storage/{node_id}/metadata/facts/` | **Set a value yourself, overriding what extraction found.** Writes `source: "user"`, which outranks `ai` — so your value sticks and a later re-extraction will not overwrite it |
-| `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Delete metadata keys |
+| `DELETE /current/workspace/{id}/storage/{node_id}/metadata/` | Clear metadata fields: name them in `keys` and only those are removed — **omitted or empty `keys` removes every field on the file** (MCP: `storage_manage` action `metadata-delete`) |
 | `GET /current/workspace/{id}/storage/{node_id}/metadata/versions/` | Metadata version history |
 
 🔴 **`POST .../storage/{node_id}/metadata/update/` is RETIRED and answers `410 Gone`** with a message
@@ -2266,7 +2300,7 @@ field **permanently** out of extraction's reach. To make a field extractable aga
 once cleared a field by writing `null` is the retired `metadata/update/`; that behaviour went with it.)
 
 Two things follow that are worth designing around. **Deleting a value does not delete the field** — the
-name stays in the workspace vocabulary and keeps counting against the plan's field cap. And **deleting
+name stays in the workspace vocabulary and keeps counting against the organization's field cap. And **deleting
 does not by itself queue a re-extraction**: a full re-extract of a file whose current version was already
 extracted by the current extraction version answers `already_extracted` and queues nothing, so name the
 field in a `fields`-scoped `metadata/extract/` call to have it filled again.
@@ -2409,78 +2443,48 @@ form) returns every live node as one flat, cursor-paginated list; trash is exclu
 
 ---
 
-## Plans & Credits
+## Credits & Usage Limits
 
-New organizations — created by humans or agents alike — choose a **paid plan (Starter, Business, or Enterprise)** to get
-started. A newly created organization must select a paid plan before it can do work; until then it is in an
-upgrade-only state and resource-consuming endpoints return HTTP 402. There is no free-to-start path for new orgs.
+A newly created organization must be activated (the org owner completes billing setup in the Fastio web app) before it
+can do work; until then resource-consuming endpoints return HTTP 402.
 
-### What Credits Cover
+### What Consumes Credits
 
-All platform activity consumes credits from the org's monthly allowance:
+Resource-consuming activity draws credits from the organization's allowance: storage, bandwidth, AI chat tokens,
+ingestion of document pages, images, video and audio, file and media conversions, e-signature envelopes (charged when
+the envelope is sent), cloud sync scans, and the AI index. Limits such as maximum file size, workspace and share counts,
+and members per workspace are set per organization — read the values that apply from the API (for example
+`/upload/limits/`) rather than assuming them.
 
-| Resource                | Cost                    |
-|-------------------------|-------------------------|
-| Storage                 | 150 credits/GB          |
-| Bandwidth               | 400 credits/GB          |
-| AI chat tokens          | 1 credit per 100 tokens |
-| Document pages ingested | 10 credits/page         |
-| Video ingested          | 5 credits/second        |
-| Audio ingested          | 0.5 credits/second      |
-| Images ingested         | 5 credits/image         |
-| File conversions        | 25 credits/conversion   |
-| Video / audio conversion | 1 credit per 10 seconds of video, 1 credit per 30 seconds of audio |
-| E-signatures            | 100 credits per billable recipient, charged when the envelope is sent |
-| Cloud sync              | 1 credit per 1,000 objects scanned per sync (minimum 1 per sync) |
-| AI index                | 100 credits per 1,000 indexed vectors, sampled daily and charged on the period average |
+When an organization's allowance is used up, some organizations continue working and others are held at the allowance.
+A held organization keeps file storage and access working, but credit-consuming operations (AI chat, file ingestion,
+bandwidth-heavy downloads) are refused until the allowance resets or an org admin changes the organization's billing.
+The org is never deleted.
 
-What happens when the monthly allowance is used up depends on the plan. On the current paid plans (Starter, Business
-and Enterprise) usage beyond the allowance is billed as overage and work continues uninterrupted. An org that is still
-in its free trial (usage is held at the monthly allowance until the trial converts to paid — unless a cancellation
-is already scheduled on it, in which case usage stays held at the allowance and the trial simply ends without
-converting), an org on a legacy plan
-that stops at its allowance, and an org without a paid plan instead enter a reduced-capability state — file storage
-and access continue to work, but credit-consuming operations (AI chat, file ingestion, bandwidth-heavy downloads) are
-limited until the credits reset or the plan is upgraded. The org is never deleted.
+**Detecting a refused operation:** API calls return HTTP 402 with one of these error codes:
 
-**Detecting an upgrade-only or credit-exhausted org:** API calls return HTTP 402 with one of these error codes:
+| Error Code | Meaning |
+|------------|---------|
+| 1688 | The organization is not activated yet; for such an org, also returned when its credit allowance is exhausted |
+| 1696 | The organization's credit limit is reached (the error message includes credits used and the limit) |
 
-| Error Code | Description | Meaning |
-|------------|-------------|---------|
-| 1688 | Subscription Required | Org has no active paid plan (a new org that hasn't selected one yet); for an org without a paid plan, also when its credit allowance is exhausted |
-| 1696 | Credit Limit Exceeded | Credit limit exceeded (error message includes credits used and credit limit) |
+Both carry `error.params` as an object with a `reason` — branch on `params.reason`, never on the message text (check
+`Array.isArray(params)` before reading it). 1688 carries `subscription_required`. A 1696 carries `credits_exhausted`,
+or `trial_conversion_pending` / `upgrade_pending` / `trial_conversion_lapsed` (with `plan`) when the organization's
+billing is waiting on a payment confirmation — identify that case by the `reason` value, not by `params` being present.
+A 1696 with no `reason` (the e-signature send refusal) means the send was refused by the credit check; it is never a hold. This 402
+reaches any member or agent and never carries invoice or payment data; the
+[Orgs reference](https://api.fast.io/current/llms/orgs/) documents the admin-side billing shapes.
 
 You can also check proactively: the `subscriber` field in org details (`GET /current/org/{org_id}/details/`) returns
-`false` when the org has no active paid plan. It does not report credit exhaustion — detect that from the HTTP 402
+`false` when the org is not activated. It does not report credit exhaustion — detect that from the HTTP 402
 responses above, or have an admin read `GET /current/org/{org_id}/billing/usage/limits/credits/`: `credit_limits_enabled`
-is `true` when usage is held at the allowance, and `over_free_allowance` (or `over_limit` for an org without a paid plan)
-shows whether it has been reached.
+is `true` when usage is held at the allowance, and `over_free_allowance` (or `over_limit` for an org that is not
+activated) shows whether it has been reached.
 
-**When you hit the limit** (a restricted org, or one with no paid plan): Upgrade the org's plan, or select one if the org is still in the upgrade-only state. Direct
-the owner to `https://go.fast.io/onboarding` or use the billing API. Higher-tier plans include a larger monthly credit
-allowance and expanded limits.
-
-### Plan Entitlement Matrix
-
-Starter, Business, and Enterprise are the paid plans new organizations choose:
-
-| Feature                  | Starter      | Business      | Enterprise                        |
-|--------------------------|--------------|---------------|-----------------------------------|
-| Price                    | $9.99/mo or $99/yr | $49.99/mo or $499/yr | $199.99/mo or $1,999/yr |
-| Monthly included credits | 100,000      | 600,000       | 3,000,000                         |
-| Credit overage           | Metered      | Metered       | Metered                           |
-| Storage                  | 250 GB       | 5 TB          | 25 TB                             |
-| Included seats           | 3            | 10            | 30 (then $1/user/mo, up to 200)   |
-| Max file size            | 25 GB        | 50 GB         | 100 GB                            |
-| Workspaces               | 5            | 50            | 200                               |
-| Members per workspace    | 3            | 10            | 30                                |
-| Shares                   | 25           | 100           | 500                               |
-| Invitations per share    | 25           | 100           | 250                               |
-| Cloud import sources     | 2            | 10            | 25                                |
-
-Plans offered before these remain in place for their existing subscribers as legacy plans (titled with a "(legacy)"
-suffix). They keep their prices and allowances but can no longer be selected; a subscriber on a legacy plan can move to
-any current plan.
+**When you get a 402:** the operation was refused for this organization. Do not retry it in a loop. Surface the error
+to the user; only an org owner or billing admin can change the organization's billing, and they do that in the Fastio
+web app.
 
 ---
 
@@ -2513,7 +2517,7 @@ any current plan.
 
 ### Set Up an Agentic Team Workspace
 
-1. Create org + select a paid plan + workspace + folder structure
+1. Create and activate an org, then a workspace + folder structure
 2. Upload templates and reference docs
 3. Invite other agents and human team members to the org or workspace
 4. Create shares for client deliverables (Send) and intake (Receive)
@@ -2568,11 +2572,11 @@ any current plan.
 ### Manage Credit Budget
 
 1. Check current usage: `GET /current/org/{org_id}/billing/usage/limits/credits/`
-2. Storage costs 150 credits/GB — a 10 GB workspace costs 1,500 credits/month
-3. Document ingestion costs 10 credits/page — a 50-page PDF costs 500 credits
+2. Storage consumes credits for every GB held, each month
+3. Document ingestion consumes credits per page, so large documents cost the most to index
 4. Disable Deep Indexing on storage-only workspaces to avoid ingestion costs
 5. Use attach-only AI chat (no Deep Indexing needed) for one-off analysis to save credits
-6. When credits run low, upgrade the org's plan (Starter, Business, or Enterprise) for a larger monthly credit allowance
+6. When credits run low, tell the user — once the allowance is reached, credit-consuming calls can be refused with HTTP 402
 
 ---
 
@@ -2789,13 +2793,13 @@ and `/mcp/code` and the error names the `_manage` tool; the earlier URLs still r
 | `user` / `user_manage` | Account mgmt | `me`, `invitation-list`, `allowed` | `update`, `accept-all-invitations` |
 | `fileshare` / `fileshare_manage` | Durable single-file share links | `list`, `details`, `download-url` | `create`, `update`, `delete`, `grant-add` |
 | `find` | Unified search across a workspace or share, grouped by type (read-only) | `search` | — |
-| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or plan feature required — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` | — |
+| `how-to` | Built-in product help — ask a natural-language "how do I…" question about Fastio and get a grounded answer (or a clarifying question) back. **Top-level, user-authenticated: no org required, no org membership or feature gate — open to any authenticated caller, free (no entity is charged), bounded by a per-user rate limit.** `ask` takes a `question` (and optional `context`, `surface`). `surface` accepts `mcp` (MCP-tool phrasing) or `code` (code-mode execute-proxy phrasing, steps written as execute-proxy calls, e.g. `fastio.post('/current/<path>/', ...)` for the form-encoded default); omit for default REST-API phrasing. | `ask` | — |
 
 **Sign-in and account credentials on `/mcp/tools`, `/mcp/code` and `/mcp/operations`.** Sign-in is OAuth: the connection's own
 browser sign-in, or `auth_manage` action `pkce-login` when a human with a browser signs this session in. These URLs take
 no passwords, API-key secrets, two-factor or email codes, or share passwords, and they do not handle billing — sign-up,
 password sign-in and reset, email verification, two-factor codes, API-key creation, share password entry and the
-billing actions are not served there. Manage plans, billing and account credentials in the Fastio web app.
+billing actions are not served there. Billing and account credentials are managed in the Fastio web app.
 
 **Folder ZIP downloads.** `download` action `zip-url` returns a temporary `zip_url` carrying a `?token=` download token,
 bound to that one folder and valid for about 2 hours, so the ZIP is fetched with **no `Authorization` header**. (Code
@@ -2895,10 +2899,10 @@ automated execution.
 - every tool — each can reach resources beyond the agent's current context.
 
 **Credit-consuming operations** to be aware of:
-- AI chat: 1 credit per 100 tokens
-- File uploads: storage credits (150 credits/GB)
-- Downloads: bandwidth credits (400 credits/GB)
-- Document ingestion: 10 credits/page (when Deep Indexing is enabled) — this can be the largest credit consumer. A 100-page document costs 1,000 credits to ingest.
+- AI chat: consumes credits per token
+- File uploads: consume storage credits per GB held
+- Downloads: consume bandwidth credits per GB transferred
+- Document ingestion: consumes credits per page (when Deep Indexing is enabled) — this can be the largest credit consumer.
 
 ### Code Mode — Streamlined Tools for Headless Agents
 
@@ -3023,7 +3027,7 @@ correct resolution. All errors also include `(during: <tool> <action>)` so agent
 |--------|---------------|
 | 400    | Bad request — check required parameters and value formats |
 | 401    | Session expired or invalid — re-authenticate with `auth_manage` action `pkce-login` (a human with a browser) or by reconnecting so the client signs in again |
-| 402    | No active paid plan or credits exhausted — check with `org` action `limits`; plans and billing are managed in the Fastio web app |
+| 402    | Operation refused for this organization (not activated, or credits exhausted) — check with `org` action `limits` and surface the error to the user; billing is managed in the Fastio web app |
 | 403    | Permission denied — check role with `org` / `workspace` action `details`; for a scoped credential, check `auth` action `scopes` |
 | 404    | Resource not found — not proof of absence; verify the ID and re-read once before acting on it |
 | 406    | Not acceptable — duplicate name, invalid credentials, or invalid state; read the error text |
@@ -3165,7 +3169,7 @@ It's optional — routing works with just the `custom_name` — but improves lin
 ### Typical Agent Flow: Create and Link
 
 1. **Create org** → API returns `org.domain` (e.g., `"acme"`)
-2. **Select a paid plan** → activates the org so it can do work (Starter, Business, or Enterprise)
+2. **Activate the org** → the owner completes billing setup in the Fastio web app so the org can do work
 3. **Create workspace** → API returns `workspace.folder_name` (e.g., `"client-docs"`)
 4. **Upload files to folder** → API returns `file.id` for each file
 5. **Create share from folder** → API returns `share.custom_name`
@@ -3233,7 +3237,7 @@ are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`)
 
 Workspace membership covers the read endpoints, `/send`, document downloads (original and signed PDFs) and the
 audit-certificate download; workspace **admin** is required only for `/void` and `/retry`. Signing availability
-depends on your organization's plan and enabled features.
+depends on the features enabled for your organization.
 
 ### Pattern Cookbook
 
@@ -3311,7 +3315,7 @@ multiple times on `/view` and `/status` until it has been consumed by one of the
 
 ### Gotchas
 
-- **Signing availability is plan-dependent.** Check your organization's plan and enabled features to confirm signing access.
+- **Signing availability varies by organization.** If signing is refused, tell the user signing is not available for this organization.
 - **Voiding doesn't refund.** Credits are consumed at `/send/`; the void path captures a reason and short-circuits
   pending recipients but does not refund. This matches industry convention.
 - **A single decline kills the envelope.** Pending recipients in later routing slots never get notified once the
@@ -3337,7 +3341,7 @@ multiple times on `/view` and `/status` until it has been consumed by one of the
 
 ## Per-Workspace Dashboard
 
-The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — pending signatures, @mentions, and file activity — in a single endpoint call. When the workspace plan includes AI features, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
+The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — pending signatures, @mentions, and file activity — in a single endpoint call. When AI features are available for the workspace, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
 
 **Key characteristics:**
 
